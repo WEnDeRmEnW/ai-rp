@@ -1,17 +1,20 @@
-import { Check, Eye, EyeOff, KeyRound, Moon, Server, Sun } from 'lucide-react'
+import { AlignJustify, BookOpen, Check, Eye, EyeOff, Gauge, KeyRound, Moon, RotateCcw, Server, Sun, Type } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Campaign, ProviderConfig, ProviderKind } from '../../shared/types'
 import { providerDefaults, switchProvider } from '../lib/provider-settings'
+import { defaultInterfacePreferences, type InterfacePreferences } from '../lib/interface-preferences'
 import { Modal } from './Modal'
 
 interface SettingsDialogProps {
   open: boolean
   provider: ProviderConfig
   theme: 'dark' | 'light'
+  interfacePreferences: InterfacePreferences
   campaign?: Campaign
   onClose: () => void
   onProvider: (provider: ProviderConfig) => void
   onTheme: (theme: 'dark' | 'light') => void
+  onInterface: (preferences: InterfacePreferences) => void
   onCampaign: (updater: (campaign: Campaign) => Campaign) => Promise<void>
 }
 
@@ -23,7 +26,7 @@ const providers: Array<{ value: ProviderKind; label: string; caption: string }> 
   { value: 'custom', label: 'Свой API', caption: 'Совместимый' },
 ]
 
-export function SettingsDialog({ open, provider, theme, campaign, onClose, onProvider, onTheme, onCampaign }: SettingsDialogProps) {
+export function SettingsDialog({ open, provider, theme, interfacePreferences, campaign, onClose, onProvider, onTheme, onInterface, onCampaign }: SettingsDialogProps) {
   const [draft, setDraft] = useState(provider)
   const [showKey, setShowKey] = useState(false)
   const [authorsNote, setAuthorsNote] = useState(campaign?.settings.authorsNote ?? '')
@@ -41,6 +44,7 @@ export function SettingsDialog({ open, provider, theme, campaign, onClose, onPro
   const [canonMode, setCanonMode] = useState(campaign?.settings.canonMode ?? 'flexible')
   const [contentBoundaries, setContentBoundaries] = useState(campaign?.settings.contentBoundaries ?? '')
   const [saved, setSaved] = useState(false)
+  const [interfaceDraft, setInterfaceDraft] = useState(interfacePreferences)
 
   useEffect(() => {
     if (open) {
@@ -59,12 +63,14 @@ export function SettingsDialog({ open, provider, theme, campaign, onClose, onPro
       setWorldDynamics(campaign?.settings.worldDynamics ?? 'living')
       setCanonMode(campaign?.settings.canonMode ?? 'flexible')
       setContentBoundaries(campaign?.settings.contentBoundaries ?? '')
+      setInterfaceDraft(interfacePreferences)
       setSaved(false)
     }
-  }, [open, provider, campaign])
+  }, [open, provider, campaign, interfacePreferences])
 
   const save = async () => {
     onProvider(draft)
+    onInterface(interfaceDraft)
     if (campaign) await onCampaign((next) => {
       next.settings.authorsNote = authorsNote.trim()
       next.settings.responseLength = responseLength
@@ -125,11 +131,22 @@ export function SettingsDialog({ open, provider, theme, campaign, onClose, onPro
       </section>}
 
       <section className="settings-section">
-        <div className="settings-title"><div>{theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}</div><span><h3>Оформление</h3><p>Обе темы сохраняют спокойную книжную подачу.</p></span></div>
+        <div className="settings-title"><div>{theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}</div><span><h3>Интерфейс и чтение</h3><p>Настройте под свой экран и привычный темп — параметры применяются ко всему приложению.</p></span></div>
         <div className="theme-switch">
           <button className={theme === 'dark' ? 'is-selected' : ''} onClick={() => onTheme('dark')}><Moon size={17} /> Тёмная</button>
           <button className={theme === 'light' ? 'is-selected' : ''} onClick={() => onTheme('light')}><Sun size={17} /> Светлая</button>
         </div>
+        <div className="interface-settings-grid">
+          <label className="field"><span><BookOpen size={13} /> Ширина истории</span><select value={interfaceDraft.readingWidth} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, readingWidth: event.target.value as InterfacePreferences['readingWidth'] })}><option value="narrow">Узкая — для сосредоточения</option><option value="balanced">Сбалансированная</option><option value="wide">Широкая — для больших экранов</option></select></label>
+          <label className="field"><span><Type size={13} /> Шрифт истории</span><select value={interfaceDraft.readingFont} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, readingFont: event.target.value as InterfacePreferences['readingFont'] })}><option value="literary">Литературный</option><option value="modern">Современный</option></select></label>
+          <label className="field"><span><AlignJustify size={13} /> Плотность панелей</span><select value={interfaceDraft.density} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, density: event.target.value as InterfacePreferences['density'] })}><option value="comfortable">Просторная</option><option value="compact">Компактная</option></select></label>
+          <label className="field"><span><Gauge size={13} /> Размер текста: {interfaceDraft.fontScale}%</span><input type="range" min={90} max={125} step={5} value={interfaceDraft.fontScale} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, fontScale: Number(event.target.value) })} /></label>
+        </div>
+        <div className="interface-toggle-list">
+          <button role="switch" aria-checked={interfaceDraft.showVitals} className={interfaceDraft.showVitals ? 'is-on' : ''} onClick={() => setInterfaceDraft({ ...interfaceDraft, showVitals: !interfaceDraft.showVitals })}><span><strong>Постоянная строка состояния героя</strong><small>Ресурсы и эффекты всегда видны над историей</small></span><i /></button>
+          <button role="switch" aria-checked={interfaceDraft.reducedMotion} className={interfaceDraft.reducedMotion ? 'is-on' : ''} onClick={() => setInterfaceDraft({ ...interfaceDraft, reducedMotion: !interfaceDraft.reducedMotion })}><span><strong>Минимум анимации</strong><small>Спокойные переходы без движения и мерцания</small></span><i /></button>
+        </div>
+        <button className="reset-interface" onClick={() => setInterfaceDraft({ ...defaultInterfacePreferences })}><RotateCcw size={14} /> Вернуть удобные значения</button>
       </section>
     </div>
     <div className="modal-actions settings-actions"><button className="secondary-button" onClick={onClose}>Отмена</button><button className="primary-button" onClick={() => void save()}>{saved ? <><Check size={16} /> Сохранено</> : 'Сохранить настройки'}</button></div>

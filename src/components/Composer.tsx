@@ -3,11 +3,11 @@ import { useEffect, useRef, type KeyboardEvent } from 'react'
 import type { ActionType, OperationProgress, WorldLabels } from '../../shared/types'
 import { OperationProgressPanel } from './OperationProgressPanel'
 
-const createModes = (labels: WorldLabels): Array<{ value: ActionType; label: string; icon: typeof Feather; placeholder: string }> => [
-  { value: 'do', label: labels.action, icon: Feather, placeholder: `Опишите: ${labels.action.toLocaleLowerCase('ru-RU')}…` },
-  { value: 'say', label: labels.speech, icon: MessageCircle, placeholder: `Введите: ${labels.speech.toLocaleLowerCase('ru-RU')}…` },
-  { value: 'story', label: labels.direction, icon: WandSparkles, placeholder: `Направьте сцену: ${labels.direction.toLocaleLowerCase('ru-RU')}…` },
-  { value: 'continue', label: labels.continue, icon: MoreHorizontal, placeholder: 'Оставьте пустым или добавьте пожелание…' },
+const createModes = (labels: WorldLabels): Array<{ value: ActionType; label: string; icon: typeof Feather; placeholder: string; description: string }> => [
+  { value: 'do', label: labels.action, icon: Feather, placeholder: `Опишите: ${labels.action.toLocaleLowerCase('ru-RU')}…`, description: 'Что делает ваш герой' },
+  { value: 'say', label: labels.speech, icon: MessageCircle, placeholder: `Введите: ${labels.speech.toLocaleLowerCase('ru-RU')}…`, description: 'Точные слова героя' },
+  { value: 'story', label: labels.direction, icon: WandSparkles, placeholder: `Направьте сцену: ${labels.direction.toLocaleLowerCase('ru-RU')}…`, description: 'Авторская правка или факт' },
+  { value: 'continue', label: labels.continue, icon: MoreHorizontal, placeholder: 'Оставьте пустым или добавьте пожелание…', description: 'Пусть мир сделает следующий шаг' },
 ]
 
 interface ComposerProps {
@@ -26,6 +26,7 @@ export function Composer({ value, mode, generating, progress, labels, onValue, o
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modes = createModes(labels)
   const selected = modes.find((item) => item.value === mode)!
+  const SelectedIcon = selected.icon
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -47,7 +48,7 @@ export function Composer({ value, mode, generating, progress, labels, onValue, o
         <div className="composer-modes" role="tablist" aria-label="Тип хода">
           {modes.map((item) => {
             const Icon = item.icon
-            return <button key={item.value} role="tab" aria-selected={mode === item.value} className={mode === item.value ? 'is-active' : ''} onClick={() => onMode(item.value)}><Icon size={14} /> {item.label}</button>
+            return <button key={item.value} role="tab" aria-selected={mode === item.value} className={mode === item.value ? 'is-active' : ''} title={item.description} onClick={() => onMode(item.value)}><Icon size={14} /> <span>{item.label}</span></button>
           })}
         </div>
         <div className="composer-input-row">
@@ -58,6 +59,7 @@ export function Composer({ value, mode, generating, progress, labels, onValue, o
             onKeyDown={handleKeyDown}
             placeholder={selected.placeholder}
             aria-label={selected.placeholder}
+            aria-describedby="composer-description"
             disabled={generating}
             rows={1}
           />
@@ -67,7 +69,7 @@ export function Composer({ value, mode, generating, progress, labels, onValue, o
             <button className="send-button" onClick={onSend} disabled={mode !== 'continue' && !value.trim()} aria-label="Отправить ход"><ArrowUp size={19} /></button>
           )}
         </div>
-        {generating ? <OperationProgressPanel progress={progress} compact /> : <div className="composer-hint">Ctrl + Enter — отправить · ИИ не принимает решения за вашего героя</div>}
+        {generating ? <OperationProgressPanel progress={progress} compact /> : <div className="composer-meta" id="composer-description"><span><SelectedIcon size={12} />{selected.description}</span><span>{value.length.toLocaleString('ru-RU')} знаков · черновик сохранён</span><span className="composer-shortcut">Ctrl + Enter — отправить</span></div>}
       </div>
     </div>
   )

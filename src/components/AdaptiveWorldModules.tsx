@@ -153,7 +153,7 @@ function ModuleFrame({ campaign, module }: { campaign: Campaign; module: Adaptiv
   const Icon = iconMap[module.icon] ?? Gauge
   const style = { '--module-accent': module.accent, '--module-secondary': module.secondary } as CSSProperties
   const heading = <div className="adaptive-module-heading"><span className="adaptive-module-icon"><Icon size={17} /></span><div><small>{module.subtitle ?? 'Интерфейс мира'}</small><h3>{module.title}</h3></div>{module.visibility === 'rumored' && <em>по слухам</em>}</div>
-  const body: ReactNode = <><p className="adaptive-module-description">{module.description}</p><ModuleVisual campaign={campaign} module={module} /><footer className="adaptive-module-footer"><span><Orbit size={11} /> создано из правил этого мира</span><span>обновлено: ход {module.lastChangedTurn}</span></footer></>
+  const body: ReactNode = <><p className="adaptive-module-description">{module.description}</p><ModuleVisual campaign={campaign} module={module} /><details className="adaptive-module-rationale"><summary>Почему это важно именно здесь</summary><p>{module.reason}</p></details><footer className="adaptive-module-footer"><span><Orbit size={11} /> создано из правил этого мира</span><span>обновлено: ход {module.lastChangedTurn}</span></footer></>
   if (module.collapsible) return <details className={`adaptive-module visual-${module.visual}`} style={style} open={!module.collapsedByDefault}><summary>{heading}<span className="adaptive-module-chevron" /></summary><div className="adaptive-module-body">{body}</div></details>
   return <article className={`adaptive-module visual-${module.visual}`} style={style}>{heading}<div className="adaptive-module-body">{body}</div></article>
 }

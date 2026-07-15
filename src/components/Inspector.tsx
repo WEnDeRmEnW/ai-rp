@@ -10,6 +10,7 @@ import { readCanonDocument } from '../lib/canon'
 import { localizeTechnicalText, resourceUiLabel, uiLabel } from '../lib/ui-labels'
 import { getWorldPresentation, getWorldSystem } from '../lib/world-customization'
 import { Modal } from './Modal'
+import { legacyChangeLabel } from '../lib/state-change-labels'
 import { StateChangeLine } from './StateReceipt'
 import { AdaptiveWorldModules } from './AdaptiveWorldModules'
 
@@ -28,7 +29,11 @@ interface InspectorProps {
 }
 
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return <section className="inspector-section"><div className="section-heading"><h3>{title}</h3>{action}</div>{children}</section>
+  const [expanded, setExpanded] = useState(true)
+  return <section className={`inspector-section ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
+    <div className="section-heading"><button className="section-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}><ChevronDown size={14} /><h3>{title}</h3></button>{action && <div className="section-action">{action}</div>}</div>
+    {expanded && <div className="section-content">{children}</div>}
+  </section>
 }
 
 function EmptyMini({ children }: { children: React.ReactNode }) {
@@ -459,8 +464,8 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                   return <article className="change-turn" key={message.id}>
                     <header><span>Ход {message.turn}</span><time>{new Date(message.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</time></header>
                     <div className="change-turn-list">
-                      {changes.map((change, index) => <StateChangeLine change={change} key={`${change.kind}-${change.entityId ?? change.label}-${index}`} />)}
-                      {!changes.length && changeFilter === 'all' && message.changeSummary?.map((change, index) => <div className="state-change-line tone-neutral is-legacy" key={`${change}-${index}`}><span className="state-change-icon"><Activity size={14} /></span><span className="state-change-copy"><strong>{change}</strong></span></div>)}
+                      {changes.map((change, index) => <StateChangeLine change={change} campaign={campaign} key={`${change.kind}-${change.entityId ?? change.label}-${index}`} />)}
+                      {!changes.length && changeFilter === 'all' && message.changeSummary?.map((change, index) => <div className="state-change-line tone-neutral is-legacy" key={`${change}-${index}`}><span className="state-change-icon"><Activity size={14} /></span><span className="state-change-copy"><strong>{legacyChangeLabel(change, campaign)}</strong></span></div>)}
                     </div>
                   </article>
                 })}

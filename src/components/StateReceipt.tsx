@@ -3,7 +3,8 @@ import {
   Heart, MapPin, ShieldAlert, Sparkles, UsersRound,
 } from 'lucide-react'
 import { useState } from 'react'
-import type { StateChange, StateChangeKind, StoryMessage } from '../../shared/types'
+import type { Campaign, StateChange, StateChangeKind, StoryMessage } from '../../shared/types'
+import { legacyChangeLabel, stateChangeLabel } from '../lib/state-change-labels'
 import { localizeTechnicalText, uiLabel } from '../lib/ui-labels'
 
 const iconForKind = (kind: StateChangeKind) => {
@@ -26,17 +27,17 @@ function formatTransition(change: StateChange) {
   return undefined
 }
 
-export function StateChangeLine({ change }: { change: StateChange }) {
+export function StateChangeLine({ change, campaign }: { change: StateChange; campaign?: Campaign }) {
   const Icon = iconForKind(change.kind)
   const transition = formatTransition(change)
   return <div className={`state-change-line tone-${change.tone}`}>
     <span className="state-change-icon" aria-hidden="true"><Icon size={14} /></span>
-    <span className="state-change-copy"><strong>{localizeTechnicalText(change.label)}</strong><small>{localizeTechnicalText(change.detail)}</small></span>
+    <span className="state-change-copy"><strong>{stateChangeLabel(change, campaign)}</strong><small>{localizeTechnicalText(change.detail)}</small></span>
     {transition && <b className="state-change-value">{transition}</b>}
   </div>
 }
 
-export function StateReceipt({ message }: { message: StoryMessage }) {
+export function StateReceipt({ message, campaign }: { message: StoryMessage; campaign?: Campaign }) {
   const [expanded, setExpanded] = useState(false)
   const structured = message.stateChanges ?? []
   const legacy = structured.length ? [] : (message.changeSummary ?? [])
@@ -54,10 +55,10 @@ export function StateReceipt({ message }: { message: StoryMessage }) {
       <div><strong>Мир учёл последствия</strong><small>{total} {total === 1 ? 'изменение' : total < 5 ? 'изменения' : 'изменений'}</small></div>
     </header>
     <div className="state-receipt-list">
-      {visibleStructured.map((change, index) => <StateChangeLine key={`${change.kind}-${change.entityId ?? change.label}-${index}`} change={change} />)}
+      {visibleStructured.map((change, index) => <StateChangeLine key={`${change.kind}-${change.entityId ?? change.label}-${index}`} change={change} campaign={campaign} />)}
       {visibleLegacy.map((change, index) => <div className="state-change-line tone-neutral is-legacy" key={`${change}-${index}`}>
         <span className="state-change-icon" aria-hidden="true"><Sparkles size={14} /></span>
-        <span className="state-change-copy"><strong>{change}</strong></span>
+        <span className="state-change-copy"><strong>{legacyChangeLabel(change, campaign)}</strong></span>
       </div>)}
     </div>
     {(hiddenCount > 0 || expanded) && <button className="state-receipt-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>

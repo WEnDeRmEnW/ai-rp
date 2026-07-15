@@ -1,5 +1,5 @@
-import { BookOpenText, Download, MoreHorizontal, Plus, Settings2, Sparkles, Trash2, Upload, GitBranch } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { BookOpenText, Download, MoreHorizontal, Plus, Search, Settings2, Sparkles, Trash2, Upload, GitBranch, X } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import type { Campaign, ProviderConfig } from '../../shared/types'
 import { downloadCampaign, downloadCampaignBook } from '../lib/storage'
 
@@ -27,8 +27,14 @@ function relativeDate(value: string) {
 
 export function Sidebar(props: SidebarProps) {
   const [menuId, setMenuId] = useState<string>()
+  const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const providerLabel = props.provider.provider === 'demo' ? 'Демо-рассказчик' : props.provider.model
+  const visibleCampaigns = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('ru-RU')
+    if (!normalized) return props.campaigns
+    return props.campaigns.filter((campaign) => `${campaign.title} ${campaign.world.name} ${campaign.scene.title} ${campaign.scene.location}`.toLocaleLowerCase('ru-RU').includes(normalized))
+  }, [props.campaigns, query])
 
   return (
     <>
@@ -47,15 +53,17 @@ export function Sidebar(props: SidebarProps) {
           Новая история
         </button>
 
-        <div className="sidebar-section-label">Ваши миры</div>
+        <label className="sidebar-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Найти мир…" aria-label="Найти кампанию" />{query && <button onClick={() => setQuery('')} aria-label="Очистить поиск"><X size={13} /></button>}</label>
+        <div className="sidebar-section-label"><span>Ваши миры</span><b>{visibleCampaigns.length}</b></div>
         <nav className="campaign-list">
-          {props.campaigns.map((campaign) => (
+          {visibleCampaigns.map((campaign) => (
             <div className={`campaign-row ${campaign.id === props.activeId ? 'is-active' : ''}`} key={campaign.id}>
               <button className="campaign-select" onClick={() => { props.onSelect(campaign.id); props.onCloseMobile() }}>
                 <span className="campaign-glyph"><BookOpenText size={16} /></span>
                 <span className="campaign-copy">
                   <strong>{campaign.title}</strong>
-                  <small>{campaign.scene.location} · {relativeDate(campaign.updatedAt)}</small>
+                  <span>{campaign.scene.location}</span>
+                  <small>Ход {campaign.turn} · {relativeDate(campaign.updatedAt)}</small>
                 </span>
               </button>
               <button className="campaign-more" aria-label={`Действия: ${campaign.title}`} onClick={() => setMenuId(menuId === campaign.id ? undefined : campaign.id)}>
@@ -74,6 +82,7 @@ export function Sidebar(props: SidebarProps) {
               )}
             </div>
           ))}
+          {!visibleCampaigns.length && <div className="sidebar-empty"><Search size={18} /><strong>Мир не найден</strong><span>Попробуйте название, место или сцену.</span></div>}
         </nav>
 
         <div className="sidebar-footer">
@@ -87,7 +96,7 @@ export function Sidebar(props: SidebarProps) {
           <div className="model-pill" title={providerLabel}>
             <span className={`status-dot ${props.provider.provider === 'demo' ? 'is-demo' : ''}`} />
             <Sparkles size={14} />
-            <span>{providerLabel}</span>
+            <span><b>Рассказчик</b>{providerLabel}</span>
           </div>
         </div>
       </aside>
