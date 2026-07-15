@@ -47,6 +47,28 @@ describe('persistent living-world patches', () => {
     expect(parsed.world?.upsertMechanics?.[0]).toMatchObject({ category: 'political', status: 'emerging', discovered: true })
     expect(parsed.world?.upsertFactions?.[0]).toMatchObject({ status: 'dissolved', power: 37, territory: ['Северный порт'] })
   })
+
+  it('accepts a hierarchical atlas, autonomous processes and explicit active-state cleanup', () => {
+    const parsed = turnPatchSchema.parse({
+      world: {
+        upsertPlaces: [{
+          id: 'place-capital', name: 'Столица', kind: 'город', description: 'Политический и торговый центр страны.', scale: 'крупный город',
+          population: 'два миллиона жителей', government: 'Выборный совет', economy: 'Порты и производство', culture: ['Квартальные союзы'],
+          notableFacts: ['Здесь заседает совет'], currentSituation: 'Портовые рабочие готовят забастовку.', visibility: 'известно',
+        }],
+        upsertProcesses: [{
+          id: 'process-strike', title: 'Портовая забастовка', description: 'Рабочие требуют нового договора.', scopeIds: ['place-capital'],
+          involvedFactionNames: ['Гильдия доков'], drivers: ['Снижение оплаты'], obstacles: ['Запасы владельцев'], stage: 'Переговоры сорваны.',
+          momentum: '64%', direction: 'усиливается', status: 'активно', visibility: 'слухи', nextMilestone: 'Остановка ночной смены', consequences: ['Дефицит товаров'],
+        }],
+      },
+      cleanup: { quests: [{ targetId: 'quest-done', reason: 'Награда получена, новых обязательств нет.' }] },
+    })
+
+    expect(parsed.world?.upsertPlaces?.[0]).toMatchObject({ kind: 'city', visibility: 'known' })
+    expect(parsed.world?.upsertProcesses?.[0]).toMatchObject({ momentum: 64, direction: 'rising', status: 'active', visibility: 'rumored' })
+    expect(parsed.cleanup?.quests?.[0].targetId).toBe('quest-done')
+  })
 })
 
 describe('DeepSeek-compatible relationship patches', () => {

@@ -1,5 +1,5 @@
 import {
-  Activity, Backpack, BookMarked, Check, ChevronDown, CircleGauge, Coins, HeartHandshake, History, MapPin,
+  Activity, Backpack, BookMarked, Check, ChevronDown, CircleGauge, Coins, Globe2, HeartHandshake, History, MapPin,
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -83,6 +83,16 @@ const lifeStateLabels: Record<Campaign['player']['lifeState'], string> = {
 
 const recruitmentLabels = {
   unavailable: 'Не вступит', possible: 'Может согласиться', invited: 'Принимает решение', member: 'В отряде', left: 'Покинул отряд',
+} as const
+
+const placeKindLabels = {
+  continent: 'Континент', country: 'Страна', region: 'Регион', city: 'Город', district: 'Район', settlement: 'Поселение',
+  wilderness: 'Дикая местность', realm: 'Мир или царство', planet: 'Планета', system: 'Система', station: 'Станция', dimension: 'Измерение', other: 'Место',
+} as const
+
+const factionKindLabels = {
+  government: 'Государство', corporation: 'Корпорация', guild: 'Гильдия', military: 'Военная сила', religion: 'Религиозная организация',
+  criminal: 'Преступная организация', clan: 'Клан', movement: 'Движение', institution: 'Институт', other: 'Организация',
 } as const
 
 const changeMatchesFilter = (change: StateChange, filter: ChangeFilter) => {
@@ -185,10 +195,28 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
   const visibleLore = campaign.lore.filter((entry) => !entry.secret || entry.discovered)
   const visibleInitiatives = campaign.npcs.filter((npc) => npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
   const visibleWorldEvents = (campaign.worldEvents ?? []).filter((event) => event.visibility !== 'hidden' && ['scheduled', 'due'].includes(event.status))
+  const visiblePlaces = useMemo(() => {
+    const places = campaign.world.places ?? []
+    const byId = new Map(places.map((place) => [place.id, place]))
+    const depth = (placeId: string) => {
+      const visited = new Set<string>()
+      let current = byId.get(placeId)
+      let value = 0
+      while (current?.parentId && !visited.has(current.parentId) && value < 12) {
+        visited.add(current.parentId)
+        current = byId.get(current.parentId)
+        value += 1
+      }
+      return value
+    }
+    return places.filter((place) => place.visibility !== 'hidden').sort((left, right) => depth(left.id) - depth(right.id) || left.name.localeCompare(right.name, 'ru'))
+  }, [campaign.world.places])
+  const visibleProcesses = (campaign.world.processes ?? []).filter((process) => process.visibility !== 'hidden' && ['active', 'stalled'].includes(process.status))
   const presentation = getWorldPresentation(campaign.world)
   const system = getWorldSystem(campaign.world)
   const labels = presentation.labels
   const entityName = (entityId?: string) => entityId === campaign.player.id ? campaign.player.name : campaign.npcs.find((npc) => npc.id === entityId)?.name ?? entityId ?? 'Неизвестно'
+  const placeName = (placeId?: string) => campaign.world.places?.find((place) => place.id === placeId)?.name ?? placeId ?? 'Весь мир'
   const contextPreview = useMemo(() => buildContextSelection(campaign, lastAssistant?.content ?? campaign.scene.location), [campaign, lastAssistant?.content])
   const changeMessages = useMemo(() => [...campaign.messages].reverse().filter((message) => message.role === 'assistant' && ((message.stateChanges?.some((change) => changeMatchesFilter(change, changeFilter))) || (!message.stateChanges?.length && changeFilter === 'all' && message.changeSummary?.length))), [campaign.messages, changeFilter])
 
@@ -485,15 +513,44 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                 {!visibleInitiatives.length && !visibleWorldEvents.length && <EmptyMini>Внешние процессы пока не дали заметных сигналов.</EmptyMini>}
               </div>
             </Section>
+            <Section title="Что происходит вдали" action={<Globe2 size={15} />}>
+              <div className="world-process-list">
+                {visibleProcesses.map((process) => <article className={`world-process-card process-${process.direction}`} key={process.id}>
+                  <header><div><strong>{process.title}</strong><span>{process.status === 'stalled' ? 'приостановлено' : process.direction === 'rising' ? 'усиливается' : process.direction === 'declining' ? 'ослабевает' : 'развивается стабильно'}</span></div><b>{Math.round(process.momentum)}<small>/100</small></b></header>
+                  <div className="world-process-meter" role="progressbar" aria-label={`Движение процесса ${Math.round(process.momentum)} из 100`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(process.momentum)}><i style={{ width: `${process.momentum}%` }} /></div>
+                  <p>{process.description}</p>
+                  <div className="process-stage"><small>Сейчас</small><span>{process.stage}</span></div>
+                  <div className="process-stage is-next"><small>Следующий рубеж{process.dueTurn ? ` · ход ${process.dueTurn}` : ''}</small><span>{process.nextMilestone}</span></div>
+                  <div className="world-tag-row">{process.scopeIds.map((scopeId) => <span key={scopeId}>{placeName(scopeId)}</span>)}</div>
+                  {!!process.involvedFactionNames.length && <footer>{process.involvedFactionNames.join(' · ')}</footer>}
+                  <details className="process-details"><summary>Причины и возможные последствия</summary><div><b>Движущие силы</b>{process.drivers.map((entry) => <span key={entry}>{entry}</span>)}{!!process.obstacles.length && <><b>Что мешает</b>{process.obstacles.map((entry) => <span key={entry}>{entry}</span>)}</>}{!!process.consequences.length && <><b>К чему ведёт</b>{process.consequences.map((entry) => <span key={entry}>{entry}</span>)}</>}</div></details>
+                  {process.visibility === 'rumored' && <small className="rumor-mark">Герою доступны только слухи об этом процессе</small>}
+                </article>)}
+                {!visibleProcesses.length && <EmptyMini>Заметные внешние процессы ещё не сформировались. Симулятор будет добавлять их по мере развития мира.</EmptyMini>}
+              </div>
+            </Section>
+            <Section title="Атлас большого мира" action={<MapPin size={15} />}>
+              <div className="world-atlas-list">
+                {visiblePlaces.map((place) => <article className={`world-place-card place-${place.kind}`} key={place.id}>
+                  <header><div><span>{placeKindLabels[place.kind]}{place.parentId ? ` · ${placeName(place.parentId)}` : ''}</span><strong>{place.name}</strong></div><small>{place.scale}</small></header>
+                  <p>{place.description}</p>
+                  <div className="place-situation"><small>Жизнь сейчас</small><span>{place.currentSituation}</span></div>
+                  <dl>{place.population && <div><dt>Население</dt><dd>{place.population}</dd></div>}{place.government && <div><dt>Устройство</dt><dd>{place.government}</dd></div>}{place.economy && <div><dt>Экономика</dt><dd>{place.economy}</dd></div>}</dl>
+                  {!!place.culture.length && <div className="world-tag-row">{place.culture.slice(0, 3).map((entry) => <span key={entry}>{entry}</span>)}</div>}
+                  {place.visibility === 'rumored' && <small className="rumor-mark">Подробности известны по слухам</small>}
+                </article>)}
+                {!visiblePlaces.length && <EmptyMini>Атлас старой кампании пока пуст. На следующем ходе ИИ начнёт расширять его по правилам именно этого мира.</EmptyMini>}
+              </div>
+            </Section>
             <Section title="Фракции в движении" action={<Users size={15} />}>
               <div className="faction-dynamics-list">
                 {campaign.world.factions.map((faction) => <article className={`faction-dynamics-card faction-${faction.status ?? 'active'}`} key={faction.id ?? faction.name}>
-                  <header><div><strong>{faction.name}</strong><span>{faction.status === 'dissolved' ? 'распалась' : faction.status === 'dormant' ? 'затаилась' : 'действует'}</span></div>{faction.power !== undefined && <b>{Math.round(faction.power)}<small>/100</small></b>}</header>
+                  <header><div><strong>{faction.name}</strong><span>{faction.kind ? `${factionKindLabels[faction.kind]} · ` : ''}{faction.status === 'dissolved' ? 'распалась' : faction.status === 'dormant' ? 'затаилась' : 'действует'}</span></div>{faction.power !== undefined && <b>{Math.round(faction.power)}<small>/100</small></b>}</header>
                   {faction.power !== undefined && <div className="faction-power" aria-label={`Сила фракции ${Math.round(faction.power)} из 100`}><i style={{ width: `${faction.power}%` }} /></div>}
                   <p>{faction.currentMove || faction.description}</p>
                   {faction.currentMove && <small className="faction-attitude">К герою: {faction.attitude}</small>}
                   {!!faction.goals?.length && <div className="world-tag-row">{faction.goals.slice(0, 3).map((goal) => <span key={goal}>{goal}</span>)}</div>}
-                  {Boolean(faction.territory?.length || faction.resources?.length) && <footer><span>{faction.territory?.length ? `Территория: ${faction.territory.slice(0, 3).join(', ')}` : 'Без закреплённой территории'}</span><span>{faction.resources?.length ? `Опора: ${faction.resources.slice(0, 2).join(', ')}` : 'Ресурсы не установлены'}</span></footer>}
+                  {Boolean(faction.territory?.length || faction.resources?.length || faction.headquarters || faction.reach) && <footer><span>{faction.headquarters ? `Центр: ${faction.headquarters}` : faction.territory?.length ? `Территория: ${faction.territory.slice(0, 3).join(', ')}` : 'Без закреплённого центра'}</span><span>{faction.reach ? `Охват: ${faction.reach}` : faction.resources?.length ? `Опора: ${faction.resources.slice(0, 2).join(', ')}` : 'Ресурсы не установлены'}</span></footer>}
                 </article>)}
                 {!campaign.world.factions.length && <EmptyMini>Устойчивые фракции ещё не сформировались.</EmptyMini>}
               </div>

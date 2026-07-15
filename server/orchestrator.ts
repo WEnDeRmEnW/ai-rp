@@ -43,6 +43,8 @@ function repairContractHints(issues: Array<{ path: PropertyKey[]; message: strin
 - quests add требует вложенный quest с title, description, status и objectives; update требует targetId и вложенный quest.
 - npcs update требует targetId и вложенный npc; урон/траты NPC записывай в npc.resourceDeltas, изменения параметров — npc.statDeltas, эффекты — npc.upsertStatusEffects, новые силы — npc.upsertAbilities, развитие сил — npc.abilityChanges, мышление и контрпланы — npc.strategy.
 - duration статусного эффекта имеет форму {"unit":"turns|scenes|days|until|indefinite","remaining"?:number,"condition"?:string}; ключи amount/count/value запрещены.
+- world.upsertPlaces содержит полные места с id,name,kind,description,scale,culture[],notableFacts[],currentSituation,visibility и необязательным точным parentId; world.upsertProcesses содержит полные процессы с id,title,description,scopeIds[],involvedFactionNames[],drivers[],obstacles[],stage,momentum,direction,status,visibility,nextMilestone,consequences[].
+- cleanup — объект с массивами threads/worldEvents/quests/antagonistPlans/memories; каждый элемент имеет только targetId и reason. Активную сущность сначала переведи в терминальный статус соответствующей мутацией.
 Любой ключ, названный валидатором Unrecognized, УДАЛИ из прежнего места после переноса его содержимого в каноническое поле. Не возвращай одновременно старый alias и новый ключ.`
 }
 
@@ -165,7 +167,12 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
   const knownFactions = new Set([
     ...campaign.world.factions.map((faction) => faction.name),
     ...(campaign.factionReputation ?? []).map((entry) => entry.factionName),
+    ...(plan.statePatch.world?.upsertFactions ?? []).map((faction) => faction.name),
   ].map((name) => name.toLocaleLowerCase('ru-RU')))
+  const knownPlaceIds = new Set([
+    ...(campaign.world.places ?? []).map((place) => place.id),
+    ...(plan.statePatch.world?.upsertPlaces ?? []).map((place) => place.id),
+  ])
   const addedNpcIds = new Set(plan.statePatch.npcs?.filter((mutation) => mutation.operation === 'add').map((mutation) => mutation.npc.id) ?? [])
   const usableNpcIds = new Set([...knownNpcs, ...addedNpcIds])
 
@@ -339,6 +346,19 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     return true
   })
   if ((plan.statePatch.worldEvents?.length ?? 0) < worldEventCount) notes.push('Отклонено неполное мировое событие.')
+  if (plan.statePatch.world?.upsertPlaces) {
+    const before = plan.statePatch.world.upsertPlaces.length
+    plan.statePatch.world.upsertPlaces = plan.statePatch.world.upsertPlaces.filter((place) => !place.parentId || (place.parentId !== place.id && knownPlaceIds.has(place.parentId)))
+    if (plan.statePatch.world.upsertPlaces.length < before) notes.push('Отклонено место атласа с неизвестным или циклическим родителем.')
+  }
+  if (plan.statePatch.world?.upsertProcesses) {
+    const before = plan.statePatch.world.upsertProcesses.length
+    plan.statePatch.world.upsertProcesses = plan.statePatch.world.upsertProcesses.filter((process) => (
+      process.scopeIds.every((placeId) => knownPlaceIds.has(placeId))
+      && process.involvedFactionNames.every((name) => knownFactions.has(name.toLocaleLowerCase('ru-RU')))
+    ))
+    if (plan.statePatch.world.upsertProcesses.length < before) notes.push('Отклонён внешний процесс с неизвестной областью или фракцией.')
+  }
   const reputationUpsertCount = plan.statePatch.upsertFactionReputation?.length ?? 0
   plan.statePatch.upsertFactionReputation = plan.statePatch.upsertFactionReputation?.filter((entry) => knownFactions.has(entry.factionName.toLocaleLowerCase('ru-RU')))
   if ((plan.statePatch.upsertFactionReputation?.length ?? 0) < reputationUpsertCount) notes.push('Отклонено абсолютное изменение репутации неизвестной фракции.')
@@ -391,6 +411,20 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
   })
   plan.statePatch.upsertInfluenceAssets = plan.statePatch.upsertInfluenceAssets?.filter((asset) => campaignEntityIds.has(asset.holderId) && (!asset.targetId || campaignEntityIds.has(asset.targetId)))
   plan.statePatch.removeInfluenceAssetIds = plan.statePatch.removeInfluenceAssetIds?.filter((assetId) => campaign.influenceAssets?.some((asset) => asset.id === assetId))
+  if (plan.statePatch.cleanup) {
+    const validTargets = {
+      threads: new Set((campaign.threads ?? []).map((entry) => entry.id)),
+      worldEvents: new Set((campaign.worldEvents ?? []).map((entry) => entry.id)),
+      quests: new Set(campaign.quests.map((entry) => entry.id)),
+      antagonistPlans: new Set((campaign.antagonistPlans ?? []).map((entry) => entry.id)),
+      memories: new Set(campaign.memories.map((entry) => entry.id)),
+    }
+    ;(Object.keys(validTargets) as Array<keyof typeof validTargets>).forEach((key) => {
+      const before = plan.statePatch.cleanup?.[key]?.length ?? 0
+      if (plan.statePatch.cleanup) plan.statePatch.cleanup[key] = plan.statePatch.cleanup[key]?.filter((entry) => validTargets[key].has(entry.targetId))
+      if ((plan.statePatch.cleanup?.[key]?.length ?? 0) < before) notes.push(`Отклонена очистка неизвестной записи: ${key}.`)
+    })
+  }
   return { plan, notes }
 }
 
@@ -431,6 +465,10 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     resolveMysteries: unique(background.world?.resolveMysteries, foreground.world?.resolveMysteries),
     upsertRoutes: concat(background.world?.upsertRoutes, foreground.world?.upsertRoutes),
     removeRouteIds: unique(background.world?.removeRouteIds, foreground.world?.removeRouteIds),
+    upsertPlaces: concat(background.world?.upsertPlaces, foreground.world?.upsertPlaces),
+    removePlaceIds: unique(background.world?.removePlaceIds, foreground.world?.removePlaceIds),
+    upsertProcesses: concat(background.world?.upsertProcesses, foreground.world?.upsertProcesses),
+    retireProcessIds: unique(background.world?.retireProcessIds, foreground.world?.retireProcessIds),
     ...(hasCalendarDayDelta ? { calendarDayDelta: (background.world?.calendarDayDelta ?? 0) + (foreground.world?.calendarDayDelta ?? 0) } : {}),
   } : undefined
   const party = background.party || foreground.party ? {
@@ -438,6 +476,12 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     removeNpcIds: unique(background.party?.removeNpcIds, foreground.party?.removeNpcIds),
     roles: { ...(background.party?.roles ?? {}), ...(foreground.party?.roles ?? {}) },
   } : undefined
+  const cleanupKeys = ['threads', 'worldEvents', 'quests', 'antagonistPlans', 'memories'] as const
+  const cleanup = background.cleanup || foreground.cleanup ? Object.fromEntries(cleanupKeys.flatMap((key) => {
+    const entries = [...(background.cleanup?.[key] ?? []), ...(foreground.cleanup?.[key] ?? [])]
+    const uniqueEntries = entries.filter((entry, index, all) => all.findIndex((candidate) => candidate.targetId === entry.targetId) === index)
+    return uniqueEntries.length ? [[key, uniqueEntries]] : []
+  })) as TurnPatch['cleanup'] : undefined
   return {
     ...background,
     ...foreground,
@@ -474,6 +518,7 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     upsertAntagonistPlans: concat(background.upsertAntagonistPlans, foreground.upsertAntagonistPlans),
     upsertInfluenceAssets: concat(background.upsertInfluenceAssets, foreground.upsertInfluenceAssets),
     removeInfluenceAssetIds: unique(background.removeInfluenceAssetIds, foreground.removeInfluenceAssetIds),
+    cleanup,
     memories: concat(background.memories, foreground.memories),
     events: concat(background.events, foreground.events),
     world,
@@ -691,6 +736,7 @@ function restrictBackgroundPatch(patchInput: TurnPatch | null | undefined): Turn
     upsertCharacterArcs: patch.upsertCharacterArcs,
     upsertAntagonistPlans: patch.upsertAntagonistPlans,
     upsertInfluenceAssets: patch.upsertInfluenceAssets,
+    cleanup: patch.cleanup,
   }
 }
 
@@ -850,6 +896,10 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     const rawCurator = await completeJson(request.provider, curatorMessages)
     return parseWithRepair(rawCurator, memoryCuratorSchema, request.provider, curatorMessages, () => ({ memories: [], archives: [] }))
   }, { memories: [], archives: [] })
+  if (curator.cleanup) {
+    reconciled.plan.statePatch = mergePatches(reconciled.plan.statePatch, { cleanup: curator.cleanup }) as typeof reconciled.plan.statePatch
+    reconciled = sanitizePlan(request.campaign, reconciled.plan)
+  }
   const plannedMemories = reconciled.plan.statePatch.memories ?? []
   reconciled.plan.statePatch.memories = [
     ...plannedMemories,

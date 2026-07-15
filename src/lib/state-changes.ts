@@ -536,6 +536,8 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
   namedWorldDiff(before.world.factions, after.world.factions, 'Фракция')
   namedWorldDiff(before.world.locations, after.world.locations, 'Локация')
   collectionChanges(changes, before.world.routes, after.world.routes, 'world', (route) => `Маршрут: ${route.label}`, (route) => route.discovered ? 'открыт' : 'скрыт')
+  collectionChanges(changes, before.world.places, after.world.places, 'world', (place) => `Атлас: ${place.name}`, (place) => place.currentSituation)
+  collectionChanges(changes, before.world.processes, after.world.processes, 'world', (process) => `Внешний процесс: ${process.title}`, (process) => `${process.status} · ${Math.round(process.momentum)}%`)
   collectionChanges(changes, before.world.laws, after.world.laws, 'world', (law) => `Закон: ${law.title}`, (law) => law.status)
   collectionChanges(changes, before.world.mechanics, after.world.mechanics, 'world', (mechanic) => `Механика: ${mechanic.name}`, (mechanic) => mechanic.status)
   collectionChanges(changes, before.world.interfaceModules, after.world.interfaceModules, 'world', (module) => `Интерфейс мира: ${module.title}`, (module) => module.elements.length)

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
 import { demoTurn, demoWorld } from './demo'
 import { generatedWorldSchema } from './schemas'
+import { normalizeWorld } from './world-normalizer'
 
 describe('demo storyteller contract', () => {
   it('returns narrative, suggestions and structured state updates', () => {
@@ -14,16 +15,24 @@ describe('demo storyteller contract', () => {
   })
 
   it('generates a world-specific system and presentation contract', () => {
-    const generated = demoWorld({
+    const request = {
       inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
       characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original', contentBoundaries: '',
       provider: { provider: 'demo', model: 'demo', baseUrl: '', temperature: 0.8 },
-    })
+    } as const
+    const generated = demoWorld(request)
 
     const parsed = generatedWorldSchema.parse(generated)
     expect(parsed.world.system.equipmentSlots.length).toBeGreaterThan(0)
     expect(parsed.world.presentation.labels.inventory).toBeTruthy()
     expect(parsed.world.presentation.accent).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(parsed.world.places.length).toBeGreaterThanOrEqual(8)
+    expect(parsed.world.processes.length).toBeGreaterThanOrEqual(3)
+    expect(parsed.world.factions.every((faction) => Boolean(faction.kind && faction.headquarters && faction.reach))).toBe(true)
+    const campaign = normalizeWorld(parsed, request)
+    const child = campaign.world.places?.find((place) => place.name === 'Пограничный квартал')
+    expect(campaign.world.places?.find((place) => place.id === child?.parentId)?.name).toBe('Столица Семи')
+    expect(campaign.world.processes?.every((process) => process.scopeIds.every((scopeId) => campaign.world.places?.some((place) => place.id === scopeId)))).toBe(true)
   })
 
   it('lets the AI create a world without sentient items and omits mental fields from inert relics', () => {

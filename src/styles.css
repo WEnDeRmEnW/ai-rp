@@ -509,6 +509,40 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .world-pulse-card.event-due header span { color: var(--gold); }
 .world-pulse-card p { margin: 5px 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .world-pulse-card small { color: var(--faint); font-size: 8px; line-height: 1.4; }
+.world-process-list, .world-atlas-list { display: grid; gap: 8px; }
+.world-process-card, .world-place-card { overflow: hidden; padding: 11px; border: 1px solid var(--border-soft); border-radius: 12px; background: linear-gradient(145deg, var(--surface-1), color-mix(in srgb, var(--surface-2) 91%, var(--accent) 3%)); }
+.world-process-card { border-left: 2px solid var(--accent); border-radius: 3px 12px 12px 3px; }
+.world-process-card.process-declining { border-left-color: var(--faint); }
+.world-process-card.process-stable { border-left-color: var(--gold); }
+.world-process-card > header, .world-place-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; }
+.world-process-card > header > div, .world-place-card > header > div { display: grid; gap: 2px; min-width: 0; }
+.world-process-card > header strong, .world-place-card > header strong { color: var(--text-soft); font-size: 10px; line-height: 1.35; }
+.world-process-card > header span, .world-place-card > header span, .world-place-card > header small { color: var(--faint); font-size: 7.5px; line-height: 1.35; }
+.world-process-card > header b { color: var(--accent); font-size: 15px; font-weight: 560; font-variant-numeric: tabular-nums; }
+.world-process-card > header b small { color: var(--faint); font-size: 7px; font-weight: 400; }
+.world-process-meter { height: 3px; margin: 8px 0; overflow: hidden; border-radius: 999px; background: var(--surface-3); }
+.world-process-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--gold), var(--accent)); }
+.world-process-card > p, .world-place-card > p { margin: 7px 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.process-stage, .place-situation { display: grid; gap: 3px; margin-top: 7px; padding: 8px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.process-stage.is-next { background: color-mix(in srgb, var(--gold) 4%, transparent); }
+.process-stage small, .place-situation small { color: var(--accent); font-size: 7px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.process-stage.is-next small { color: var(--gold); }
+.process-stage span, .place-situation span { color: var(--text-soft); font-size: 8.5px; line-height: 1.4; }
+.world-process-card > footer { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border-soft); color: var(--faint); font-size: 7.7px; line-height: 1.4; }
+.process-details { margin-top: 8px; border-top: 1px solid var(--border-soft); }
+.process-details summary { padding: 8px 0 1px; color: var(--accent); font-size: 7.8px; cursor: pointer; }
+.process-details > div { display: grid; gap: 3px; padding-top: 7px; }
+.process-details b { margin-top: 4px; color: var(--faint); font-size: 7px; letter-spacing: .05em; text-transform: uppercase; }
+.process-details span { position: relative; padding-left: 9px; color: var(--muted); font-size: 7.8px; line-height: 1.4; }
+.process-details span::before { position: absolute; left: 1px; color: var(--accent); content: '·'; }
+.world-place-card { position: relative; }
+.world-place-card::before { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: color-mix(in srgb, var(--accent) 65%, transparent); content: ''; }
+.world-place-card.place-country::before, .world-place-card.place-realm::before, .world-place-card.place-planet::before { background: var(--gold); }
+.world-place-card dl { display: grid; gap: 5px; margin: 9px 0 0; }
+.world-place-card dl > div { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 7px; padding-top: 5px; border-top: 1px solid var(--border-soft); }
+.world-place-card dt, .world-place-card dd { margin: 0; font-size: 7.8px; line-height: 1.4; }
+.world-place-card dt { color: var(--faint); }
+.world-place-card dd { color: var(--muted); }
 .faction-dynamics-list, .world-law-list, .world-mechanic-list { display: grid; gap: 8px; }
 .faction-dynamics-card, .world-law-card, .world-mechanic-card { overflow: hidden; padding: 11px; border: 1px solid var(--border-soft); border-radius: 12px; background: linear-gradient(145deg, var(--surface-1), color-mix(in srgb, var(--surface-2) 88%, var(--accent) 3%)); }
 .faction-dynamics-card > header, .world-law-card > header, .world-mechanic-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }

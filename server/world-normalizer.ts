@@ -8,6 +8,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const timestamp = new Date().toISOString()
   const playerId = id()
   const npcIds = new Map<string, string>(generated.npcs.map((npc) => [npc.name.toLocaleLowerCase('ru-RU'), id()]))
+  const placeIds = new Map<string, string>(generated.world.places.map((place) => [place.name.toLocaleLowerCase('ru-RU'), id()]))
   const npcs = generated.npcs.map((npc) => ({
     ...npc,
     id: npcIds.get(npc.name.toLocaleLowerCase('ru-RU'))!,
@@ -39,6 +40,20 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
     world: {
       ...generated.world,
       factions: generated.world.factions.map((faction) => ({ ...faction, id: id(), lastChangedTurn: 0 })),
+      places: generated.world.places.map(({ parentName, ...place }) => ({
+        ...place,
+        id: placeIds.get(place.name.toLocaleLowerCase('ru-RU'))!,
+        parentId: parentName ? placeIds.get(parentName.toLocaleLowerCase('ru-RU')) : undefined,
+        createdTurn: 0,
+        lastChangedTurn: 0,
+      })),
+      processes: generated.world.processes.map(({ scopeNames, ...process }) => ({
+        ...process,
+        id: id(),
+        scopeIds: scopeNames.map((name) => placeIds.get(name.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
+        createdTurn: 0,
+        lastAdvancedTurn: 0,
+      })),
       routes: generated.world.routes.map((route) => ({ ...route, id: id() })),
       laws: generated.world.laws.map((law) => ({ ...law, id: id(), createdTurn: 0, lastChangedTurn: 0 })),
       mechanics: generated.world.mechanics.map((mechanic) => ({ ...mechanic, id: id(), createdTurn: 0, lastChangedTurn: 0 })),

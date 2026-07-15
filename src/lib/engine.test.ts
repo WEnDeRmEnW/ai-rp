@@ -1,9 +1,43 @@
 import { describe, expect, it } from 'vitest'
+import type { StateChange } from '../../shared/types'
 import { createDemoCampaign } from './demo'
 import { applyPatch, commitTurn, rewindLastTurn } from './engine'
 import { diffCampaignState } from './state-changes'
 
 describe('state engine', () => {
+  it('maintains a large-scale atlas and archives finished active state instead of losing history', () => {
+    const campaign = createDemoCampaign()
+    campaign.quests.push({ id: 'quest-done', title: 'Закрыть ворота', description: 'Ворота должны быть запечатаны.', status: 'completed', objectives: [] })
+    campaign.threads = [{ id: 'thread-done', type: 'promise', title: 'Обещание у ворот', detail: 'Герой обещал закрыть ворота.', participantIds: [campaign.player.id], status: 'resolved', secret: false, createdTurn: 1 }]
+    const next = applyPatch(campaign, {
+      world: {
+        upsertPlaces: [{ id: 'place-country', name: 'Северная страна', kind: 'country', description: 'Холодная страна торговых застав.', scale: 'страна', culture: ['Путевые клятвы'], notableFacts: ['Зимние дороги охраняют гильдии'], currentSituation: 'Караваны меняют маршруты.', visibility: 'known' }],
+        upsertProcesses: [{ id: 'process-caravans', title: 'Перенос караванных путей', description: 'Торговцы обходят опасные перевалы.', scopeIds: ['place-country'], involvedFactionNames: [], drivers: ['Сход лавин'], obstacles: ['Нехватка проводников'], stage: 'Размечен восточный обход.', momentum: 44, direction: 'rising', status: 'active', visibility: 'known', nextMilestone: 'Первый зимний караван', consequences: ['Старые заставы потеряют доход'] }],
+      },
+      cleanup: {
+        quests: [{ targetId: 'quest-done', reason: 'Ворота запечатаны.' }],
+        threads: [{ targetId: 'thread-done', reason: 'Обещание исполнено.' }],
+      },
+    }, 5)
+
+    expect(next.world.places?.[0]).toMatchObject({ id: 'place-country', lastChangedTurn: 5 })
+    expect(next.world.processes?.[0]).toMatchObject({ id: 'process-caravans', momentum: 44 })
+    expect(next.quests.some((quest) => quest.id === 'quest-done')).toBe(false)
+    expect(next.threads).toEqual([])
+    expect(next.timeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: 'Закрыто: Закрыть ворота', category: 'quest' }),
+      expect.objectContaining({ title: 'Закрыто: Обещание у ворот', category: 'story' }),
+    ]))
+  })
+
+  it('refuses to clean active obligations', () => {
+    const campaign = createDemoCampaign()
+    campaign.threads = [{ id: 'thread-active', type: 'promise', title: 'Незавершённое обещание', detail: 'Дело ещё не сделано.', participantIds: [campaign.player.id], status: 'active', secret: false, createdTurn: 1 }]
+    const diagnostics: StateChange[] = []
+    const next = applyPatch(campaign, { cleanup: { threads: [{ targetId: 'thread-active', reason: 'Давно не упоминалось.' }] } }, 2, diagnostics)
+    expect(next.threads).toHaveLength(1)
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'system', detail: expect.stringContaining('активную запись нельзя убрать') })]))
+  })
   it('creates, evolves and removes AI-authored interface modules without replacing their identity', () => {
     const campaign = createDemoCampaign()
     const module = {

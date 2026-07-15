@@ -714,6 +714,7 @@ export interface WorldMechanic {
 export interface WorldFaction {
   id?: ID
   name: string
+  kind?: 'government' | 'corporation' | 'guild' | 'military' | 'religion' | 'criminal' | 'clan' | 'movement' | 'institution' | 'other'
   description: string
   attitude: string
   status?: 'active' | 'dormant' | 'dissolved'
@@ -725,8 +726,55 @@ export interface WorldFaction {
   currentMove?: string
   publicFace?: string
   origin?: string
+  headquarters?: string
+  reach?: string
   secrets?: string[]
   lastChangedTurn?: number
+}
+
+export type WorldPlaceKind = 'continent' | 'country' | 'region' | 'city' | 'district' | 'settlement' | 'wilderness' | 'realm' | 'planet' | 'system' | 'station' | 'dimension' | 'other'
+
+/** A persistent place in the large-scale atlas. parentId creates a world → country → city hierarchy. */
+export interface WorldPlace {
+  id: ID
+  name: string
+  kind: WorldPlaceKind
+  parentId?: ID
+  description: string
+  scale: string
+  population?: string
+  government?: string
+  economy?: string
+  culture: string[]
+  notableFacts: string[]
+  currentSituation: string
+  visibility: WorldVisibility
+  createdTurn: number
+  lastChangedTurn: number
+}
+
+export type WorldProcessStatus = 'active' | 'stalled' | 'resolved' | 'failed'
+export type WorldProcessDirection = 'rising' | 'stable' | 'declining'
+
+/** A causal off-screen process that can develop without the player being present. */
+export interface WorldProcess {
+  id: ID
+  title: string
+  description: string
+  scopeIds: ID[]
+  involvedFactionNames: string[]
+  drivers: string[]
+  obstacles: string[]
+  stage: string
+  momentum: number
+  direction: WorldProcessDirection
+  status: WorldProcessStatus
+  visibility: WorldVisibility
+  nextMilestone: string
+  dueTurn?: number
+  consequences: string[]
+  createdTurn: number
+  lastAdvancedTurn: number
 }
 
 export interface Quest {
@@ -849,6 +897,8 @@ export interface World {
   mysteries: string[]
   calendar: { day: number; label: string }
   routes?: WorldRoute[]
+  places?: WorldPlace[]
+  processes?: WorldProcess[]
   laws?: WorldLaw[]
   mechanics?: WorldMechanic[]
   interfaceModules?: AdaptiveInterfaceModule[]
@@ -1011,6 +1061,10 @@ export interface WorldPatch {
   calendarLabel?: string
   upsertRoutes?: WorldRoute[]
   removeRouteIds?: ID[]
+  upsertPlaces?: Array<Omit<WorldPlace, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldPlace, 'createdTurn' | 'lastChangedTurn'>>>
+  removePlaceIds?: ID[]
+  upsertProcesses?: Array<Omit<WorldProcess, 'createdTurn' | 'lastAdvancedTurn'> & Partial<Pick<WorldProcess, 'createdTurn' | 'lastAdvancedTurn'>>>
+  retireProcessIds?: ID[]
   upsertLaws?: Array<Omit<WorldLaw, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldLaw, 'createdTurn' | 'lastChangedTurn'>>>
   removeLawIds?: ID[]
   upsertMechanics?: Array<Omit<WorldMechanic, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldMechanic, 'createdTurn' | 'lastChangedTurn'>>>
@@ -1075,6 +1129,13 @@ export interface TurnPatch {
   upsertAntagonistPlans?: AntagonistPlan[]
   upsertInfluenceAssets?: InfluenceAsset[]
   removeInfluenceAssetIds?: ID[]
+  cleanup?: {
+    threads?: Array<{ targetId: ID; reason: string }>
+    worldEvents?: Array<{ targetId: ID; reason: string }>
+    quests?: Array<{ targetId: ID; reason: string }>
+    antagonistPlans?: Array<{ targetId: ID; reason: string }>
+    memories?: Array<{ targetId: ID; reason: string }>
+  }
   memories?: Array<Omit<MemoryEntry, 'id' | 'turn' | 'createdAt'>>
   events?: Array<Omit<GameEvent, 'id' | 'turn' | 'createdAt'>>
 }

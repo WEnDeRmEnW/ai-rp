@@ -381,6 +381,7 @@ export function describePatch(patch: TurnPatch): string[] {
 
 export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagnostics?: StateChange[]): Campaign {
   const campaign = structuredClone(base)
+  const retirementEvents: Array<Omit<GameEvent, 'id' | 'turn' | 'createdAt'>> = []
   const sceneChanges = patch.scene && (
     (patch.scene.title !== undefined && patch.scene.title !== campaign.scene.title)
     || (patch.scene.location !== undefined && patch.scene.location !== campaign.scene.location)
@@ -413,6 +414,8 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
   campaign.mysteryCases ??= []
   campaign.antagonistPlans ??= []
   campaign.influenceAssets ??= []
+  campaign.world.places ??= []
+  campaign.world.processes ??= []
 
   if (patch.playerProfile) {
     const { levelDelta, ...profile } = patch.playerProfile
@@ -1142,6 +1145,12 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
     worldPatch.removeRouteIds?.forEach((routeId, index) => {
       if (!(campaign.world.routes ?? []).some((route) => route.id === routeId)) rejectedReference(diagnostics, `statePatch.world.removeRouteIds[${index}]`, routeId, 'маршрут не найден')
     })
+    worldPatch.removePlaceIds?.forEach((placeId, index) => {
+      if (!(campaign.world.places ?? []).some((place) => place.id === placeId)) rejectedReference(diagnostics, `statePatch.world.removePlaceIds[${index}]`, placeId, 'место атласа не найдено')
+    })
+    worldPatch.retireProcessIds?.forEach((processId, index) => {
+      if (!(campaign.world.processes ?? []).some((process) => process.id === processId)) rejectedReference(diagnostics, `statePatch.world.retireProcessIds[${index}]`, processId, 'внешний процесс не найден')
+    })
     worldPatch.removeLawIds?.forEach((lawId, index) => {
       if (!(campaign.world.laws ?? []).some((law) => law.id === lawId)) rejectedReference(diagnostics, `statePatch.world.removeLawIds[${index}]`, lawId, 'закон мира не найден')
     })
@@ -1183,6 +1192,62 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
     })
     campaign.world.routes = routes.slice(0, 80)
 
+    const removedPlaceIds = new Set(worldPatch.removePlaceIds ?? [])
+    const places = (campaign.world.places ?? []).filter((place) => !removedPlaceIds.has(place.id))
+    const incomingPlaceIds = new Set((worldPatch.upsertPlaces ?? []).map((place) => place.id))
+    const availablePlaceIds = new Set([...places.map((place) => place.id), ...incomingPlaceIds])
+    ;(worldPatch.upsertPlaces ?? []).forEach((incoming, placeIndex) => {
+      if (incoming.parentId && (!availablePlaceIds.has(incoming.parentId) || incoming.parentId === incoming.id)) {
+        rejectedReference(diagnostics, `statePatch.world.upsertPlaces[${placeIndex}].parentId`, incoming.parentId, 'родительское место не найдено или ссылается само на себя')
+        return
+      }
+      const existing = places.find((place) => place.id === incoming.id || normalizedName(place.name) === normalizedName(incoming.name))
+      const normalized = {
+        ...incoming,
+        culture: incoming.culture.slice(0, 12),
+        notableFacts: incoming.notableFacts.slice(0, 16),
+      }
+      if (existing) Object.assign(existing, normalized, { id: existing.id, createdTurn: existing.createdTurn, lastChangedTurn: turn })
+      else places.push({ ...normalized, createdTurn: incoming.createdTurn ?? turn, lastChangedTurn: turn })
+    })
+    campaign.world.places = places.slice(0, 120)
+
+    const processes = campaign.world.processes ?? []
+    const placeIds = new Set(campaign.world.places.map((place) => place.id))
+    const factionNames = new Set(campaign.world.factions.map((faction) => normalizedName(faction.name)))
+    ;(worldPatch.upsertProcesses ?? []).forEach((incoming, processIndex) => {
+      const unknownScope = incoming.scopeIds.find((placeId) => !placeIds.has(placeId))
+      const unknownFaction = incoming.involvedFactionNames.find((name) => !factionNames.has(normalizedName(name)))
+      if (unknownScope || unknownFaction) {
+        rejectedReference(diagnostics, `statePatch.world.upsertProcesses[${processIndex}]`, unknownScope ?? unknownFaction, unknownScope ? 'область процесса не найдена в атласе' : 'участник процесса не найден среди фракций')
+        return
+      }
+      const existing = processes.find((process) => process.id === incoming.id || normalizedName(process.title) === normalizedName(incoming.title))
+      const normalized = {
+        ...incoming,
+        momentum: clamp(incoming.momentum, 0, 100),
+        scopeIds: [...new Set(incoming.scopeIds)].slice(0, 20),
+        involvedFactionNames: [...new Set(incoming.involvedFactionNames)].slice(0, 20),
+        drivers: incoming.drivers.slice(0, 16),
+        obstacles: incoming.obstacles.slice(0, 16),
+        consequences: incoming.consequences.slice(0, 16),
+      }
+      if (existing) Object.assign(existing, normalized, { id: existing.id, createdTurn: existing.createdTurn, lastAdvancedTurn: turn })
+      else processes.push({ ...normalized, createdTurn: incoming.createdTurn ?? turn, lastAdvancedTurn: turn })
+    })
+    const retiredProcessIds = new Set<string>()
+    ;(worldPatch.retireProcessIds ?? []).forEach((processId, processIndex) => {
+      const process = processes.find((candidate) => candidate.id === processId)
+      if (!process) return
+      if (!['resolved', 'failed'].includes(process.status)) {
+        rejectedReference(diagnostics, `statePatch.world.retireProcessIds[${processIndex}]`, processId, 'активный процесс нельзя убрать до завершения')
+        return
+      }
+      retiredProcessIds.add(processId)
+      retirementEvents.push({ title: `Завершён внешний процесс: ${process.title}`, description: `${process.description} Итог: ${process.stage}`, category: 'world' })
+    })
+    campaign.world.processes = processes.filter((process) => !retiredProcessIds.has(process.id)).slice(0, 60)
+
     const removedLawIds = new Set(worldPatch.removeLawIds ?? [])
     const laws = (campaign.world.laws ?? []).filter((law) => !removedLawIds.has(law.id))
     ;(worldPatch.upsertLaws ?? []).forEach((incoming) => {
@@ -1218,6 +1283,83 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
     if (worldPatch.calendarLabel) campaign.world.calendar.label = worldPatch.calendarLabel
   }
 
+  const cleanup = patch.cleanup
+  const retire = <T extends { id: string }>(
+    values: T[],
+    requests: Array<{ targetId: string; reason: string }> | undefined,
+    canRetire: (value: T) => boolean,
+    path: string,
+    label: (value: T) => string,
+    description: (value: T, reason: string) => string,
+    category: GameEvent['category'],
+  ) => {
+    const retired = new Set<string>()
+    ;(requests ?? []).forEach((request, index) => {
+      const value = values.find((entry) => entry.id === request.targetId)
+      if (!value) {
+        rejectedReference(diagnostics, `statePatch.cleanup.${path}[${index}].targetId`, request.targetId, 'завершённая запись не найдена')
+        return
+      }
+      if (!canRetire(value)) {
+        rejectedReference(diagnostics, `statePatch.cleanup.${path}[${index}].targetId`, request.targetId, 'активную запись нельзя убрать без завершения')
+        return
+      }
+      retired.add(value.id)
+      retirementEvents.push({ title: `Закрыто: ${label(value)}`, description: description(value, request.reason), category })
+    })
+    return values.filter((value) => !retired.has(value.id))
+  }
+  campaign.threads = retire(
+    campaign.threads,
+    cleanup?.threads,
+    (thread) => ['fulfilled', 'broken', 'resolved'].includes(normalizedName(thread.status)),
+    'threads',
+    (thread) => thread.title,
+    (thread, reason) => `${thread.detail} Причина снятия с активного состояния: ${reason}`,
+    'story',
+  )
+  campaign.worldEvents = retire(
+    campaign.worldEvents,
+    cleanup?.worldEvents,
+    (event) => ['resolved', 'cancelled'].includes(event.status),
+    'worldEvents',
+    (event) => event.title,
+    (event, reason) => `${event.description} Итог: ${reason}`,
+    'world',
+  )
+  campaign.quests = retire(
+    campaign.quests,
+    cleanup?.quests,
+    (quest) => ['completed', 'failed'].includes(quest.status),
+    'quests',
+    (quest) => quest.title,
+    (quest, reason) => `${quest.description} Итог: ${reason}`,
+    'quest',
+  )
+  campaign.antagonistPlans = retire(
+    campaign.antagonistPlans,
+    cleanup?.antagonistPlans,
+    (plan) => ['completed', 'failed', 'abandoned'].includes(plan.status),
+    'antagonistPlans',
+    (plan) => plan.title,
+    (plan, reason) => `${plan.objective} Итог: ${reason}`,
+    'world',
+  )
+  const removedMemoryIds = new Set<string>()
+  ;(cleanup?.memories ?? []).forEach((request, index) => {
+    const memory = campaign.memories.find((entry) => entry.id === request.targetId)
+    if (!memory) {
+      rejectedReference(diagnostics, `statePatch.cleanup.memories[${index}].targetId`, request.targetId, 'воспоминание не найдено')
+      return
+    }
+    if (memory.pinned) {
+      rejectedReference(diagnostics, `statePatch.cleanup.memories[${index}].targetId`, request.targetId, 'закреплённое воспоминание нельзя удалить автоматически')
+      return
+    }
+    removedMemoryIds.add(memory.id)
+  })
+  campaign.memories = campaign.memories.filter((memory) => !removedMemoryIds.has(memory.id))
+
   const timestamp = now()
   const memories: MemoryEntry[] = (patch.memories ?? []).slice(0, 8).map((memory) => ({
     ...memory,
@@ -1229,7 +1371,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
   }))
   campaign.memories = compactMemoryBank([...campaign.memories, ...memories])
 
-  const events: GameEvent[] = (patch.events ?? []).slice(0, 12).map((event) => ({
+  const events: GameEvent[] = [...(patch.events ?? []).slice(0, 12), ...retirementEvents.slice(0, 24)].map((event) => ({
     ...event,
     id: id(),
     turn,
