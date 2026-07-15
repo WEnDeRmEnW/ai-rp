@@ -73,6 +73,14 @@ const loreTypeSchema = z.preprocess(alias({ персонаж: 'character', ге�
 const memoryKindSchema = z.preprocess(alias({ сводка: 'summary', итог: 'summary', факт: 'fact', обещание: 'promise', отношение: 'relationship', отношения: 'relationship', тайна: 'mystery', загадка: 'mystery' }), z.enum(['summary', 'fact', 'promise', 'relationship', 'mystery']))
 const worldEventStatusSchema = z.preprocess(alias({ запланировано: 'scheduled', ожидается: 'scheduled', назрело: 'due', наступило: 'due', выполнено: 'resolved', решено: 'resolved', завершено: 'resolved', отменено: 'cancelled' }), z.enum(['scheduled', 'due', 'resolved', 'cancelled']))
 const threatTierSchema = z.preprocess(alias({ незначительный: 'minor', обычный: 'capable', подготовленный: 'capable', опасный: 'dangerous', элитный: 'elite', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['minor', 'capable', 'dangerous', 'elite', 'legendary', 'mythic']))
+const npcFamiliaritySchema = z.preprocess(alias({ узнан: 'recognized', знакомое_лицо: 'recognized', знаком: 'acquainted', знакомство: 'acquainted', хорошо_знаком: 'familiar', изучен: 'familiar', близок: 'close', близко_знаком: 'close', экспертно_изучен: 'expert', полностью_изучен: 'expert' }), z.enum(['recognized', 'acquainted', 'familiar', 'close', 'expert']))
+const npcDossierSectionSchema = z.preprocess(alias({
+  описание: 'description', характер: 'personality', личность: 'personality', расположение: 'disposition', отношение: 'relationship',
+  грани_отношений: 'relationshipDimensions', цель: 'goal', состояния: 'conditions', намерение: 'initiative',
+  обзор_стратегии: 'strategyOverview', оценка_мышления: 'strategyMetrics', план: 'strategyPlan', детали_стратегии: 'strategyDetails',
+  контрмеры: 'countermeasures', угроза: 'threatProfile', вербовка: 'recruitment', голос: 'voice',
+  параметры: 'stats', ресурсы: 'resources', способности: 'abilities',
+}), z.enum(['description', 'personality', 'disposition', 'relationship', 'relationshipDimensions', 'goal', 'conditions', 'initiative', 'strategyOverview', 'strategyMetrics', 'strategyPlan', 'strategyDetails', 'countermeasures', 'threatProfile', 'recruitment', 'voice', 'stats', 'resources', 'abilities']))
 const challengeTierSchema = z.preprocess(alias({ нет: 'none', отсутствует: 'none', лёгкий: 'light', легкий: 'light', обычный: 'standard', средний: 'standard', сложный: 'hard', тяжёлый: 'severe', тяжелый: 'severe', экстремальный: 'severe', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['none', 'light', 'standard', 'hard', 'severe', 'legendary', 'mythic']))
 const storyBeatSchema = z.preprocess(alias({ передышка: 'respite', подготовка: 'setup', завязка: 'setup', исследование: 'exploration', нарастание: 'rising', испытание: 'challenge', последствия: 'aftermath', развязка: 'aftermath', кульминация: 'climax' }), z.enum(['respite', 'setup', 'exploration', 'rising', 'challenge', 'aftermath', 'climax']))
 const worldPressureSourceKindSchema = z.preprocess(alias({ персонаж: 'npc', нпс: 'npc', npc: 'npc', фракция: 'faction', власть: 'authority', корпорация: 'corporation', бог: 'deity', божество: 'deity', космос: 'cosmic', космическая: 'cosmic', среда: 'environment', окружение: 'environment', другое: 'other' }), z.enum(['npc', 'faction', 'authority', 'corporation', 'deity', 'cosmic', 'environment', 'other']))
@@ -386,6 +394,30 @@ const relationshipDimensionsSchema = z.object({
   fear: modelNumber(z.number().min(-100).max(100)),
   suspicion: modelNumber(z.number().min(-100).max(100)),
   dependence: modelNumber(z.number().min(-100).max(100)),
+}).strict()
+const npcDossierEvidenceSchema = z.object({
+  id: idSchema,
+  section: npcDossierSectionSchema,
+  summary: longText,
+  source: shortText,
+  learnedTurn: modelNumber(z.number().int().min(0)),
+}).strict()
+const npcDossierSchema = z.object({
+  familiarity: npcFamiliaritySchema,
+  revealedSections: z.array(npcDossierSectionSchema).max(24),
+  revealedStatKeys: z.array(shortText).max(24),
+  revealedResourceKeys: z.array(shortText).max(24),
+  revealedAbilityIds: z.array(idSchema).max(40),
+  evidence: z.array(npcDossierEvidenceSchema).max(60),
+  updatedTurn: modelNumber(z.number().int().min(0)),
+}).strict()
+const generatedNpcDossierSchema = z.object({
+  familiarity: npcFamiliaritySchema,
+  revealedSections: z.array(npcDossierSectionSchema).max(24),
+  revealedStatKeys: z.array(shortText).max(24),
+  revealedResourceKeys: z.array(shortText).max(24),
+  revealedAbilityNames: z.array(shortText).max(20),
+  evidence: z.array(z.object({ section: npcDossierSectionSchema, summary: longText, source: shortText }).strict()).max(20),
 }).strict()
 const npcInitiativeSchema = z.object({
   intent: longText,
@@ -977,7 +1009,7 @@ const turnPatchContract = z.object({
         notes: z.array(z.string().max(500)).max(8), knowledge: z.array(knowledgeFactSchema).max(30).optional(),
         stats: z.array(statStateSchema).max(24).optional(), resources: z.array(resourceStateSchema).max(24).optional(), statusEffects: z.array(statusEffectDraftSchema.extend({ id: idSchema, appliedTurn: modelNumber(z.number().int().min(0)) }).strict()).max(48).optional(),
         abilities: z.array(abilityStateSchema).max(40).optional(),
-        relationshipDimensions: relationshipDimensionsSchema.optional(), initiative: npcInitiativeSchema.optional(), strategy: npcStrategySchema.optional(), threatProfile: threatProfileSchema.optional(), recruitment: npcRecruitmentSchema.optional(), voice: npcVoiceSchema.optional(),
+        relationshipDimensions: relationshipDimensionsSchema.optional(), initiative: npcInitiativeSchema.optional(), strategy: npcStrategySchema.optional(), threatProfile: threatProfileSchema.optional(), recruitment: npcRecruitmentSchema.optional(), dossier: npcDossierSchema.optional(), voice: npcVoiceSchema.optional(),
       }).strict(),
     }).strict(),
     z.object({
@@ -991,7 +1023,7 @@ const turnPatchContract = z.object({
         abilities: z.array(abilityDraftSchema).max(40).optional(), upsertAbilities: z.array(abilityDraftSchema).max(40).optional(),
         removeAbilityIds: z.array(idSchema).max(40).optional(), abilityChanges: z.array(abilityChangeSchema).max(24).optional(),
         knowledge: z.array(knowledgeFactDraftSchema).max(30).optional(), relationshipDimensions: relationshipDimensionsSchema.partial().optional(),
-        initiative: npcInitiativeSchema.partial().optional(), strategy: npcStrategySchema.partial().optional(), threatProfile: threatProfileSchema.optional(), recruitment: npcRecruitmentSchema.optional(), voice: npcVoiceSchema.partial().optional(),
+        initiative: npcInitiativeSchema.partial().optional(), strategy: npcStrategySchema.partial().optional(), threatProfile: threatProfileSchema.optional(), recruitment: npcRecruitmentSchema.optional(), dossier: npcDossierSchema.partial().optional(), voice: npcVoiceSchema.partial().optional(),
         upsertStats: z.array(statStateSchema).max(24).optional(), removeStatKeys: z.array(shortText).max(24).optional(),
         upsertResources: z.array(resourceStateSchema).max(24).optional(), removeResourceKeys: z.array(shortText).max(24).optional(),
         statDeltas: z.preprocess(normalizeNumberRecord, z.record(z.string().max(100), z.number().min(-1_000_000).max(1_000_000))).optional(),
@@ -1629,6 +1661,7 @@ const generatedWorldContract = z.object({
     strategy: npcStrategySchema.omit({ lastUpdatedTurn: true }),
     threatProfile: threatProfileSchema.optional(),
     recruitment: npcRecruitmentSchema,
+    dossier: generatedNpcDossierSchema.optional(),
     voice: npcVoiceSchema,
   })).min(1).max(12),
   socialLinks: z.array(z.object({

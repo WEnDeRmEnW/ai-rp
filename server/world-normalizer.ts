@@ -9,22 +9,36 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const playerId = id()
   const npcIds = new Map<string, string>(generated.npcs.map((npc) => [npc.name.toLocaleLowerCase('ru-RU'), id()]))
   const placeIds = new Map<string, string>(generated.world.places.map((place) => [place.name.toLocaleLowerCase('ru-RU'), id()]))
-  const npcs = generated.npcs.map((npc) => ({
-    ...npc,
-    id: npcIds.get(npc.name.toLocaleLowerCase('ru-RU'))!,
-    status: 'active' as const,
-    abilities: npc.abilities.map((ability) => ({
+  const npcs = generated.npcs.map((npc) => {
+    const abilities = npc.abilities.map((ability) => ({
       ...ability,
       id: id(),
       techniques: ability.techniques.map((technique) => ({ ...technique, id: id() })),
       evolutionPaths: ability.evolutionPaths.map((path) => ({ ...path, id: id() })),
       history: ability.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
-    })),
-    knowledge: npc.knowledge.map((fact) => ({ ...fact, id: id() })),
-    initiative: { ...npc.initiative, lastAdvancedTurn: 0 },
-    strategy: { ...npc.strategy, lastUpdatedTurn: 0 },
-    statusEffects: [],
-  }))
+    }))
+    const { dossier, ...profile } = npc
+    const knownAbilityNames = new Set(dossier?.revealedAbilityNames.map((name) => name.toLocaleLowerCase('ru-RU')) ?? [])
+    return {
+      ...profile,
+      id: npcIds.get(npc.name.toLocaleLowerCase('ru-RU'))!,
+      status: 'active' as const,
+      abilities,
+      knowledge: npc.knowledge.map((fact) => ({ ...fact, id: id() })),
+      initiative: { ...npc.initiative, lastAdvancedTurn: 0 },
+      strategy: { ...npc.strategy, lastUpdatedTurn: 0 },
+      dossier: dossier ? {
+        familiarity: dossier.familiarity,
+        revealedSections: [...new Set(dossier.revealedSections)],
+        revealedStatKeys: [...new Set(dossier.revealedStatKeys)],
+        revealedResourceKeys: [...new Set(dossier.revealedResourceKeys)],
+        revealedAbilityIds: abilities.filter((ability) => knownAbilityNames.has(ability.name.toLocaleLowerCase('ru-RU'))).map((ability) => ability.id),
+        evidence: dossier.evidence.map((entry) => ({ ...entry, id: id(), learnedTurn: 0 })),
+        updatedTurn: 0,
+      } : undefined,
+      statusEffects: [],
+    }
+  })
   const entityId = (name: string) => name.toLocaleLowerCase('ru-RU') === generated.player.name.toLocaleLowerCase('ru-RU')
     ? playerId
     : npcIds.get(name.toLocaleLowerCase('ru-RU'))

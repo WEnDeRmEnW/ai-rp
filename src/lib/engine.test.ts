@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { StateChange } from '../../shared/types'
+import type { NPC, NPCDossierSection, StateChange } from '../../shared/types'
 import { createDemoCampaign } from './demo'
 import { applyPatch, commitTurn, rewindLastTurn } from './engine'
 import { diffCampaignState } from './state-changes'
+
+function revealNpc(npc: NPC, sections: NPCDossierSection[], statKeys: string[] = [], resourceKeys: string[] = [], abilityIds: string[] = []) {
+  npc.dossier = { familiarity: 'familiar', revealedSections: sections, revealedStatKeys: statKeys, revealedResourceKeys: resourceKeys, revealedAbilityIds: abilityIds, evidence: [], updatedTurn: 0 }
+}
 
 describe('state engine', () => {
   it('maintains a large-scale atlas and archives finished active state instead of losing history', () => {
@@ -143,6 +147,33 @@ describe('state engine', () => {
     const npc = campaign.npcs[0]
     const next = applyPatch(campaign, { relationships: [{ npcId: npc.id, delta: 1000 }] }, 1)
     expect(next.npcs[0].relationship).toBe(100)
+  })
+
+  it('persists only valid learned NPC facts and keeps unrevealed state out of receipts', () => {
+    const campaign = createDemoCampaign()
+    const npc = campaign.npcs[0]
+    npc.stats = [{ key: 'insight', label: 'Проницательность', value: 72 }]
+    npc.resources = [{ key: 'health', label: 'Здоровье', value: 40, max: 50 }]
+    npc.abilities = [{ id: 'npc-ability-seal', name: 'Латунная печать', description: 'Запирает проход.', kind: 'active', mastery: 60, costs: [], effects: [], limitations: [], requirements: [], progression: '', evolutionPaths: [], history: [], tags: [] }]
+
+    const hurt = applyPatch(campaign, { npcs: [{ operation: 'update', targetId: npc.id, npc: { resourceDeltas: { health: -5 } } }] }, 2)
+    expect(diffCampaignState(campaign, hurt).some((change) => change.entityId === npc.id && change.kind === 'resource')).toBe(false)
+
+    const revealed = applyPatch(hurt, { npcs: [{ operation: 'update', targetId: npc.id, npc: { dossier: {
+      familiarity: 'acquainted', revealedSections: ['relationship'], revealedStatKeys: ['insight', 'missing-stat'],
+      revealedResourceKeys: ['health', 'missing-resource'], revealedAbilityIds: ['npc-ability-seal', 'missing-ability'],
+      evidence: [{ id: 'evidence-scan', section: 'resources', summary: 'Сканер оценил состояние Миры.', source: 'медицинский сканер', learnedTurn: 99 }], updatedTurn: 99,
+    } } }] }, 3)
+
+    expect(revealed.npcs[0].dossier).toMatchObject({ revealedStatKeys: ['insight'], revealedResourceKeys: ['health'], revealedAbilityIds: ['npc-ability-seal'], updatedTurn: 3 })
+    expect(revealed.npcs[0].dossier?.evidence[0].learnedTurn).toBe(3)
+    expect(diffCampaignState(hurt, revealed)).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'knowledge', detail: 'Сканер оценил состояние Миры.' })]))
+
+    const extended = applyPatch(revealed, { npcs: [{ operation: 'update', targetId: npc.id, npc: { dossier: {
+      familiarity: 'familiar', evidence: [{ id: 'evidence-dialogue', section: 'personality', summary: 'Мира призналась, что боится опоздать.', source: 'разговор', learnedTurn: 4 }],
+    } } }] }, 4)
+    expect(extended.npcs[0].dossier?.revealedResourceKeys).toEqual(['health'])
+    expect(extended.npcs[0].dossier?.evidence.map((entry) => entry.id)).toEqual(['evidence-scan', 'evidence-dialogue'])
   })
 
   it('lets the director evolve the hero, NPC roster and world model', () => {
@@ -512,6 +543,7 @@ describe('state engine', () => {
   it('produces a typed receipt for character, inventory, social, quest, scene and world changes', () => {
     const campaign = createDemoCampaign()
     const npc = campaign.npcs[0]
+    revealNpc(npc, ['relationship'])
     const after = applyPatch(campaign, {
       playerProfile: { lifeState: 'incapacitated', levelDelta: 1 },
       currencyDeltas: { test: 5 },
@@ -576,6 +608,7 @@ describe('state engine', () => {
   it('diffs persistent knowledge, social graph, mysteries, plans and timeline domains', () => {
     const campaign = createDemoCampaign()
     const npc = campaign.npcs[0]
+    revealNpc(npc, ['description', 'initiative'])
     const otherId = 'npc-social-other'
     const after = applyPatch(campaign, {
       npcs: [
@@ -586,6 +619,7 @@ describe('state engine', () => {
             lastSeen: 'У северных ворот',
             initiative: { intent: 'Найти героя', nextMove: 'Идти к воротам', trigger: 'На рассвете', urgency: 65, blockedBy: [], lastAdvancedTurn: 1, visibility: 'known' },
             knowledge: [{ id: 'fact-1', subject: 'Герой', statement: 'Герой прошёл через ворота.', status: 'known', confidence: 90, source: 'Свидетель', secret: false }],
+            dossier: { ...npc.dossier!, evidence: [{ id: 'evidence-gate', section: 'description', summary: 'Миру видели у северных ворот.', source: 'личное наблюдение', learnedTurn: 1 }], updatedTurn: 1 },
           },
         },
         {
@@ -604,7 +638,7 @@ describe('state engine', () => {
     const changes = diffCampaignState(campaign, after)
     expect(changes).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'character', label: expect.stringContaining('последнее появление') }),
-      expect.objectContaining({ kind: 'knowledge', label: expect.stringContaining('знания') }),
+      expect.objectContaining({ kind: 'knowledge', label: expect.stringContaining('новые сведения') }),
       expect.objectContaining({ kind: 'relationship', entityId: 'social-1' }),
       expect.objectContaining({ kind: 'knowledge', entityId: 'lore-new' }),
       expect.objectContaining({ kind: 'knowledge', label: 'Новая память' }),
@@ -629,6 +663,7 @@ describe('state engine', () => {
       id: 'old-effect', name: 'Настороженность', description: 'Готов к нападению.', category: 'buff', severity: 20,
       source: 'Засада', effects: ['Не застать врасплох'], stacks: 1, duration: { unit: 'indefinite' }, appliedTurn: 0,
     }]
+    revealNpc(npc, ['stats', 'resources', 'conditions'], ['strength', 'reflex'], ['health', 'focus'])
 
     const after = applyPatch(campaign, { npcs: [{
       operation: 'update', targetId: npc.id, npc: {
@@ -737,6 +772,7 @@ describe('state engine', () => {
         observedPlayerPatterns: ['После угрозы герой сокращает дистанцию.'], strengths: ['Быстро отбрасывает неверную гипотезу.'], blindSpots: ['Мало данных о новой силе героя.'],
         contingencies: ['Разорвать дистанцию.', 'Перевести бой в тесный проход.'], visibility: 'known', lastUpdatedTurn: 1,
       },
+      dossier: { familiarity: 'familiar', revealedSections: ['resources', 'strategyOverview', 'strategyMetrics'], revealedStatKeys: [], revealedResourceKeys: ['focus'], revealedAbilityIds: [abilityId], evidence: [{ id: 'evidence-forecast', section: 'abilities', summary: 'Мира применила предваряющий расчёт в бою.', source: 'личное наблюдение', learnedTurn: 5 }], updatedTurn: 5 },
     } }] }, 5)
 
     const updated = after.npcs.find((entry) => entry.id === npc.id)!

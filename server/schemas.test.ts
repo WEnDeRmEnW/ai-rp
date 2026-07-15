@@ -23,6 +23,21 @@ describe('campaign editor contract', () => {
 })
 
 describe('persistent living-world patches', () => {
+  it('accepts a granular Russian NPC dossier without exposing unrelated fields', () => {
+    const parsed = turnPatchSchema.parse({ npcs: [{ operation: 'update', targetId: 'npc-elder', npc: { dossier: {
+      familiarity: 'знаком',
+      revealedSections: ['описание', 'отношение', 'способности'],
+      revealedStatKeys: ['intellect'], revealedResourceKeys: [], revealedAbilityIds: ['ability-seal'],
+      evidence: [{ id: 'evidence-1', section: 'способности', summary: 'Староста применил печать на глазах героя.', source: 'личное наблюдение', learnedTurn: '4' }],
+      updatedTurn: '4',
+    } } }] })
+
+    expect(parsed.npcs?.[0]).toMatchObject({ npc: { dossier: {
+      familiarity: 'acquainted', revealedSections: ['description', 'relationship', 'abilities'], revealedAbilityIds: ['ability-seal'],
+      evidence: [{ section: 'abilities', learnedTurn: 4 }], updatedTurn: 4,
+    } } })
+  })
+
   it('accepts Russian DeepSeek aliases for pacing, exceptional threats and causal world pressure', () => {
     const parsed = turnPatchSchema.parse({
       pacing: { beat: 'передышка', intensity: '24%', challengeTier: 'лёгкий', reason: 'После погони наступила короткая безопасная пауза.' },

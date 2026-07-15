@@ -49,6 +49,8 @@ describe('world architect prompt', () => {
     expect(system.content).toContain('worldPressures[{sourceKind,sourceName,sourceNpcName?')
     expect(system.content).toContain('opening{scene{title,location,time,weather,tension,presentNpcNames[]},pacing{beat,intensity,challengeTier,reason}')
     expect(system.content).toContain('threatProfile?{tier,scope,reputation')
+    expect(system.content).toContain('dossier{familiarity,revealedSections[]')
+    expect(system.content).toContain('Не копируй туда весь внутренний профиль')
     expect(system.content).toContain('Не создавай легендарного врага или бога по квоте')
   })
 
@@ -84,6 +86,7 @@ describe('world architect prompt', () => {
     expect(critic).toContain('Живой мир готов к самостоятельному развитию')
     expect(critic).toContain('interfaceModules спроектированы из фактической структуры именно этого мира')
     expect(critic).toContain('Каждое worldPressure причинно')
+    expect(critic).toContain('Стартовое dossier каждого NPC')
     expect(critic).toContain('opening.pacing совпадает с реальной первой сценой')
   })
 })
@@ -110,6 +113,7 @@ describe('runtime customization prompts', () => {
     expect(editor).toContain('точные существующие id')
     expect(editor).toContain('world.upsertInterfaceModules/removeInterfaceModuleIds')
     expect(director).toContain('Элемент с binding обновляется приложением автоматически')
+    expect(director).toContain('Досье NPC — строгая граница знаний ГЕРОЯ')
   })
 })
 

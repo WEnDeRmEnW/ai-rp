@@ -9,6 +9,7 @@ import type {
   Stat,
   StatusEffect,
 } from '../../shared/types'
+import { getNpcDisclosure } from './npc-disclosure'
 
 type ChangeTone = StateChange['tone']
 
@@ -413,16 +414,18 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
       return
     }
     if (!oldNpc || !newNpc) return
+    const oldDisclosure = getNpcDisclosure(oldNpc)
+    const newDisclosure = getNpcDisclosure(newNpc)
     if (oldNpc.relationship !== newNpc.relationship) {
       const delta = newNpc.relationship - oldNpc.relationship
-      changes.push({ kind: 'relationship', label: newNpc.name, detail: `${oldNpc.relationship} → ${newNpc.relationship} (${signed(delta)})`, tone: positiveDeltaTone(delta), entityId: npcId, before: oldNpc.relationship, after: newNpc.relationship, delta, source: 'state-engine' })
+      if (newDisclosure.has('relationship')) changes.push({ kind: 'relationship', label: newNpc.name, detail: `${oldNpc.relationship} → ${newNpc.relationship} (${signed(delta)})`, tone: positiveDeltaTone(delta), entityId: npcId, before: oldNpc.relationship, after: newNpc.relationship, delta, source: 'state-engine' })
     }
-    if (oldNpc.status !== newNpc.status) changes.push({ kind: 'character', label: newNpc.name, detail: `Статус: ${oldNpc.status} → ${newNpc.status}`, tone: newNpc.status === 'dead' || newNpc.status === 'missing' ? 'negative' : 'neutral', entityId: npcId, before: oldNpc.status, after: newNpc.status, source: 'state-engine' })
-    if (oldNpc.currentGoal !== newNpc.currentGoal) changes.push({ kind: 'character', label: `${newNpc.name}: цель`, detail: `${short(oldNpc.currentGoal)} → ${short(newNpc.currentGoal)}`, tone: 'neutral', entityId: npcId, source: 'state-engine' })
-    if (oldNpc.lastSeen !== newNpc.lastSeen) changes.push({ kind: 'character', label: `${newNpc.name}: последнее появление`, detail: `${short(oldNpc.lastSeen)} → ${short(newNpc.lastSeen)}`, tone: 'neutral', entityId: npcId, before: short(oldNpc.lastSeen), after: short(newNpc.lastSeen), source: 'state-engine' })
+    if (oldNpc.status !== newNpc.status && newDisclosure.has('conditions')) changes.push({ kind: 'character', label: newNpc.name, detail: `Статус: ${oldNpc.status} → ${newNpc.status}`, tone: newNpc.status === 'dead' || newNpc.status === 'missing' ? 'negative' : 'neutral', entityId: npcId, before: oldNpc.status, after: newNpc.status, source: 'state-engine' })
+    if (oldNpc.currentGoal !== newNpc.currentGoal && newDisclosure.has('goal')) changes.push({ kind: 'character', label: `${newNpc.name}: цель`, detail: `${short(oldNpc.currentGoal)} → ${short(newNpc.currentGoal)}`, tone: 'neutral', entityId: npcId, source: 'state-engine' })
+    if (oldNpc.lastSeen !== newNpc.lastSeen && newDisclosure.has('description')) changes.push({ kind: 'character', label: `${newNpc.name}: последнее появление`, detail: `${short(oldNpc.lastSeen)} → ${short(newNpc.lastSeen)}`, tone: 'neutral', entityId: npcId, before: short(oldNpc.lastSeen), after: short(newNpc.lastSeen), source: 'state-engine' })
     if (!same(oldNpc.initiative, newNpc.initiative)) {
-      const visible = newNpc.initiative?.visibility !== 'hidden'
-      changes.push({
+      const visible = newDisclosure.has('initiative') && newNpc.initiative?.visibility !== 'hidden'
+      if (visible) changes.push({
         kind: 'character',
         label: `${newNpc.name}: инициатива`,
         detail: visible && newNpc.initiative ? `${short(newNpc.initiative.intent)} · следующий шаг: ${short(newNpc.initiative.nextMove)}` : 'Скрытая инициатива персонажа обновлена',
@@ -430,37 +433,21 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
         entityId: npcId,
         before: oldNpc.initiative?.urgency,
         after: newNpc.initiative?.urgency,
-        source: 'state-engine',
+        source: visible ? 'state-engine' : 'hidden-state',
       })
     }
-    const oldKnowledge = byId(oldNpc.knowledge)
-    const newKnowledge = byId(newNpc.knowledge)
-    let hiddenKnowledgeChanged = false
-    new Set([...oldKnowledge.keys(), ...newKnowledge.keys()]).forEach((factId) => {
-      const oldFact = oldKnowledge.get(factId)
-      const newFact = newKnowledge.get(factId)
-      if (oldFact && newFact && same(oldFact, newFact)) return
-      const fact = newFact ?? oldFact
-      if (!fact) return
-      const secret = fact.secret
-      if (secret) {
-        hiddenKnowledgeChanged = true
-        return
-      }
-      const detail = !oldFact ? `Узнал: ${short(fact.statement)}` : !newFact ? `Забыл: ${short(fact.statement)}` : `${fact.status}: ${short(fact.statement)}`
-      changes.push({ kind: 'knowledge', label: `${newNpc.name}: знания`, detail, tone: 'neutral', entityId: npcId, source: fact.source || 'state-engine' })
-    })
-    if (hiddenKnowledgeChanged) changes.push({ kind: 'knowledge', label: `${newNpc.name}: знания`, detail: 'Скрытое знание персонажа обновлено', tone: 'neutral', entityId: npcId, source: 'hidden-state' })
+    const oldEvidence = new Set(oldDisclosure.evidence.map((entry) => entry.id))
+    newDisclosure.evidence.filter((entry) => !oldEvidence.has(entry.id)).forEach((entry) => changes.push({ kind: 'knowledge', label: `${newNpc.name}: новые сведения`, detail: short(entry.summary), tone: 'positive', entityId: npcId, source: entry.source }))
     const oldNpcProfile = { role: oldNpc.role, description: oldNpc.description, disposition: oldNpc.disposition, notes: oldNpc.notes, voice: oldNpc.voice }
     const newNpcProfile = { role: newNpc.role, description: newNpc.description, disposition: newNpc.disposition, notes: newNpc.notes, voice: newNpc.voice }
-    if (!same(oldNpcProfile, newNpcProfile)) changes.push({ kind: 'character', label: newNpc.name, detail: 'Профиль персонажа обновлён', tone: 'neutral', entityId: npcId, source: 'state-engine' })
-    metricChanges(changes, oldNpc.stats, newNpc.stats, 'stat', npcId, `${newNpc.name}: `)
-    metricChanges(changes, oldNpc.resources, newNpc.resources, 'resource', npcId, `${newNpc.name}: `)
-    statusEffectChanges(changes, oldNpc.statusEffects, newNpc.statusEffects, npcId, `${newNpc.name}: `)
-    abilityChanges(changes, oldNpc.abilities ?? [], newNpc.abilities ?? [], npcId, `${newNpc.name}: `)
+    if (!same(oldNpcProfile, newNpcProfile) && ['description', 'personality', 'disposition', 'voice'].some((section) => newDisclosure.has(section as Parameters<typeof newDisclosure.has>[0]))) changes.push({ kind: 'character', label: newNpc.name, detail: 'Известный профиль персонажа уточнён', tone: 'neutral', entityId: npcId, source: 'state-engine' })
+    metricChanges(changes, oldDisclosure.stats, newDisclosure.stats, 'stat', npcId, `${newNpc.name}: `)
+    metricChanges(changes, oldDisclosure.resources, newDisclosure.resources, 'resource', npcId, `${newNpc.name}: `)
+    statusEffectChanges(changes, oldDisclosure.conditions, newDisclosure.conditions, npcId, `${newNpc.name}: `)
+    abilityChanges(changes, oldDisclosure.abilities, newDisclosure.abilities, npcId, `${newNpc.name}: `)
     if (!same(oldNpc.strategy, newNpc.strategy)) {
-      const visible = newNpc.strategy?.visibility !== 'hidden'
-      changes.push({
+      const visible = ['strategyOverview', 'strategyMetrics', 'strategyPlan', 'strategyDetails', 'countermeasures'].some((section) => newDisclosure.has(section as Parameters<typeof newDisclosure.has>[0])) && newNpc.strategy?.visibility !== 'hidden'
+      if (visible) changes.push({
         kind: 'character',
         label: `${newNpc.name}: стратегия`,
         detail: visible && newNpc.strategy ? `Планирование обновлено · горизонт: ${short(newNpc.strategy.planningHorizon)}` : 'Скрытая стратегия персонажа обновлена',
@@ -472,8 +459,8 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
       })
     }
     if (!same(oldNpc.threatProfile, newNpc.threatProfile)) {
-      const visible = newNpc.threatProfile?.visibility !== 'hidden'
-      changes.push({
+      const visible = newDisclosure.has('threatProfile') && newNpc.threatProfile?.visibility !== 'hidden'
+      if (visible) changes.push({
         kind: 'character',
         label: visible && newNpc.threatProfile ? `${newNpc.name}: оценка угрозы` : `${newNpc.name}: скрытый масштаб угрозы`,
         detail: visible && newNpc.threatProfile ? `${threatTierLabels[newNpc.threatProfile.tier]} · ${short(newNpc.threatProfile.reputation)}` : 'Скрытые сведения об угрозе обновлены',
@@ -486,6 +473,7 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
     }
     const dimensions = new Set([...Object.keys(oldNpc.relationshipDimensions ?? {}), ...Object.keys(newNpc.relationshipDimensions ?? {})])
     dimensions.forEach((dimension) => {
+      if (!newDisclosure.has('relationshipDimensions')) return
       const oldValue = oldNpc.relationshipDimensions?.[dimension as keyof typeof oldNpc.relationshipDimensions] ?? 0
       const newValue = newNpc.relationshipDimensions?.[dimension as keyof typeof newNpc.relationshipDimensions] ?? 0
       if (oldValue === newValue) return

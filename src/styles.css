@@ -322,6 +322,23 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .npc-card.is-expanded > .npc-expand svg { transform: rotate(180deg); }
 .npc-details { display: grid; grid-column: 1 / -1; flex: 0 0 100%; width: 100%; gap: 10px; margin-top: 2px; padding-top: 11px; border-top: 1px solid var(--border-soft); }
 .npc-card.is-expanded { flex-wrap: wrap; }
+.npc-knowledge-summary { display: grid; gap: 8px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-soft)); border-radius: 10px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 7%, var(--surface-2)), var(--surface-1)); }
+.npc-knowledge-summary > div { display: flex; align-items: center; gap: 7px; color: var(--accent); }
+.npc-knowledge-summary > div > span { display: grid; gap: 1px; margin: 0; }
+.npc-knowledge-summary strong { font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
+.npc-knowledge-summary small { margin: 0; color: var(--faint); font-size: 8px; text-transform: none; }
+.npc-knowledge-summary p, .npc-known-profile p { margin: 0; color: var(--muted); font-size: 8.5px; line-height: 1.55; }
+.npc-knowledge-summary details { border-top: 1px solid var(--border-soft); padding-top: 7px; }
+.npc-knowledge-summary summary { cursor: pointer; color: var(--text-soft); font-size: 8.5px; }
+.npc-knowledge-summary ul { display: grid; gap: 7px; margin: 8px 0 0; padding: 0; list-style: none; }
+.npc-knowledge-summary li { display: grid; gap: 2px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border-soft)); }
+.npc-knowledge-summary li span { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.npc-knowledge-summary li small { margin: 0; color: var(--faint); font-size: 7.5px; }
+.npc-known-profile { display: grid; gap: 7px; }
+.npc-locked-note { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px dashed var(--border-soft); border-radius: 9px; color: var(--faint); background: var(--surface-2); }
+.npc-locked-note > span { display: grid; gap: 3px; margin: 0; }
+.npc-locked-note b { color: var(--muted); font-size: 8.5px; }
+.npc-locked-note small { margin: 0; color: var(--faint); font-size: 8px; line-height: 1.45; }
 .npc-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .npc-detail-heading > strong { display: flex; align-items: center; gap: 5px; color: var(--text-soft); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; }
 .npc-detail-heading > span { margin: 0; color: var(--faint); font-size: 8px; text-align: right; }

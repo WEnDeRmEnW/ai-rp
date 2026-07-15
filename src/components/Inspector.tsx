@@ -3,7 +3,7 @@ import {
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Ability, ArtifactPower, Campaign, InventoryItem, LoreEntry, PowerTechnique, Rarity, StateChange, WorldPresentation } from '../../shared/types'
+import type { Ability, ArtifactPower, Campaign, InventoryItem, LoreEntry, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldPresentation } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
 import { readCanonDocument } from '../lib/canon'
@@ -13,6 +13,7 @@ import { Modal } from './Modal'
 import { legacyChangeLabel } from '../lib/state-change-labels'
 import { StateChangeLine } from './StateReceipt'
 import { AdaptiveWorldModules } from './AdaptiveWorldModules'
+import { getNpcDisclosure } from '../lib/npc-disclosure'
 
 export type InspectorTab = 'scene' | 'hero' | 'inventory' | 'changes' | 'world'
 type ChangeFilter = 'all' | 'character' | 'inventory' | 'social' | 'world'
@@ -172,6 +173,64 @@ const threatTierLabels = {
   minor: 'Незначительная угроза', capable: 'Опытный противник', dangerous: 'Опасный противник', elite: 'Элитный противник', legendary: 'Легендарная угроза', mythic: 'Мифическая угроза',
 } as const
 
+function NpcCard({ npc, expanded, expandedAbilityId, onToggle, onToggleAbility }: {
+  npc: NPC
+  expanded: boolean
+  expandedAbilityId?: string
+  onToggle: () => void
+  onToggleAbility: (id: string) => void
+}) {
+  const disclosure = getNpcDisclosure(npc)
+  const strategySections: NPCDossierSection[] = ['strategyOverview', 'strategyMetrics', 'strategyPlan', 'strategyDetails', 'countermeasures']
+  const strategyVisible = npc.strategy && npc.strategy.visibility !== 'hidden' && strategySections.some(disclosure.has)
+  return <div className={`npc-card ${expanded ? 'is-expanded' : ''}`}>
+    <div className="avatar-letter">{npc.name.slice(0, 1)}</div>
+    <div className="npc-copy"><strong>{npc.name}</strong><span>{npc.role}</span>
+      <small><HeartHandshake size={12} /> {disclosure.has('relationship') ? `${npc.relationship > 20 ? 'Доверяет' : npc.relationship < -20 ? 'Враждебен' : 'Присматривается'} · ${npc.relationship > 0 ? '+' : ''}${npc.relationship}` : disclosure.familiarityLabel}</small>
+      {disclosure.has('relationshipDimensions') && npc.relationshipDimensions && <div className="bond-dimensions" aria-label={`Известные грани отношений: ${npc.name}`}><i>Доверие {npc.relationshipDimensions.trust}</i><i>Уважение {npc.relationshipDimensions.respect}</i><i>Привязанность {npc.relationshipDimensions.affection}</i><i>Страх {npc.relationshipDimensions.fear}</i><i>Подозрение {npc.relationshipDimensions.suspicion}</i><i>Зависимость {npc.relationshipDimensions.dependence}</i></div>}
+      {!!disclosure.resources.length && <div className="bond-dimensions" aria-label={`Известные ресурсы: ${npc.name}`}>{disclosure.resources.map((resource) => <i key={resource.key}>{resource.label} {resource.value}/{resource.max ?? '∞'}</i>)}</div>}
+      {!!disclosure.conditions.length && <small><ShieldAlert size={11} /> {disclosure.conditions.map((effect) => effect.name).join(' · ')}</small>}
+      {disclosure.has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && <p className="npc-initiative"><strong>Намерение:</strong> {npc.initiative.visibility === 'rumored' ? 'Возможно, ' : ''}{npc.initiative.nextMove}</p>}
+    </div>
+    <button className="npc-expand" aria-label={`${expanded ? 'Свернуть' : 'Подробнее'}: ${npc.name}`} onClick={onToggle}><ChevronDown size={14} /></button>
+    {expanded && <div className="npc-details">
+      <div className="npc-knowledge-summary"><div><BookMarked size={14} /><span><strong>Досье персонажа</strong><small>{disclosure.familiarityLabel}</small></span></div><p>{disclosure.evidence[0]?.summary ?? 'Герой ещё не успел узнать этого персонажа достаточно хорошо.'}</p>{disclosure.evidence.length > 1 && <details><summary>Что удалось узнать · {disclosure.evidence.length}</summary><ul>{disclosure.evidence.slice(0, 6).map((entry) => <li key={entry.id}><span>{entry.summary}</span><small>{entry.source} · ход {entry.learnedTurn}</small></li>)}</ul></details>}</div>
+      {(disclosure.has('description') || disclosure.has('disposition') || disclosure.has('personality')) && <div className="npc-known-profile"><div className="npc-detail-heading"><strong>Известный профиль</strong>{disclosure.has('disposition') && <span>{npc.disposition}</span>}</div>{disclosure.has('description') && <p>{npc.description}</p>}{disclosure.has('personality') && npc.personality && <p className="npc-personality"><b>Характер:</b> {npc.personality}</p>}</div>}
+      {!!disclosure.stats.length && <><div className="npc-detail-heading"><strong>Известные параметры</strong><span>Подтверждено</span></div><div className="npc-stat-grid">{disclosure.stats.map((stat) => <div key={stat.key}><span>{stat.label}</span><strong>{stat.value}{stat.max !== undefined ? ` / ${stat.max}` : ''}</strong>{stat.description && <small>{stat.description}</small>}</div>)}</div></>}
+      {!!disclosure.resources.length && <div className="npc-resource-list">{disclosure.resources.map((resource) => <div className={resource.criticalBelow !== undefined && resource.value <= resource.criticalBelow ? 'is-critical' : ''} key={resource.key}><span>{resource.label}</span><b>{resource.value} / {resource.max ?? '∞'}</b><i><em style={{ width: `${Math.max(0, Math.min(100, resource.max ? resource.value / resource.max * 100 : resource.value))}%`, background: resource.color }} /></i></div>)}</div>}
+      {disclosure.has('threatProfile') && npc.threatProfile && npc.threatProfile.visibility !== 'hidden' && <div className={`npc-threat-profile threat-${npc.threatProfile.tier}`}><header><div><span>Оценка угрозы</span><strong>{threatTierLabels[npc.threatProfile.tier]}</strong></div><ShieldAlert size={16} /></header><p>{npc.threatProfile.reputation}</p><small>{npc.threatProfile.scope}</small><DetailList title="Известные свершения" values={npc.threatProfile.knownFeats} />{npc.threatProfile.visibility === 'known' && <><DetailList title="Чем опасен" values={npc.threatProfile.whyDangerous} /><DetailList title="Пределы силы" values={npc.threatProfile.constraints} /><DetailList title="Что даёт шанс победить" values={npc.threatProfile.defeatRequirements} /><DetailList title="Что заставит усилиться" values={npc.threatProfile.escalationTriggers} /></>}{npc.threatProfile.visibility === 'rumored' && <em>Точная природа силы пока известна только по слухам.</em>}</div>}
+      {strategyVisible && npc.strategy && <div className="npc-strategy"><div className="npc-detail-heading"><strong><Brain size={13} /> Стратегический профиль</strong><span>{npc.strategy.visibility === 'rumored' ? 'Приблизительная оценка' : disclosure.has('strategyOverview') ? npc.strategy.planningHorizon : 'Частично изучен'}</span></div>
+        {disclosure.has('strategyMetrics') && <div className="strategy-metrics">{([['Интеллект', npc.strategy.intelligence], ['Тактика', npc.strategy.tacticalSkill], ['Стратегия', npc.strategy.strategicSkill], ['Прогноз', npc.strategy.predictionSkill], ['Адаптация', npc.strategy.adaptability], ['Обман', npc.strategy.deceptionSkill]] as Array<[string, number]>).map(([label, value]) => <div key={label}><span>{label}</span><b>{value}</b><i><em style={{ width: `${value}%` }} /></i></div>)}</div>}
+        {disclosure.has('strategyOverview') && <p><b>Стиль решений:</b> {npc.strategy.decisionStyle}</p>}
+        {disclosure.has('strategyPlan') && npc.strategy.visibility === 'known' && <p><b>Текущий замысел:</b> {npc.strategy.currentPlan}</p>}
+        {disclosure.has('strategyDetails') && npc.strategy.visibility === 'known' && <><DetailList title="Наблюдённые привычки героя" values={npc.strategy.observedPlayerPatterns} /><DetailList title="Сильные стороны" values={npc.strategy.strengths} /><DetailList title="Слепые зоны" values={npc.strategy.blindSpots} /><DetailList title="Запасные планы" values={npc.strategy.contingencies} />{npc.strategy.combatDoctrine && <p><b>Доктрина противостояния:</b> {npc.strategy.combatDoctrine}</p>}{npc.strategy.preferredRange && <p><b>Предпочтительная дистанция:</b> {npc.strategy.preferredRange}</p>}{npc.strategy.teamworkStyle && <p><b>Работа с союзниками:</b> {npc.strategy.teamworkStyle}</p>}{npc.strategy.moraleProfile && <p><b>Мораль:</b> {npc.strategy.moraleProfile}</p>}<DetailList title="Условия отступления" values={npc.strategy.retreatConditions} /><DetailList title="Личные пределы" values={npc.strategy.ethicalLimits} /><DetailList title="Освоенные адаптации" values={npc.strategy.learnedAdaptations} /></>}
+        {disclosure.has('countermeasures') && npc.strategy.visibility === 'known' && !!npc.strategy.countermeasures?.some((entry) => entry.visibility !== 'hidden') && <div className="countermeasure-list"><b>Известные контрмеры</b>{npc.strategy.countermeasures.filter((entry) => entry.visibility !== 'hidden').map((entry) => <article key={`${entry.name}:${entry.against}`} className={`countermeasure-${entry.status}`}><div><strong>{entry.name}</strong><span>{entry.status === 'prepared' ? 'Подготовлена' : entry.status === 'spent' ? 'Израсходована' : entry.status === 'broken' ? 'Сорвана' : 'Доступна'}</span></div><p>{entry.visibility === 'rumored' ? entry.against : entry.response}</p>{entry.visibility === 'known' && <><DetailList title="Против чего" values={[entry.against]} /><DetailList title="Условия" values={entry.requirements} /><DetailList title="Цена и риск" values={entry.tradeoffs} /></>}</article>)}</div>}
+      </div>}
+      <div className="npc-detail-heading"><strong><Sparkles size={13} /> Известные способности</strong>{disclosure.abilities.length > 0 && <span>Открыто: {disclosure.abilities.length}</span>}</div>
+      {disclosure.abilities.length > 0 ? <div className="ability-list npc-ability-list">{disclosure.abilities.map((ability) => { const expansionId = `${npc.id}:${ability.id}`; return <AbilityCard key={ability.id} ability={ability} resources={disclosure.resources} expanded={expandedAbilityId === expansionId} onToggle={() => onToggleAbility(expansionId)} /> })}</div> : <EmptyMini>Герой ещё не видел способностей этого персонажа и не получил надёжных сведений о них.</EmptyMini>}
+      {!!disclosure.conditions.length && <div className="npc-effect-list"><strong>Известные состояния</strong>{disclosure.conditions.map((effect) => <div key={effect.id}><b>{effect.name}{effect.stacks > 1 ? ` ×${effect.stacks}` : ''}</b><span>{effect.description}</span><small>{effect.effects.join(' · ')}</small></div>)}</div>}
+      {!disclosure.evidence.length && !disclosure.stats.length && !disclosure.resources.length && !disclosure.abilities.length && <div className="npc-locked-note"><Search size={13} /><span><b>Остальное пока неизвестно</b><small>Наблюдайте, разговаривайте, расследуйте и проверяйте слухи — карточка будет открываться по фактам истории.</small></span></div>}
+    </div>}
+  </div>
+}
+
+function ConflictParticipantCard({ campaign, participant }: {
+  campaign: Campaign
+  participant: NonNullable<Campaign['activeConflict']>['participants'][number]
+}) {
+  const npc = campaign.npcs.find((candidate) => candidate.id === participant.entityId)
+  const disclosure = npc ? getNpcDisclosure(npc) : undefined
+  const exactStateKnown = !npc || participant.side === 'ally' || disclosure?.has('resources') || disclosure?.has('strategyMetrics')
+  const intentKnown = participant.visibility === 'known' && (!npc || participant.side === 'ally' || disclosure?.has('initiative') || disclosure?.has('strategyPlan'))
+  const qualitative = (value: number) => value >= 75 ? 'высокая' : value >= 45 ? 'средняя' : value >= 20 ? 'низкая' : 'критическая'
+  return <article>
+    <div><strong>{npc?.name ?? (participant.entityId === campaign.player.id ? campaign.player.name : participant.entityId)}</strong><span>{participant.side === 'player' ? 'Герой' : participant.side === 'ally' ? 'Союзник' : participant.side === 'opposition' ? 'Противник' : 'Нейтральная сторона'}</span></div>
+    <p>{participant.position}</p>
+    {exactStateKnown ? <div className="conflict-meters"><span>Готовность <b>{Math.round(participant.readiness)}%</b></span><i><em style={{ width: `${participant.readiness}%` }} /></i><span>Мораль <b>{Math.round(participant.morale)}%</b></span><i><em style={{ width: `${participant.morale}%` }} /></i></div> : <small>По внешним признакам: готовность {qualitative(participant.readiness)}, мораль {qualitative(participant.morale)}. Точные значения неизвестны.</small>}
+    <small>{intentKnown ? participant.intent : 'Точное намерение пока неясно'}</small>
+  </article>
+}
+
 const pressureTierLabels = {
   trace: 'Слабый след', local: 'Местное давление', serious: 'Серьёзное давление', critical: 'Критическое давление', legendary: 'Легендарный масштаб', mythic: 'Мифический масштаб',
 } as const
@@ -278,7 +337,7 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
   const weight = campaign.inventory.reduce((sum, item) => sum + (item.weight ?? 0) * item.quantity, 0)
   const filteredItems = useMemo(() => campaign.inventory.filter((item) => `${item.name} ${item.description}`.toLocaleLowerCase('ru-RU').includes(query.toLocaleLowerCase('ru-RU'))), [campaign.inventory, query])
   const visibleLore = campaign.lore.filter((entry) => !entry.secret || entry.discovered)
-  const visibleInitiatives = campaign.npcs.filter((npc) => npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
+  const visibleInitiatives = campaign.npcs.filter((npc) => getNpcDisclosure(npc).has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
   const visibleWorldEvents = (campaign.worldEvents ?? []).filter((event) => event.visibility !== 'hidden' && ['scheduled', 'due'].includes(event.status))
   const visibleWorldPressures = (campaign.worldPressures ?? []).filter((pressure) => pressure.visibility !== 'hidden' && pressure.stage !== 'resolved')
   const visiblePlaces = useMemo(() => {
@@ -355,74 +414,14 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
               <p>{campaign.activeConflict.phase}</p>
               <small><strong>Ставки:</strong> {campaign.activeConflict.stakes}</small>
               <div className="conflict-momentum"><i className="player" /><span>{campaign.activeConflict.momentum === 'player' ? 'Инициатива у героя' : campaign.activeConflict.momentum === 'opposition' ? 'Противник владеет темпом' : 'Темп оспаривается'}</span><i className="opposition" /></div>
-              <div className="conflict-participants">{campaign.activeConflict.participants.filter((participant) => participant.visibility !== 'hidden').map((participant) => <article key={participant.entityId}>
-                <div><strong>{entityName(participant.entityId)}</strong><span>{participant.side === 'player' ? 'Герой' : participant.side === 'ally' ? 'Союзник' : participant.side === 'opposition' ? 'Противник' : 'Нейтральная сторона'}</span></div>
-                <p>{participant.position}</p>
-                <div className="conflict-meters"><span>Готовность <b>{Math.round(participant.readiness)}%</b></span><i><em style={{ width: `${participant.readiness}%` }} /></i><span>Мораль <b>{Math.round(participant.morale)}%</b></span><i><em style={{ width: `${participant.morale}%` }} /></i></div>
-                <small>{participant.visibility === 'known' ? participant.intent : 'Точное намерение пока неясно'}</small>
-              </article>)}</div>
+              <div className="conflict-participants">{campaign.activeConflict.participants.filter((participant) => participant.visibility !== 'hidden').map((participant) => <ConflictParticipantCard key={participant.entityId} campaign={campaign} participant={participant} />)}</div>
               {Boolean(campaign.activeConflict.victoryConditions?.length || campaign.activeConflict.failureConsequences?.length || campaign.activeConflict.escapeRoutes?.length || campaign.activeConflict.telegraphs?.length) && <details className="conflict-possibilities"><summary>Условия и возможности</summary><DetailList title="Как можно добиться цели" values={campaign.activeConflict.victoryConditions} /><DetailList title="Цена провала" values={campaign.activeConflict.failureConsequences} /><DetailList title="Пути отступления" values={campaign.activeConflict.escapeRoutes} /><DetailList title="Замеченные признаки опасности" values={campaign.activeConflict.telegraphs} /></details>}
               {(campaign.activeConflict.terrain.length > 0 || campaign.activeConflict.hazards.length > 0) && <details><summary>Поле боя и угрозы</summary><DetailList title="Особенности местности" values={campaign.activeConflict.terrain} /><DetailList title="Опасности" values={campaign.activeConflict.hazards} /></details>}
             </section>}
             <AdaptiveWorldModules campaign={campaign} placement="scene" />
             <Section title="В сцене" action={<Users size={15} />}>
               <div className="npc-list">
-                {campaign.npcs.filter((npc) => campaign.scene.presentNpcIds.includes(npc.id)).map((npc) => (
-                  <div className={`npc-card ${expandedNpc === npc.id ? 'is-expanded' : ''}`} key={npc.id}>
-                    <div className="avatar-letter">{npc.name.slice(0, 1)}</div>
-                    <div className="npc-copy"><strong>{npc.name}</strong><span>{npc.role}</span><small><HeartHandshake size={12} /> {npc.relationship > 20 ? 'Доверяет' : npc.relationship < -20 ? 'Враждебен' : 'Присматривается'} · {npc.relationship > 0 ? '+' : ''}{npc.relationship}</small>
-                      {npc.relationshipDimensions && <div className="bond-dimensions" aria-label={`Грани отношений: ${npc.name}`}>
-                        <i>Доверие {npc.relationshipDimensions.trust}</i><i>Уважение {npc.relationshipDimensions.respect}</i><i>Привязанность {npc.relationshipDimensions.affection}</i><i>Страх {npc.relationshipDimensions.fear}</i><i>Подозрение {npc.relationshipDimensions.suspicion}</i><i>Зависимость {npc.relationshipDimensions.dependence}</i>
-                      </div>}
-                      {!!npc.resources?.length && <div className="bond-dimensions" aria-label={`Ресурсы: ${npc.name}`}>{npc.resources.map((resource) => <i key={resource.key}>{resource.label} {resource.value}/{resource.max ?? '∞'}</i>)}</div>}
-                      {!!npc.statusEffects?.filter((effect) => !effect.hidden).length && <small><ShieldAlert size={11} /> {npc.statusEffects.filter((effect) => !effect.hidden).map((effect) => effect.name).join(' · ')}</small>}
-                      {npc.initiative && npc.initiative.visibility !== 'hidden' && <p className="npc-initiative"><strong>Намерение:</strong> {npc.initiative.visibility === 'rumored' ? 'Возможно, ' : ''}{npc.initiative.nextMove}</p>}
-                    </div>
-                    <button className="npc-expand" aria-label={`${expandedNpc === npc.id ? 'Свернуть' : 'Подробнее'}: ${npc.name}`} onClick={() => setExpandedNpc(expandedNpc === npc.id ? undefined : npc.id)}><ChevronDown size={14} /></button>
-                    {expandedNpc === npc.id && <div className="npc-details">
-                      <div className="npc-detail-heading"><strong>Параметры</strong><span>{npc.disposition}</span></div>
-                      {npc.personality && <p className="npc-personality"><b>Характер:</b> {npc.personality}</p>}
-                      {!!npc.stats?.length && <div className="npc-stat-grid">{npc.stats.map((stat) => <div key={stat.key}><span>{stat.label}</span><strong>{stat.value}{stat.max !== undefined ? ` / ${stat.max}` : ''}</strong>{stat.description && <small>{stat.description}</small>}</div>)}</div>}
-                      {!!npc.resources?.length && <div className="npc-resource-list">{npc.resources.map((resource) => <div className={resource.criticalBelow !== undefined && resource.value <= resource.criticalBelow ? 'is-critical' : ''} key={resource.key}><span>{resource.label}</span><b>{resource.value} / {resource.max ?? '∞'}</b><i><em style={{ width: `${Math.max(0, Math.min(100, resource.max ? resource.value / resource.max * 100 : resource.value))}%`, background: resource.color }} /></i></div>)}</div>}
-                      {npc.threatProfile && npc.threatProfile.visibility !== 'hidden' && <div className={`npc-threat-profile threat-${npc.threatProfile.tier}`}>
-                        <header><div><span>Оценка угрозы</span><strong>{threatTierLabels[npc.threatProfile.tier]}</strong></div><ShieldAlert size={16} /></header>
-                        <p>{npc.threatProfile.reputation}</p>
-                        <small>{npc.threatProfile.scope}</small>
-                        <DetailList title="Известные свершения" values={npc.threatProfile.knownFeats} />
-                        {npc.threatProfile.visibility === 'known' && <><DetailList title="Чем опасен" values={npc.threatProfile.whyDangerous} /><DetailList title="Пределы силы" values={npc.threatProfile.constraints} /><DetailList title="Что даёт шанс победить" values={npc.threatProfile.defeatRequirements} /><DetailList title="Что заставит усилиться" values={npc.threatProfile.escalationTriggers} /></>}
-                        {npc.threatProfile.visibility === 'rumored' && <em>Точная природа силы пока известна только по слухам.</em>}
-                      </div>}
-                      {npc.strategy && npc.strategy.visibility !== 'hidden' && <div className="npc-strategy">
-                        <div className="npc-detail-heading"><strong><Brain size={13} /> Стратегический профиль</strong><span>{npc.strategy.visibility === 'rumored' ? 'Приблизительная оценка' : npc.strategy.planningHorizon}</span></div>
-                        <div className="strategy-metrics">{([
-                          ['Интеллект', npc.strategy.intelligence], ['Тактика', npc.strategy.tacticalSkill], ['Стратегия', npc.strategy.strategicSkill], ['Прогноз', npc.strategy.predictionSkill], ['Адаптация', npc.strategy.adaptability], ['Обман', npc.strategy.deceptionSkill],
-                        ] as Array<[string, number]>).map(([label, value]) => <div key={label}><span>{label}</span><b>{value}</b><i><em style={{ width: `${value}%` }} /></i></div>)}</div>
-                        <p><b>Стиль решений:</b> {npc.strategy.decisionStyle}</p>
-                        {npc.strategy.visibility === 'known' && <>
-                          <p><b>Текущий замысел:</b> {npc.strategy.currentPlan}</p>
-                          <DetailList title="Наблюдённые привычки героя" values={npc.strategy.observedPlayerPatterns} />
-                          <DetailList title="Сильные стороны" values={npc.strategy.strengths} />
-                          <DetailList title="Слепые зоны" values={npc.strategy.blindSpots} />
-                          <DetailList title="Запасные планы" values={npc.strategy.contingencies} />
-                          {npc.strategy.combatDoctrine && <p><b>Доктрина противостояния:</b> {npc.strategy.combatDoctrine}</p>}
-                          {npc.strategy.preferredRange && <p><b>Предпочтительная дистанция:</b> {npc.strategy.preferredRange}</p>}
-                          {npc.strategy.teamworkStyle && <p><b>Работа с союзниками:</b> {npc.strategy.teamworkStyle}</p>}
-                          {npc.strategy.moraleProfile && <p><b>Мораль:</b> {npc.strategy.moraleProfile}</p>}
-                          <DetailList title="Условия отступления" values={npc.strategy.retreatConditions} />
-                          <DetailList title="Личные пределы" values={npc.strategy.ethicalLimits} />
-                          <DetailList title="Освоенные адаптации" values={npc.strategy.learnedAdaptations} />
-                          {!!npc.strategy.countermeasures?.some((countermeasure) => countermeasure.visibility !== 'hidden') && <div className="countermeasure-list"><b>Известные контрмеры</b>{npc.strategy.countermeasures.filter((countermeasure) => countermeasure.visibility !== 'hidden').map((countermeasure) => <article key={`${countermeasure.name}:${countermeasure.against}`} className={`countermeasure-${countermeasure.status}`}><div><strong>{countermeasure.name}</strong><span>{countermeasure.status === 'prepared' ? 'Подготовлена' : countermeasure.status === 'spent' ? 'Израсходована' : countermeasure.status === 'broken' ? 'Сорвана' : 'Доступна'}</span></div><p>{countermeasure.visibility === 'rumored' ? countermeasure.against : countermeasure.response}</p>{countermeasure.visibility === 'known' && <><DetailList title="Против чего" values={[countermeasure.against]} /><DetailList title="Условия" values={countermeasure.requirements} /><DetailList title="Цена и риск" values={countermeasure.tradeoffs} /></>}</article>)}</div>}
-                        </>}
-                      </div>}
-                      <div className="npc-detail-heading"><strong><Sparkles size={13} /> Способности</strong><span>{npc.abilities?.length ?? 0}</span></div>
-                      {(npc.abilities?.length ?? 0) > 0 ? <div className="ability-list npc-ability-list">{npc.abilities!.map((ability) => {
-                        const expansionId = `${npc.id}:${ability.id}`
-                        return <AbilityCard key={ability.id} ability={ability} resources={npc.resources} expanded={expandedNpcAbility === expansionId} onToggle={() => setExpandedNpcAbility(expandedNpcAbility === expansionId ? undefined : expansionId)} />
-                      })}</div> : <EmptyMini>Способности этого персонажа пока не раскрыты в истории.</EmptyMini>}
-                      {!!npc.statusEffects?.filter((effect) => !effect.hidden).length && <div className="npc-effect-list"><strong>Состояния</strong>{npc.statusEffects.filter((effect) => !effect.hidden).map((effect) => <div key={effect.id}><b>{effect.name}{effect.stacks > 1 ? ` ×${effect.stacks}` : ''}</b><span>{effect.description}</span><small>{effect.effects.join(' · ')}</small></div>)}</div>}
-                    </div>}
-                  </div>
-                ))}
+                {campaign.npcs.filter((npc) => campaign.scene.presentNpcIds.includes(npc.id)).map((npc) => <NpcCard key={npc.id} npc={npc} expanded={expandedNpc === npc.id} expandedAbilityId={expandedNpcAbility} onToggle={() => setExpandedNpc(expandedNpc === npc.id ? undefined : npc.id)} onToggleAbility={(abilityId) => setExpandedNpcAbility(expandedNpcAbility === abilityId ? undefined : abilityId)} />)}
                 {!campaign.scene.presentNpcIds.length && <EmptyMini>Сейчас рядом никого нет.</EmptyMini>}
               </div>
             </Section>
@@ -492,10 +491,10 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
             <Section title="О герое"><div className="character-notes"><strong>Цель</strong><p>{campaign.player.goal}</p><strong>История</strong><p>{campaign.player.backstory}</p></div></Section>
             <Section title="Отряд" action={<Users size={15} />}>
               <div className="party-roster">
-                {campaign.npcs.filter((npc) => (campaign.partyMemberIds ?? []).includes(npc.id)).map((npc) => <div className="party-member" key={npc.id}><div className="avatar-letter">{npc.name.slice(0, 1)}</div><div><strong>{npc.name}</strong><span>{campaign.partyRoles?.[npc.id] ?? npc.role}</span><small>{npc.recruitment?.reason}</small></div><b>{recruitmentLabels.member}</b></div>)}
+                {campaign.npcs.filter((npc) => (campaign.partyMemberIds ?? []).includes(npc.id)).map((npc) => <div className="party-member" key={npc.id}><div className="avatar-letter">{npc.name.slice(0, 1)}</div><div><strong>{npc.name}</strong><span>{campaign.partyRoles?.[npc.id] ?? npc.role}</span>{getNpcDisclosure(npc).has('recruitment') && <small>{npc.recruitment?.reason}</small>}</div><b>{recruitmentLabels.member}</b></div>)}
                 {!(campaign.partyMemberIds ?? []).length && <EmptyMini>Герой пока действует один.</EmptyMini>}
               </div>
-              {!!campaign.npcs.some((npc) => npc.recruitment && ['possible', 'invited'].includes(npc.recruitment.status) && !(campaign.partyMemberIds ?? []).includes(npc.id)) && <div className="recruitment-watch"><strong>Возможные спутники</strong>{campaign.npcs.filter((npc) => npc.recruitment && ['possible', 'invited'].includes(npc.recruitment.status) && !(campaign.partyMemberIds ?? []).includes(npc.id)).map((npc) => <div key={npc.id}><header><b>{npc.name}</b><span>{npc.recruitment!.willingness}% готовности</span></header><p>{npc.recruitment!.reason}</p><small>{recruitmentLabels[npc.recruitment!.status]}{npc.recruitment!.requirements.length ? ` · ${npc.recruitment!.requirements.join(' · ')}` : ''}</small></div>)}</div>}
+              {!!campaign.npcs.some((npc) => getNpcDisclosure(npc).has('recruitment') && npc.recruitment && ['possible', 'invited'].includes(npc.recruitment.status) && !(campaign.partyMemberIds ?? []).includes(npc.id)) && <div className="recruitment-watch"><strong>Возможные спутники</strong>{campaign.npcs.filter((npc) => getNpcDisclosure(npc).has('recruitment') && npc.recruitment && ['possible', 'invited'].includes(npc.recruitment.status) && !(campaign.partyMemberIds ?? []).includes(npc.id)).map((npc) => <div key={npc.id}><header><b>{npc.name}</b><span>{npc.recruitment!.willingness}% готовности</span></header><p>{npc.recruitment!.reason}</p><small>{recruitmentLabels[npc.recruitment!.status]}{npc.recruitment!.requirements.length ? ` · ${npc.recruitment!.requirements.join(' · ')}` : ''}</small></div>)}</div>}
               <p className="party-rule-note">Состав меняется только в сцене: персонаж сам решает, учитывая цели, отношения и свои условия.</p>
             </Section>
             <Section title="Репутация фракций">
@@ -736,8 +735,8 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
               })}{!(campaign.socialLinks ?? []).some((link) => !link.secret) && <EmptyMini>Открытые связи ещё не проявились.</EmptyMini>}</div>
             </Section>
             <Section title="Персональные арки" action={<Target size={15} />}>
-              <div className="arc-list">{(campaign.characterArcs ?? []).filter((arc) => arc.ownerId !== campaign.player.id && !arc.secret).map((arc) => <div className="arc-card" key={arc.id}><div><strong>{arc.title}</strong><span>{entityName(arc.ownerId)} · {arc.progress}%</span></div><p>{arc.currentStage}</p><div className="mini-progress"><i style={{ width: `${arc.progress}%` }} /></div><small>{arc.theme}</small></div>)}
-                {!(campaign.characterArcs ?? []).some((arc) => arc.ownerId !== campaign.player.id && !arc.secret) && <EmptyMini>Чужие личные линии пока не стали понятны герою.</EmptyMini>}
+              <div className="arc-list">{(campaign.characterArcs ?? []).filter((arc) => arc.ownerId !== campaign.player.id && !arc.secret && campaign.npcs.some((npc) => npc.id === arc.ownerId && getNpcDisclosure(npc).has('goal'))).map((arc) => <div className="arc-card" key={arc.id}><div><strong>{arc.title}</strong><span>{entityName(arc.ownerId)} · {arc.progress}%</span></div><p>{arc.currentStage}</p><div className="mini-progress"><i style={{ width: `${arc.progress}%` }} /></div><small>{arc.theme}</small></div>)}
+                {!(campaign.characterArcs ?? []).some((arc) => arc.ownerId !== campaign.player.id && !arc.secret && campaign.npcs.some((npc) => npc.id === arc.ownerId && getNpcDisclosure(npc).has('goal'))) && <EmptyMini>Чужие личные линии пока не стали понятны герою.</EmptyMini>}
               </div>
             </Section>
             <Section title="Честные расследования" action={<Search size={15} />}>
@@ -750,8 +749,8 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
               })}{!(campaign.mysteryCases ?? []).length && <EmptyMini>Активных расследований нет.</EmptyMini>}</div>
             </Section>
             <Section title="Известные планы противников" action={<Swords size={15} />}>
-              <div className="plan-list">{(campaign.antagonistPlans ?? []).filter((plan) => !plan.secret).map((plan) => <div className="plan-card" key={plan.id}><div><strong>{plan.title}</strong><span>Давление {plan.pressure}%</span></div><p>{plan.objective}</p><small>{entityName(plan.ownerNpcId)} · этап {Math.min(plan.steps.length, plan.currentStep + 1)} из {plan.steps.length}</small></div>)}
-                {!(campaign.antagonistPlans ?? []).some((plan) => !plan.secret) && <EmptyMini>Планы противников ещё не раскрыты.</EmptyMini>}
+              <div className="plan-list">{(campaign.antagonistPlans ?? []).filter((plan) => !plan.secret && campaign.npcs.some((npc) => npc.id === plan.ownerNpcId && getNpcDisclosure(npc).has('strategyPlan'))).map((plan) => <div className="plan-card" key={plan.id}><div><strong>{plan.title}</strong><span>Давление {plan.pressure}%</span></div><p>{plan.objective}</p><small>{entityName(plan.ownerNpcId)} · этап {Math.min(plan.steps.length, plan.currentStep + 1)} из {plan.steps.length}</small></div>)}
+                {!(campaign.antagonistPlans ?? []).some((plan) => !plan.secret && campaign.npcs.some((npc) => npc.id === plan.ownerNpcId && getNpcDisclosure(npc).has('strategyPlan'))) && <EmptyMini>Планы противников ещё не раскрыты.</EmptyMini>}
               </div>
             </Section>
             <Section title="Услуги и влияние" action={<HeartHandshake size={15} />}>

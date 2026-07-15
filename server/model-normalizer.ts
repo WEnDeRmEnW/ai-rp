@@ -31,6 +31,7 @@ const ARRAY_KEYS = new Set([
   'whyDangerous', 'knownFeats', 'constraints', 'defeatRequirements', 'escalationTriggers',
   'victoryConditions', 'failureConsequences', 'escapeRoutes', 'telegraphs', 'targetNames', 'targetIds',
   'upsertFactionReputation', 'upsertLaws', 'upsertMechanics', 'territory', 'goals',
+  'revealedSections', 'revealedStatKeys', 'revealedResourceKeys', 'revealedAbilityIds', 'revealedAbilityNames',
 ])
 
 const ARRAY_LIMITS: Record<string, number> = {
@@ -63,6 +64,7 @@ const ARRAY_LIMITS: Record<string, number> = {
   worldPressures: 16, upsertWorldPressures: 16, measures: 16, counterplay: 16, deescalationConditions: 12,
   whyDangerous: 12, knownFeats: 12, constraints: 12, defeatRequirements: 12, escalationTriggers: 12,
   victoryConditions: 12, failureConsequences: 12, escapeRoutes: 12, telegraphs: 12, targetNames: 20, targetIds: 20,
+  revealedSections: 24, revealedStatKeys: 24, revealedResourceKeys: 24, revealedAbilityIds: 40, revealedAbilityNames: 20,
   upsertFactionReputation: 16, removeLawIds: 24, removeMechanicIds: 24, removeInterfaceModuleIds: 8,
 }
 

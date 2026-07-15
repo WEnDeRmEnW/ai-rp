@@ -577,6 +577,48 @@ export interface NPCRecruitment {
   requirements: string[]
 }
 
+/** What the player-character has actually learned about an NPC. Internal NPC state may be much richer. */
+export type NPCDossierSection =
+  | 'description'
+  | 'personality'
+  | 'disposition'
+  | 'relationship'
+  | 'relationshipDimensions'
+  | 'goal'
+  | 'conditions'
+  | 'initiative'
+  | 'strategyOverview'
+  | 'strategyMetrics'
+  | 'strategyPlan'
+  | 'strategyDetails'
+  | 'countermeasures'
+  | 'threatProfile'
+  | 'recruitment'
+  | 'voice'
+  | 'stats'
+  | 'resources'
+  | 'abilities'
+
+export type NPCFamiliarity = 'recognized' | 'acquainted' | 'familiar' | 'close' | 'expert'
+
+export interface NPCDossierEvidence {
+  id: ID
+  section: NPCDossierSection
+  summary: string
+  source: string
+  learnedTurn: number
+}
+
+export interface NPCDossier {
+  familiarity: NPCFamiliarity
+  revealedSections: NPCDossierSection[]
+  revealedStatKeys: string[]
+  revealedResourceKeys: string[]
+  revealedAbilityIds: ID[]
+  evidence: NPCDossierEvidence[]
+  updatedTurn: number
+}
+
 export interface NPC {
   id: ID
   name: string
@@ -599,6 +641,7 @@ export interface NPC {
   strategy?: NPCStrategy
   threatProfile?: ThreatProfile
   recruitment?: NPCRecruitment
+  dossier?: NPCDossier
   voice?: {
     style: string
     patterns: string[]
@@ -1192,7 +1235,7 @@ export interface QuestMutation {
 }
 
 export type NPCUpdatePatch = Partial<Omit<NPC,
-  'id' | 'stats' | 'resources' | 'statusEffects' | 'abilities' | 'knowledge' | 'relationshipDimensions' | 'initiative' | 'strategy' | 'voice'
+  'id' | 'stats' | 'resources' | 'statusEffects' | 'abilities' | 'knowledge' | 'relationshipDimensions' | 'initiative' | 'strategy' | 'voice' | 'dossier'
 >> & {
   /** Arrays on NPC updates are safe upserts; omitted entries are preserved. */
   stats?: Stat[]
@@ -1207,6 +1250,7 @@ export type NPCUpdatePatch = Partial<Omit<NPC,
   relationshipDimensions?: Partial<RelationshipDimensions>
   initiative?: Partial<NPCInitiative>
   strategy?: Partial<NPCStrategy>
+  dossier?: Partial<NPCDossier>
   voice?: Partial<NonNullable<NPC['voice']>>
   upsertStats?: Stat[]
   removeStatKeys?: string[]

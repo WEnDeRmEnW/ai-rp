@@ -17,6 +17,7 @@ import type {
   AbilityChangePatch,
   ActiveConflict,
   NPCStrategy,
+  NPCDossier,
   PowerTechnique,
   PowerTechniqueChangePatch,
   PowerTechniqueDraft,
@@ -373,6 +374,44 @@ function normalizeNpcStrategy(incoming: Partial<NPCStrategy>, turn: number, exis
       requirements: countermeasure.requirements.slice(-12),
       tradeoffs: countermeasure.tradeoffs.slice(-12),
     })),
+  }
+}
+
+function normalizeNpcDossier(
+  incoming: Partial<NPCDossier>,
+  turn: number,
+  npc: { stats?: Campaign['npcs'][number]['stats']; resources?: Campaign['npcs'][number]['resources']; abilities?: Ability[] },
+  existing?: NPCDossier,
+): NPCDossier | undefined {
+  const merged = {
+    ...existing,
+    ...incoming,
+    revealedSections: incoming.revealedSections ? [...(existing?.revealedSections ?? []), ...incoming.revealedSections] : existing?.revealedSections,
+    revealedStatKeys: incoming.revealedStatKeys ? [...(existing?.revealedStatKeys ?? []), ...incoming.revealedStatKeys] : existing?.revealedStatKeys,
+    revealedResourceKeys: incoming.revealedResourceKeys ? [...(existing?.revealedResourceKeys ?? []), ...incoming.revealedResourceKeys] : existing?.revealedResourceKeys,
+    revealedAbilityIds: incoming.revealedAbilityIds ? [...(existing?.revealedAbilityIds ?? []), ...incoming.revealedAbilityIds] : existing?.revealedAbilityIds,
+    evidence: incoming.evidence ? [...(existing?.evidence ?? []), ...incoming.evidence] : existing?.evidence,
+  }
+  if (typeof merged.familiarity !== 'string' || !Array.isArray(merged.revealedSections) || !Array.isArray(merged.revealedStatKeys)
+    || !Array.isArray(merged.revealedResourceKeys) || !Array.isArray(merged.revealedAbilityIds) || !Array.isArray(merged.evidence)) return undefined
+  const uniqueText = (values: string[], max: number) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(-max)
+  const validStatKeys = uniqueText(merged.revealedStatKeys, 24).filter((key) => (npc.stats ?? []).some((stat) => metricMatches(stat, key)))
+  const validResourceKeys = uniqueText(merged.revealedResourceKeys, 24).filter((key) => (npc.resources ?? []).some((resource) => metricMatches(resource, key)))
+  const validAbilityIds = uniqueText(merged.revealedAbilityIds, 40).filter((abilityId) => (npc.abilities ?? []).some((ability) => ability.id === abilityId))
+  const evidence = [...new Map(merged.evidence.filter((entry) => entry?.id && entry.summary?.trim() && entry.source?.trim()).map((entry) => [entry.id, {
+    ...entry,
+    summary: entry.summary.trim(),
+    source: entry.source.trim(),
+    learnedTurn: Math.max(0, Math.min(turn, Math.round(entry.learnedTurn))),
+  }])).values()].slice(-60)
+  return {
+    familiarity: merged.familiarity,
+    revealedSections: uniqueText(merged.revealedSections, 24) as NPCDossier['revealedSections'],
+    revealedStatKeys: validStatKeys,
+    revealedResourceKeys: validResourceKeys,
+    revealedAbilityIds: validAbilityIds,
+    evidence,
+    updatedTurn: turn,
   }
 }
 
@@ -876,7 +915,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
   patch.npcs?.slice(0, 20).forEach((mutation, mutationIndex) => {
     if (mutation.operation === 'add') {
       if (!campaign.npcs.some((npc) => npc.id === mutation.npc.id || npc.name.toLocaleLowerCase('ru-RU') === mutation.npc.name.toLocaleLowerCase('ru-RU'))) {
-        campaign.npcs.push({
+        const addedNpc: Campaign['npcs'][number] = {
           ...mutation.npc,
           notes: mutation.npc.notes.slice(0, 8),
           stats: mutation.npc.stats?.slice(0, 24).map((stat) => ({ ...stat, aliases: stat.aliases?.slice(0, 16) })) ?? [],
@@ -890,7 +929,10 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
             willingness: clamp(mutation.npc.recruitment.willingness, 0, 100),
             requirements: mutation.npc.recruitment.requirements.map((requirement) => requirement.trim()).filter(Boolean).slice(0, 12),
           } : undefined,
-        })
+          dossier: undefined,
+        }
+        addedNpc.dossier = mutation.npc.dossier ? normalizeNpcDossier(mutation.npc.dossier, turn, addedNpc) : undefined
+        campaign.npcs.push(addedNpc)
       }
       return
     }
@@ -900,7 +942,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
       return
     }
     const {
-      notes, stats, resources, statusEffects, abilities, upsertAbilities, removeAbilityIds, abilityChanges, knowledge, relationshipDimensions, initiative, strategy, threatProfile, recruitment, voice,
+      notes, stats, resources, statusEffects, abilities, upsertAbilities, removeAbilityIds, abilityChanges, knowledge, relationshipDimensions, initiative, strategy, threatProfile, recruitment, dossier, voice,
       upsertStats, removeStatKeys, upsertResources, removeResourceKeys, statDeltas, resourceDeltas,
       upsertStatusEffects, removeStatusEffectIds, removeKnowledgeIds,
       ...profile
@@ -993,6 +1035,11 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
       ...recruitment,
       willingness: clamp(recruitment.willingness, 0, 100),
       requirements: recruitment.requirements.map((requirement) => requirement.trim()).filter(Boolean).slice(0, 12),
+    }
+    if (dossier) {
+      const normalized = normalizeNpcDossier(dossier, turn, npc, npc.dossier)
+      if (normalized) npc.dossier = normalized
+      else rejectedReference(diagnostics, `statePatch.npcs[${mutationIndex}].npc.dossier`, npc.id, 'частичное досье нельзя создать без существующей основы')
     }
     if (voice) {
       const merged = { ...(npc.voice ?? {}), ...voice }
