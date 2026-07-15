@@ -568,7 +568,13 @@ export function describePatch(patch: TurnPatch): string[] {
   return changes.slice(0, 14)
 }
 
-export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagnostics?: StateChange[]): Campaign {
+export function applyPatch(
+  base: Campaign,
+  patch: TurnPatch,
+  turn: number,
+  diagnostics?: StateChange[],
+  options: { advanceStatusClock?: boolean } = {},
+): Campaign {
   const campaign = structuredClone(base)
   const retirementEvents: Array<Omit<GameEvent, 'id' | 'turn' | 'createdAt'>> = []
   const sceneChanges = patch.scene && (
@@ -580,16 +586,20 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
   campaign.player.resources ??= []
   campaign.player.abilities ??= []
   campaign.player.conditions ??= []
-  applyRecurringStatusEffects(campaign.player.resources, campaign.player.statusEffects ?? [], diagnostics, 'player', turn)
-  campaign.player.statusEffects = tickStatusEffects(campaign.player.statusEffects ?? [], turn, sceneChanges, dayChanges)
+  if (options.advanceStatusClock !== false) {
+    applyRecurringStatusEffects(campaign.player.resources, campaign.player.statusEffects ?? [], diagnostics, 'player', turn)
+    campaign.player.statusEffects = tickStatusEffects(campaign.player.statusEffects ?? [], turn, sceneChanges, dayChanges)
+  }
   campaign.player.lifeState ??= 'active'
   campaign.player.currency ??= {}
   campaign.npcs.forEach((npc) => {
     npc.stats ??= []
     npc.resources ??= []
     npc.abilities ??= []
-    applyRecurringStatusEffects(npc.resources, npc.statusEffects ?? [], diagnostics, `npcs.${npc.id}`, turn)
-    npc.statusEffects = tickStatusEffects(npc.statusEffects ?? [], turn, sceneChanges, dayChanges)
+    if (options.advanceStatusClock !== false) {
+      applyRecurringStatusEffects(npc.resources, npc.statusEffects ?? [], diagnostics, `npcs.${npc.id}`, turn)
+      npc.statusEffects = tickStatusEffects(npc.statusEffects ?? [], turn, sceneChanges, dayChanges)
+    }
   })
   campaign.socialLinks ??= []
   campaign.threads ??= []

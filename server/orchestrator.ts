@@ -162,7 +162,7 @@ function normalizedReference(value: string | undefined) {
     .trim()
 }
 
-function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema.parse>) {
+export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema.parse>) {
   const notes: string[] = []
   const rejections: SanitizationRejection[] = []
   const reject = (message: string, domains: ConsequenceDomain[]) => {
@@ -302,8 +302,62 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     })
     incoming.removeAbilityIds = incoming.removeAbilityIds?.filter((abilityId) => knownNpcAbilityIds.has(abilityId))
     if (rejectedChanges + rejectedRemovals > 0) reject(`Отклонено изменение неизвестной способности персонажа «${existingNpc.name}».`, ['abilities', 'characters'])
+
+    const metricReferences = (values: Array<{ key: string; label: string; aliases?: string[] }>) => new Set(values
+      .flatMap((metric) => [metric.key, metric.label, ...(metric.aliases ?? [])])
+      .map(normalizedReference))
+    const knownNpcStats = metricReferences([...(existingNpc.stats ?? []), ...(incoming.stats ?? []), ...(incoming.upsertStats ?? [])])
+    const knownNpcResources = metricReferences([...(existingNpc.resources ?? []), ...(incoming.resources ?? []), ...(incoming.upsertResources ?? [])])
+    const filterDeltas = (values: Record<string, number> | undefined, known: Set<string>) => values
+      ? Object.fromEntries(Object.entries(values).filter(([key]) => known.has(normalizedReference(key))))
+      : undefined
+    const rejectedStatDeltaCount = Object.keys(incoming.statDeltas ?? {}).filter((key) => !knownNpcStats.has(normalizedReference(key))).length
+    const rejectedResourceDeltaCount = Object.keys(incoming.resourceDeltas ?? {}).filter((key) => !knownNpcResources.has(normalizedReference(key))).length
+    incoming.statDeltas = filterDeltas(incoming.statDeltas, knownNpcStats)
+    incoming.resourceDeltas = filterDeltas(incoming.resourceDeltas, knownNpcResources)
+    const rejectedStatRemovalCount = incoming.removeStatKeys?.filter((key) => !knownNpcStats.has(normalizedReference(key))).length ?? 0
+    const rejectedResourceRemovalCount = incoming.removeResourceKeys?.filter((key) => !knownNpcResources.has(normalizedReference(key))).length ?? 0
+    incoming.removeStatKeys = incoming.removeStatKeys?.filter((key) => knownNpcStats.has(normalizedReference(key)))
+    incoming.removeResourceKeys = incoming.removeResourceKeys?.filter((key) => knownNpcResources.has(normalizedReference(key)))
+    if (rejectedStatDeltaCount + rejectedStatRemovalCount > 0) reject(`Отклонено изменение неизвестной характеристики персонажа «${existingNpc.name}».`, ['stats', 'characters'])
+    if (rejectedResourceDeltaCount + rejectedResourceRemovalCount > 0) reject(`Отклонено изменение неизвестного ресурса персонажа «${existingNpc.name}».`, ['health', 'resources', 'characters'])
+
+    const knownNpcEffectIds = new Set((existingNpc.statusEffects ?? []).map((effect) => effect.id))
+    const rejectedEffectRemovals = incoming.removeStatusEffectIds?.filter((effectId) => !knownNpcEffectIds.has(effectId)).length ?? 0
+    incoming.removeStatusEffectIds = incoming.removeStatusEffectIds?.filter((effectId) => knownNpcEffectIds.has(effectId))
+    if (rejectedEffectRemovals > 0) reject(`Отклонено снятие неизвестного эффекта персонажа «${existingNpc.name}».`, ['conditions', 'characters'])
+    const knownKnowledgeIds = new Set((existingNpc.knowledge ?? []).map((fact) => fact.id))
+    const rejectedKnowledgeRemovals = incoming.removeKnowledgeIds?.filter((knowledgeId) => !knownKnowledgeIds.has(knowledgeId)).length ?? 0
+    incoming.removeKnowledgeIds = incoming.removeKnowledgeIds?.filter((knowledgeId) => knownKnowledgeIds.has(knowledgeId))
+    if (rejectedKnowledgeRemovals > 0) reject(`Отклонено удаление неизвестного знания персонажа «${existingNpc.name}».`, ['knowledge', 'characters'])
+
+    const incomingRecord = incoming as unknown as Record<string, unknown>
+    const ensureCompleteNewObject = (
+      key: 'relationshipDimensions' | 'initiative' | 'strategy' | 'dossier' | 'voice',
+      existingValue: unknown,
+      requiredKeys: string[],
+      domains: ConsequenceDomain[],
+    ) => {
+      const value = incomingRecord[key]
+      if (!value || existingValue) return
+      const record = value as Record<string, unknown>
+      if (requiredKeys.every((requiredKey) => record[requiredKey] !== undefined)) return
+      delete incomingRecord[key]
+      reject(`Отклонён неполный новый раздел «${key}» персонажа «${existingNpc.name}».`, domains)
+    }
+    if (incoming.initiative && !existingNpc.initiative && incoming.initiative.lastAdvancedTurn === undefined) incoming.initiative.lastAdvancedTurn = campaign.turn + 1
+    ensureCompleteNewObject('relationshipDimensions', existingNpc.relationshipDimensions, ['trust', 'respect', 'affection', 'fear', 'suspicion', 'dependence'], ['relationships', 'characters'])
+    ensureCompleteNewObject('initiative', existingNpc.initiative, ['intent', 'nextMove', 'trigger', 'urgency', 'blockedBy', 'lastAdvancedTurn', 'visibility'], ['characters', 'world_pressure'])
+    ensureCompleteNewObject('strategy', existingNpc.strategy, ['intelligence', 'tacticalSkill', 'strategicSkill', 'predictionSkill', 'adaptability', 'deceptionSkill', 'riskTolerance', 'planningHorizon', 'decisionStyle', 'currentPlan', 'observedPlayerPatterns', 'strengths', 'blindSpots', 'contingencies', 'visibility'], ['characters', 'world_pressure'])
+    ensureCompleteNewObject('dossier', existingNpc.dossier, ['familiarity', 'revealedSections', 'revealedStatKeys', 'revealedResourceKeys', 'revealedAbilityIds', 'evidence'], ['characters', 'knowledge'])
+    ensureCompleteNewObject('voice', existingNpc.voice, ['style', 'patterns', 'avoids'], ['characters'])
     return mutation
   })
+  const absoluteRelationshipIds = new Set((plan.statePatch.npcs ?? []).flatMap((mutation) => mutation.operation === 'update' && mutation.npc.relationship !== undefined ? [mutation.targetId] : []))
+  if (absoluteRelationshipIds.size && plan.statePatch.relationships?.some((change) => absoluteRelationshipIds.has(change.npcId))) {
+    plan.statePatch.relationships = plan.statePatch.relationships.filter((change) => !absoluteRelationshipIds.has(change.npcId))
+    notes.push('Абсолютное отношение персонажа сохранено, дублирующая относительная поправка отброшена.')
+  }
   const unknownRemovedStats = plan.statePatch.removeStatKeys?.filter((key) => !knownStats.has(key.toLocaleLowerCase('ru-RU'))) ?? []
   plan.statePatch.removeStatKeys = plan.statePatch.removeStatKeys?.filter((key) => knownStats.has(key.toLocaleLowerCase('ru-RU')))
   if (unknownRemovedStats.length) reject(`Нельзя удалить неизвестные характеристики: ${unknownRemovedStats.join(', ')}.`, ['stats'])
@@ -489,10 +543,81 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     ))
     if (plan.statePatch.world.upsertProcesses.length < before) reject('Отклонён внешний процесс с неизвестной областью или фракцией.', ['world', 'world_pressure'])
   }
+  if (plan.statePatch.world) {
+    const worldPatch = plan.statePatch.world
+    const keepKnown = <T>(
+      values: T[] | undefined,
+      exists: (value: T) => boolean,
+      message: string,
+    ) => {
+      if (!values?.length) return values
+      const accepted = values.filter(exists)
+      if (accepted.length < values.length) reject(message, ['world'])
+      return accepted.length ? accepted : undefined
+    }
+    worldPatch.removeRules = keepKnown(
+      worldPatch.removeRules,
+      (rule) => campaign.world.rules.some((current) => normalizedReference(current) === normalizedReference(rule)),
+      'Отклонено удаление неизвестного правила мира.',
+    )
+    worldPatch.resolveMysteries = keepKnown(
+      worldPatch.resolveMysteries,
+      (mystery) => campaign.world.mysteries.some((current) => normalizedReference(current) === normalizedReference(mystery)),
+      'Отклонено завершение неизвестной тайны мира.',
+    )
+    worldPatch.removeFactions = keepKnown(
+      worldPatch.removeFactions,
+      (name) => campaign.world.factions.some((faction) => normalizedReference(faction.name) === normalizedReference(name)),
+      'Отклонено удаление неизвестной фракции.',
+    )
+    worldPatch.removeLocations = keepKnown(
+      worldPatch.removeLocations,
+      (name) => campaign.world.locations.some((location) => normalizedReference(location.name) === normalizedReference(name)),
+      'Отклонено удаление неизвестной локации.',
+    )
+    worldPatch.removeRouteIds = keepKnown(
+      worldPatch.removeRouteIds,
+      (routeId) => (campaign.world.routes ?? []).some((route) => route.id === routeId),
+      'Отклонено удаление неизвестного маршрута.',
+    )
+    worldPatch.removePlaceIds = keepKnown(
+      worldPatch.removePlaceIds,
+      (placeId) => (campaign.world.places ?? []).some((place) => place.id === placeId),
+      'Отклонено удаление неизвестного места атласа.',
+    )
+    worldPatch.retireProcessIds = keepKnown(
+      worldPatch.retireProcessIds,
+      (processId) => (campaign.world.processes ?? []).some((process) => process.id === processId),
+      'Отклонено завершение неизвестного внешнего процесса.',
+    )
+    worldPatch.removeLawIds = keepKnown(
+      worldPatch.removeLawIds,
+      (lawId) => (campaign.world.laws ?? []).some((law) => law.id === lawId),
+      'Отклонено удаление неизвестного закона мира.',
+    )
+    worldPatch.removeMechanicIds = keepKnown(
+      worldPatch.removeMechanicIds,
+      (mechanicId) => (campaign.world.mechanics ?? []).some((mechanic) => mechanic.id === mechanicId),
+      'Отклонено удаление неизвестной механики мира.',
+    )
+    worldPatch.removeInterfaceModuleIds = keepKnown(
+      worldPatch.removeInterfaceModuleIds,
+      (moduleId) => (campaign.world.interfaceModules ?? []).some((module) => module.id === moduleId),
+      'Отклонено удаление неизвестного модуля интерфейса.',
+    )
+  }
   const reputationUpsertCount = plan.statePatch.upsertFactionReputation?.length ?? 0
   plan.statePatch.upsertFactionReputation = plan.statePatch.upsertFactionReputation?.filter((entry) => knownFactions.has(entry.factionName.toLocaleLowerCase('ru-RU')))
   if ((plan.statePatch.upsertFactionReputation?.length ?? 0) < reputationUpsertCount) reject('Отклонено абсолютное изменение репутации неизвестной фракции.', ['relationships', 'world', 'world_pressure'])
+  if (plan.statePatch.factionReputationDeltas) {
+    const entries = Object.entries(plan.statePatch.factionReputationDeltas)
+    const accepted = entries.filter(([factionName]) => knownFactions.has(factionName.toLocaleLowerCase('ru-RU')))
+    plan.statePatch.factionReputationDeltas = Object.fromEntries(accepted)
+    if (accepted.length < entries.length) reject('Отклонено изменение репутации неизвестной фракции.', ['relationships', 'world', 'world_pressure'])
+  }
+  const socialLinkCount = plan.statePatch.socialLinks?.length ?? 0
   plan.statePatch.socialLinks = plan.statePatch.socialLinks?.filter((link) => link.fromNpcId !== link.toNpcId && usableNpcIds.has(link.fromNpcId) && usableNpcIds.has(link.toNpcId))
+  if ((plan.statePatch.socialLinks?.length ?? 0) < socialLinkCount) reject('Отклонена социальная связь с неизвестным или совпадающим участником.', ['relationships', 'characters'])
   if (plan.statePatch.party) {
     const requestedPartyAdds = plan.statePatch.party.addNpcIds ?? []
     plan.statePatch.party.addNpcIds = requestedPartyAdds.filter((npcId) => {
@@ -502,43 +627,77 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       return Boolean(recruitment && ['invited', 'member'].includes(recruitment.status) && recruitment.willingness >= 50)
     })
     if ((plan.statePatch.party.addNpcIds?.length ?? 0) < requestedPartyAdds.length) reject('Отклонено добавление персонажа без его явного решения и выполненных условий вступления.', ['characters', 'relationships'])
-    plan.statePatch.party.removeNpcIds = plan.statePatch.party.removeNpcIds?.filter((npcId) => knownNpcs.has(npcId))
     const resultingPartyIds = new Set([...(campaign.partyMemberIds ?? []), ...(plan.statePatch.party.addNpcIds ?? [])])
+    const requestedPartyRemovals = plan.statePatch.party.removeNpcIds ?? []
+    plan.statePatch.party.removeNpcIds = requestedPartyRemovals.filter((npcId) => resultingPartyIds.has(npcId))
+    if ((plan.statePatch.party.removeNpcIds?.length ?? 0) < requestedPartyRemovals.length) reject('Отклонено удаление персонажа, которого нет в отряде.', ['characters', 'relationships'])
     plan.statePatch.party.removeNpcIds?.forEach((npcId) => resultingPartyIds.delete(npcId))
     if (plan.statePatch.party.roles) {
       plan.statePatch.party.roles = Object.fromEntries(Object.entries(plan.statePatch.party.roles).filter(([npcId]) => usableNpcIds.has(npcId) && resultingPartyIds.has(npcId)))
     }
   }
   const campaignEntityIds = new Set([campaign.player.id, ...usableNpcIds])
+  const characterArcCount = plan.statePatch.upsertCharacterArcs?.length ?? 0
   plan.statePatch.upsertCharacterArcs = plan.statePatch.upsertCharacterArcs?.filter((arc) => campaignEntityIds.has(arc.ownerId))
+  if ((plan.statePatch.upsertCharacterArcs?.length ?? 0) < characterArcCount) reject('Отклонена арка неизвестного персонажа.', ['characters'])
+  const mysteryCaseCount = plan.statePatch.upsertMysteryCases?.length ?? 0
+  plan.statePatch.upsertMysteryCases = plan.statePatch.upsertMysteryCases?.filter((incoming) => {
+    const existing = campaign.mysteryCases?.find((mystery) => mystery.id === incoming.id)
+    return Boolean(existing || !incoming.culpritId || campaignEntityIds.has(incoming.culpritId))
+  })
+  if ((plan.statePatch.upsertMysteryCases?.length ?? 0) < mysteryCaseCount) reject('Отклонено расследование со ссылкой на неизвестного виновника.', ['knowledge', 'characters'])
   plan.statePatch.upsertMysteryCases = plan.statePatch.upsertMysteryCases?.flatMap((incoming) => {
     const existing = campaign.mysteryCases?.find((mystery) => mystery.id === incoming.id)
-    if (!existing) return incoming.createdTurn === campaign.turn + 1 ? [incoming] : []
+    if (!existing) return [{ ...incoming, createdTurn: campaign.turn + 1 }]
     const incomingClues = new Map(incoming.clues.map((clue) => [clue.id, clue]))
+    const existingClueIds = new Set(existing.clues.map((clue) => clue.id))
+    const mergeUniqueText = (left: string[], right: string[]) => [...new Map([...left, ...right].map((entry) => [normalizedReference(entry), entry])).values()]
     return [{
-      ...existing,
+      ...incoming,
+      id: existing.id,
+      title: existing.title,
+      premise: existing.premise,
+      truth: existing.truth,
+      culpritId: existing.culpritId,
       status: incoming.status,
       conclusion: incoming.conclusion,
       solvedTurn: incoming.solvedTurn,
-      clues: existing.clues.map((clue) => ({
-        ...clue,
-        discovered: clue.discovered || Boolean(incomingClues.get(clue.id)?.discovered),
-      })),
+      clues: [
+        ...existing.clues.map((clue) => ({
+          ...clue,
+          discovered: clue.discovered || Boolean(incomingClues.get(clue.id)?.discovered),
+        })),
+        ...incoming.clues.filter((clue) => !existingClueIds.has(clue.id)),
+      ],
+      redHerrings: mergeUniqueText(existing.redHerrings, incoming.redHerrings),
+      revelationRules: mergeUniqueText(existing.revelationRules, incoming.revelationRules),
+      createdTurn: existing.createdTurn,
     }]
   })
+  const antagonistPlanCount = plan.statePatch.upsertAntagonistPlans?.length ?? 0
   plan.statePatch.upsertAntagonistPlans = plan.statePatch.upsertAntagonistPlans?.filter((incoming) => usableNpcIds.has(incoming.ownerNpcId)).map((incoming) => {
     const existing = campaign.antagonistPlans?.find((plan) => plan.id === incoming.id)
     if (!existing) return incoming
     const incomingSteps = new Map(incoming.steps.map((step) => [step.id, step]))
+    const existingStepIds = new Set(existing.steps.map((step) => step.id))
+    const mergeUniqueText = (left: string[], right: string[]) => [...new Map([...left, ...right].map((entry) => [normalizedReference(entry), entry])).values()]
     return {
       ...incoming,
       id: existing.id,
       ownerNpcId: existing.ownerNpcId,
       title: existing.title,
       objective: existing.objective,
-      steps: existing.steps.map((step) => ({ ...step, status: incomingSteps.get(step.id)?.status ?? step.status })),
+      resources: mergeUniqueText(existing.resources, incoming.resources),
+      knowledge: mergeUniqueText(existing.knowledge, incoming.knowledge),
+      steps: [
+        ...existing.steps.map((step) => ({ ...step, status: incomingSteps.get(step.id)?.status ?? step.status })),
+        ...incoming.steps.filter((step) => !existingStepIds.has(step.id)),
+      ],
+      weaknesses: mergeUniqueText(existing.weaknesses, incoming.weaknesses),
     }
   })
+  if ((plan.statePatch.upsertAntagonistPlans?.length ?? 0) < antagonistPlanCount) reject('Отклонён план противника с неизвестным владельцем.', ['characters', 'world_pressure'])
+  const worldPressureCount = plan.statePatch.upsertWorldPressures?.length ?? 0
   plan.statePatch.upsertWorldPressures = plan.statePatch.upsertWorldPressures?.filter((incoming) => (
     incoming.targetIds.length > 0
     && incoming.targetIds.every((targetId) => campaignEntityIds.has(targetId))
@@ -562,8 +721,13 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       lastAdvancedTurn: campaign.turn + 1,
     }
   })
+  if ((plan.statePatch.upsertWorldPressures?.length ?? 0) < worldPressureCount) reject('Отклонено давление мира с неизвестным источником или целью.', ['world_pressure', 'world', 'characters'])
+  const influenceAssetCount = plan.statePatch.upsertInfluenceAssets?.length ?? 0
   plan.statePatch.upsertInfluenceAssets = plan.statePatch.upsertInfluenceAssets?.filter((asset) => campaignEntityIds.has(asset.holderId) && (!asset.targetId || campaignEntityIds.has(asset.targetId)))
+  if ((plan.statePatch.upsertInfluenceAssets?.length ?? 0) < influenceAssetCount) reject('Отклонён ресурс влияния с неизвестным участником.', ['relationships', 'characters'])
+  const removedInfluenceCount = plan.statePatch.removeInfluenceAssetIds?.length ?? 0
   plan.statePatch.removeInfluenceAssetIds = plan.statePatch.removeInfluenceAssetIds?.filter((assetId) => campaign.influenceAssets?.some((asset) => asset.id === assetId))
+  if ((plan.statePatch.removeInfluenceAssetIds?.length ?? 0) < removedInfluenceCount) reject('Отклонено удаление неизвестного ресурса влияния.', ['relationships'])
   if (plan.statePatch.cleanup) {
     plan.statePatch.cleanup.quests = plan.statePatch.cleanup.quests?.map((entry) => {
       const resolved = resolveQuestReference(entry.targetId)
@@ -868,7 +1032,7 @@ function filterSupplementalArtifactChanges(recorded: ArtifactChange[] | undefine
 /** The consequence auditor is allowed to add only omitted consequences. DeepSeek can still
  * repeat a delta that is already present in the approved plan, so remove overlaps before the
  * ordinary additive merge. This prevents costs, damage and stack losses from being applied twice. */
-function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditInput: TurnPatch | null | undefined): TurnPatch {
+export function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditInput: TurnPatch | null | undefined): TurnPatch {
   const base = baseInput ?? {}
   const additional = structuredClone(auditInput ?? {})
   const omitRecordedKeys = (candidate: Record<string, number> | undefined, recorded: Record<string, number> | undefined) => {
@@ -876,10 +1040,125 @@ function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditInput: Tu
     const filtered = Object.fromEntries(Object.entries(candidate).filter(([key]) => !Object.hasOwn(recorded ?? {}, key)))
     return Object.keys(filtered).length ? filtered : undefined
   }
+  const omitRecordedFields = <T extends Record<string, unknown>>(candidate: T | undefined, recorded: Array<Record<string, unknown> | undefined>): T | undefined => {
+    if (!candidate) return undefined
+    const filtered = Object.fromEntries(Object.entries(candidate).filter(([key]) => !recorded.some((entry) => entry && Object.hasOwn(entry, key)))) as T
+    return Object.keys(filtered).length ? filtered : undefined
+  }
+  const entitySignature = (value: unknown) => {
+    if (!value || typeof value !== 'object') return changeValueSignature(value)
+    const record = value as Record<string, unknown>
+    if (record.id !== undefined) return `id:${String(record.id)}`
+    if (record.key !== undefined) return `key:${normalizedReference(String(record.key))}`
+    if (record.factionName !== undefined) return `faction:${normalizedReference(String(record.factionName))}`
+    if (record.name !== undefined) return `name:${normalizedReference(String(record.name))}`
+    if (record.title !== undefined) return `title:${normalizedReference(String(record.title))}`
+    if (record.subject !== undefined) return `subject:${normalizedReference(String(record.subject))}`
+    return changeValueSignature(value)
+  }
+  const onlyNewEntities = <T>(recorded: T[] | undefined, candidates: T[] | undefined): T[] | undefined => {
+    if (!candidates?.length) return undefined
+    const seen = new Set((recorded ?? []).map(entitySignature))
+    const filtered = candidates.filter((candidate) => {
+      const signature = entitySignature(candidate)
+      if (seen.has(signature)) return false
+      seen.add(signature)
+      return true
+    })
+    return filtered.length ? filtered : undefined
+  }
+  const mutationIdentity = (value: Record<string, unknown>, payloadKey: string) => {
+    if (value.targetId !== undefined) return `id:${String(value.targetId)}`
+    const payload = value[payloadKey]
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return ''
+    const record = payload as Record<string, unknown>
+    if (record.id !== undefined) return `id:${String(record.id)}`
+    if (record.title !== undefined) return `title:${normalizedReference(String(record.title))}`
+    return ''
+  }
+  const onlySupplementalMutations = (
+    recorded: unknown[] | undefined,
+    candidates: unknown[] | undefined,
+    payloadKey: string,
+  ) => {
+    if (!candidates?.length) return undefined
+    const recordedMutations = (recorded ?? []) as Array<Record<string, unknown>>
+    const accepted = (candidates as Array<Record<string, unknown>>).flatMap((candidate) => {
+      const identity = mutationIdentity(candidate, payloadKey)
+      const prior = identity ? recordedMutations.filter((entry) => mutationIdentity(entry, payloadKey) === identity) : []
+      if (!prior.length) return [candidate]
+      const operation = String(candidate.operation ?? '')
+      if (operation === 'add' || prior.some((entry) => !['add', 'update'].includes(String(entry.operation ?? '')))) return []
+      if (operation !== 'update') {
+        return prior.some((entry) => String(entry.operation ?? '') === operation) ? [] : [candidate]
+      }
+      if (prior.some((entry) => String(entry.operation ?? '') === 'add')) return []
+      const payload = candidate[payloadKey]
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return []
+      const recordedPayloads = prior
+        .filter((entry) => String(entry.operation ?? '') === 'update')
+        .map((entry) => entry[payloadKey])
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+      const supplemental = omitRecordedFields(payload as Record<string, unknown>, recordedPayloads)
+      return supplemental ? [{ ...candidate, [payloadKey]: supplemental }] : []
+    })
+    return accepted.length ? accepted : undefined
+  }
+  const onlyNewLore = (recorded: TurnPatch['lore'], candidates: TurnPatch['lore']) => {
+    if (!candidates?.length) return undefined
+    const ids = new Set((recorded ?? []).flatMap((entry) => entry.id ? [entry.id] : []))
+    const titles = new Set((recorded ?? []).map((entry) => normalizedReference(entry.title)))
+    const filtered = candidates.filter((entry) => {
+      if ((entry.id && ids.has(entry.id)) || titles.has(normalizedReference(entry.title))) return false
+      if (entry.id) ids.add(entry.id)
+      titles.add(normalizedReference(entry.title))
+      return true
+    })
+    return filtered.length ? filtered : undefined
+  }
+
+  additional.playerProfile = omitRecordedFields(
+    additional.playerProfile as Record<string, unknown> | undefined,
+    [base.playerProfile as Record<string, unknown> | undefined],
+  ) as TurnPatch['playerProfile']
+  additional.scene = omitRecordedFields(
+    additional.scene as Record<string, unknown> | undefined,
+    [base.scene as Record<string, unknown> | undefined],
+  ) as TurnPatch['scene']
+  if (base.pacing) additional.pacing = undefined
+  if (base.conflict) additional.conflict = undefined
+  additional.upsertStats = onlyNewEntities(base.upsertStats, additional.upsertStats)
+  additional.upsertResources = onlyNewEntities(base.upsertResources, additional.upsertResources)
+  additional.addAbilities = onlyNewEntities(base.addAbilities, additional.addAbilities)
+  additional.upsertFactionReputation = onlyNewEntities(base.upsertFactionReputation, additional.upsertFactionReputation)
+  additional.socialLinks = onlyNewEntities(base.socialLinks, additional.socialLinks)
+  additional.upsertCharacterArcs = onlyNewEntities(base.upsertCharacterArcs, additional.upsertCharacterArcs)
+  additional.upsertMysteryCases = onlyNewEntities(base.upsertMysteryCases, additional.upsertMysteryCases)
+  additional.upsertAntagonistPlans = onlyNewEntities(base.upsertAntagonistPlans, additional.upsertAntagonistPlans)
+  additional.upsertWorldPressures = onlyNewEntities(base.upsertWorldPressures, additional.upsertWorldPressures)
+  additional.upsertInfluenceAssets = onlyNewEntities(base.upsertInfluenceAssets, additional.upsertInfluenceAssets)
+  additional.quests = onlySupplementalMutations(base.quests, additional.quests, 'quest') as TurnPatch['quests']
+  additional.threads = onlySupplementalMutations(base.threads, additional.threads, 'thread') as TurnPatch['threads']
+  additional.worldEvents = onlySupplementalMutations(base.worldEvents, additional.worldEvents, 'event') as TurnPatch['worldEvents']
+  additional.lore = onlyNewLore(base.lore, additional.lore)
   additional.statDeltas = omitRecordedKeys(additional.statDeltas, base.statDeltas)
   additional.resourceDeltas = omitRecordedKeys(additional.resourceDeltas, base.resourceDeltas)
   additional.currencyDeltas = omitRecordedKeys(additional.currencyDeltas, base.currencyDeltas)
   additional.factionReputationDeltas = omitRecordedKeys(additional.factionReputationDeltas, base.factionReputationDeltas)
+
+  additional.relationships = additional.relationships?.flatMap((candidate) => {
+    const prior = base.relationships?.filter((entry) => entry.npcId === candidate.npcId) ?? []
+    if (!prior.length) return [candidate]
+    const recordedDimensions = new Set(prior.flatMap((entry) => Object.keys(entry.dimensions ?? {})))
+    const dimensions = candidate.dimensions
+      ? Object.fromEntries(Object.entries(candidate.dimensions).filter(([key]) => !recordedDimensions.has(key)))
+      : undefined
+    const note = candidate.note?.trim() && !prior.some((entry) => normalizedReference(entry.note) === normalizedReference(candidate.note))
+      ? candidate.note.trim()
+      : undefined
+    if (!Object.keys(dimensions ?? {}).length && !note) return []
+    return [{ npcId: candidate.npcId, delta: 0, ...(Object.keys(dimensions ?? {}).length ? { dimensions } : {}), ...(note ? { note } : {}) }]
+  })
 
   additional.inventory = additional.inventory?.flatMap<NonNullable<TurnPatch['inventory']>[number]>((mutation) => {
     const recorded = base.inventory?.filter((entry) => entry.operation !== 'add' && mutation.operation !== 'add' && entry.targetId === mutation.targetId) ?? []
@@ -906,6 +1185,8 @@ function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditInput: Tu
     const recordedUpdates = base.npcs?.filter((entry) => entry.operation === 'update' && entry.targetId === mutation.targetId) ?? []
     if (!recordedUpdates.length) return [mutation]
     const npc = { ...mutation.npc }
+    const npcRecord = npc as unknown as Record<string, unknown>
+    const priorRecords = recordedUpdates.map((entry) => entry.operation === 'update' ? entry.npc as unknown as Record<string, unknown> : {})
     const recordedResourceDeltas = Object.assign({}, ...recordedUpdates.map((entry) => entry.operation === 'update' ? entry.npc.resourceDeltas ?? {} : {}))
     const recordedStatDeltas = Object.assign({}, ...recordedUpdates.map((entry) => entry.operation === 'update' ? entry.npc.statDeltas ?? {} : {}))
     npc.resourceDeltas = omitRecordedKeys(npc.resourceDeltas, recordedResourceDeltas)
@@ -914,16 +1195,97 @@ function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditInput: Tu
     npc.abilityChanges = filterSupplementalAbilityChanges(recordedNpcAbilityChanges, npc.abilityChanges)
     const recordedNpcEffects = new Set(recordedUpdates.flatMap((entry) => entry.operation === 'update' ? (entry.npc.upsertStatusEffects ?? []).flatMap((effect) => [effect.id, effect.name.toLocaleLowerCase('ru-RU')].filter(Boolean)) : []))
     npc.upsertStatusEffects = npc.upsertStatusEffects?.filter((effect) => !recordedNpcEffects.has(effect.id) && !recordedNpcEffects.has(effect.name.toLocaleLowerCase('ru-RU')))
-    const recordedStrategyKeys = new Set(recordedUpdates.flatMap((entry) => entry.operation === 'update' ? Object.keys(entry.npc.strategy ?? {}) : []))
-    if (npc.strategy) {
-      const strategy = Object.fromEntries(Object.entries(npc.strategy).filter(([key]) => !recordedStrategyKeys.has(key)))
-      npc.strategy = Object.keys(strategy).length ? strategy : undefined
-    }
+    const partialObjectKeys = ['relationshipDimensions', 'initiative', 'strategy', 'dossier', 'voice'] as const
+    partialObjectKeys.forEach((key) => {
+      const value = npcRecord[key]
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return
+      const recordedObjects = priorRecords.map((record) => {
+        const priorValue = record[key]
+        return priorValue && typeof priorValue === 'object' && !Array.isArray(priorValue) ? priorValue as Record<string, unknown> : undefined
+      })
+      const filtered = omitRecordedFields(value as Record<string, unknown>, recordedObjects)
+      if (filtered) npcRecord[key] = filtered
+      else delete npcRecord[key]
+    })
+    const arrayGroups: Array<{ keys: string[]; signature: (value: unknown) => string }> = [
+      { keys: ['notes'], signature: (value) => normalizedReference(String(value)) },
+      { keys: ['stats', 'upsertStats'], signature: entitySignature },
+      { keys: ['resources', 'upsertResources'], signature: entitySignature },
+      { keys: ['statusEffects', 'upsertStatusEffects'], signature: entitySignature },
+      { keys: ['abilities', 'upsertAbilities'], signature: entitySignature },
+      { keys: ['knowledge'], signature: entitySignature },
+      { keys: ['removeStatKeys'], signature: (value) => normalizedReference(String(value)) },
+      { keys: ['removeResourceKeys'], signature: (value) => normalizedReference(String(value)) },
+      { keys: ['removeStatusEffectIds'], signature: (value) => String(value) },
+      { keys: ['removeAbilityIds'], signature: (value) => String(value) },
+      { keys: ['removeKnowledgeIds'], signature: (value) => String(value) },
+    ]
+    arrayGroups.forEach(({ keys, signature }) => {
+      const seen = new Set(priorRecords.flatMap((record) => keys.flatMap((key) => Array.isArray(record[key]) ? (record[key] as unknown[]).map(signature) : [])))
+      keys.forEach((key) => {
+        const values = npcRecord[key]
+        if (!Array.isArray(values)) return
+        const filtered = values.filter((value) => {
+          const candidateSignature = signature(value)
+          if (seen.has(candidateSignature)) return false
+          seen.add(candidateSignature)
+          return true
+        })
+        if (filtered.length) npcRecord[key] = filtered
+        else delete npcRecord[key]
+      })
+    })
+    const handledKeys = new Set([
+      'statDeltas', 'resourceDeltas', 'abilityChanges', 'relationshipDimensions', 'initiative', 'strategy', 'dossier', 'voice',
+      ...arrayGroups.flatMap((group) => group.keys),
+    ])
+    Object.keys(npcRecord).forEach((key) => {
+      if (!handledKeys.has(key) && priorRecords.some((record) => Object.hasOwn(record, key))) delete npcRecord[key]
+    })
     const arrayKeys = ['abilityChanges', 'upsertStatusEffects', 'removeStatusEffectIds', 'upsertAbilities', 'removeAbilityIds'] as const
     arrayKeys.forEach((key) => { if (npc[key]?.length === 0) delete npc[key] })
     if (Object.keys(npc).length === 0) return []
     return [{ ...mutation, npc }]
   })
+
+  if (additional.world && base.world) {
+    const world = additional.world as unknown as Record<string, unknown>
+    const recordedWorld = base.world as unknown as Record<string, unknown>
+    const scalarWorldKeys = ['name', 'tagline', 'inspiration', 'genre', 'tone', 'overview', 'era', 'calendarDayDelta', 'calendarLabel']
+    scalarWorldKeys.forEach((key) => { if (Object.hasOwn(recordedWorld, key)) delete world[key] })
+    if (additional.world.system && base.world.system) {
+      additional.world.system = omitRecordedFields(
+        additional.world.system as Record<string, unknown>,
+        [base.world.system as Record<string, unknown>],
+      ) as NonNullable<TurnPatch['world']>['system']
+    }
+    if (additional.world.presentation && base.world.presentation) {
+      const presentation = omitRecordedFields(
+        additional.world.presentation as Record<string, unknown>,
+        [base.world.presentation as Record<string, unknown>],
+      ) as Record<string, unknown> | undefined
+      const mergedPresentation = { ...(presentation ?? {}) } as NonNullable<TurnPatch['world']>['presentation']
+      ;(['labels', 'categoryLabels', 'rarityLabels'] as const).forEach((key) => {
+        const candidate = additional.world?.presentation?.[key]
+        if (!candidate) return
+        const filtered = omitRecordedFields(
+          candidate as Record<string, unknown>,
+          [base.world?.presentation?.[key] as Record<string, unknown> | undefined],
+        )
+        if (filtered) mergedPresentation![key] = filtered
+        else delete mergedPresentation![key]
+      })
+      additional.world.presentation = Object.keys(mergedPresentation ?? {}).length ? mergedPresentation : undefined
+    }
+    additional.world.upsertFactions = onlyNewEntities(base.world.upsertFactions, additional.world.upsertFactions)
+    additional.world.upsertLocations = onlyNewEntities(base.world.upsertLocations, additional.world.upsertLocations)
+    additional.world.upsertRoutes = onlyNewEntities(base.world.upsertRoutes, additional.world.upsertRoutes)
+    additional.world.upsertPlaces = onlyNewEntities(base.world.upsertPlaces, additional.world.upsertPlaces)
+    additional.world.upsertProcesses = onlyNewEntities(base.world.upsertProcesses, additional.world.upsertProcesses)
+    additional.world.upsertLaws = onlyNewEntities(base.world.upsertLaws, additional.world.upsertLaws)
+    additional.world.upsertMechanics = onlyNewEntities(base.world.upsertMechanics, additional.world.upsertMechanics)
+    additional.world.upsertInterfaceModules = onlyNewEntities(base.world.upsertInterfaceModules, additional.world.upsertInterfaceModules)
+  }
 
   const recordedMemories = new Set(base.memories?.map((memory) => memory.content.toLocaleLowerCase('ru-RU')) ?? [])
   additional.memories = additional.memories?.filter((memory) => !recordedMemories.has(memory.content.toLocaleLowerCase('ru-RU')))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { NPC, NPCDossierSection, StateChange } from '../../shared/types'
+import type { NPC, NPCDossierSection, StateChange, TurnPatch } from '../../shared/types'
 import { createDemoCampaign } from './demo'
 import { applyPatch, commitTurn, rewindLastTurn } from './engine'
 import { diffCampaignState } from './state-changes'
@@ -496,6 +496,25 @@ describe('state engine', () => {
       expect.objectContaining({ kind: 'health', delta: -2 }),
       expect.objectContaining({ kind: 'condition', label: 'Яд скорпиона', tone: 'positive' }),
     ]))
+  })
+
+  it('does not advance recurring effects when a patch is an out-of-story campaign edit', () => {
+    const campaign = createDemoCampaign()
+    const health = campaign.player.resources.find((resource) => resource.kind === 'health') ?? campaign.player.resources[0]
+    health.value = 10
+    health.max = 10
+    campaign.player.statusEffects = [{
+      id: 'effect-editor-safe', name: 'Кровотечение', category: 'injury', description: 'Требует сюжетного времени.',
+      source: 'Рана', severity: 50, stacks: 1, duration: { unit: 'turns', remaining: 3 }, effects: ['Потеря здоровья'],
+      resourceDeltasPerTurn: { [health.key]: -2 }, hidden: false, appliedTurn: 0,
+    }]
+    const applyOutOfStoryEdit = applyPatch as unknown as typeof applyPatch & ((base: typeof campaign, patch: TurnPatch, turn: number, diagnostics: StateChange[], options: { advanceStatusClock: false }) => typeof campaign)
+
+    const edited = applyOutOfStoryEdit(campaign, { playerProfile: { appearance: 'Перевязано плечо' } }, campaign.turn, [], { advanceStatusClock: false })
+
+    expect(edited.player.resources.find((resource) => resource.key === health.key)?.value).toBe(10)
+    expect(edited.player.statusEffects?.[0].duration).toEqual({ unit: 'turns', remaining: 3 })
+    expect(edited.player.appearance).toBe('Перевязано плечо')
   })
 
   it('advances scene- and day-based effect durations only when their clocks move', () => {

@@ -212,7 +212,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const response = await requestCampaignEdit({ campaign, instruction: instruction.trim(), provider }, controller.signal, setOperationProgress)
       const diagnostics: Parameters<typeof applyPatch>[3] = []
-      const next = applyPatch(campaign, response.statePatch, campaign.turn, diagnostics)
+      const next = applyPatch(campaign, response.statePatch, campaign.turn, diagnostics, { advanceStatusClock: false })
       if (response.campaignPatch?.title?.trim()) next.title = response.campaignPatch.title.trim()
       if (response.settingsPatch) next.settings = { ...next.settings, ...response.settingsPatch }
       next.updatedAt = new Date().toISOString()
