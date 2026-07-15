@@ -605,6 +605,81 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
       (moduleId) => (campaign.world.interfaceModules ?? []).some((module) => module.id === moduleId),
       'Отклонено удаление неизвестного модуля интерфейса.',
     )
+    worldPatch.removeMetricIds = keepKnown(
+      worldPatch.removeMetricIds,
+      (metricId) => (campaign.world.metrics ?? []).some((metric) => metric.id === metricId),
+      'Отклонено удаление неизвестного показателя мира.',
+    )
+
+    // Full module upserts are applied before granular changes. Simulate the same order here so
+    // a change may safely target a module (or element) created in this very patch.
+    const removedModuleIds = new Set(worldPatch.removeInterfaceModuleIds ?? [])
+    const resultingModuleElements = new Map((campaign.world.interfaceModules ?? [])
+      .filter((module) => !removedModuleIds.has(module.id))
+      .map((module) => [module.id, new Set(module.elements.map((element) => element.id))]))
+    worldPatch.upsertInterfaceModules?.forEach((module) => {
+      resultingModuleElements.set(module.id, new Set(module.elements.map((element) => element.id)))
+    })
+    if (worldPatch.interfaceModuleChanges?.length) {
+      const acceptedChanges: NonNullable<NonNullable<TurnPatch['world']>['interfaceModuleChanges']> = []
+      worldPatch.interfaceModuleChanges.forEach((change) => {
+        const currentElementIds = resultingModuleElements.get(change.moduleId)
+        if (!currentElementIds) {
+          reject('Отклонено изменение неизвестного модуля интерфейса.', ['world'])
+          return
+        }
+        const upsertedElementIds = new Set((change.upsertElements ?? []).map((element) => element.id))
+        const removableElementIds = new Set([...currentElementIds, ...upsertedElementIds])
+        const acceptedRemovals = (change.removeElementIds ?? []).filter((elementId) => removableElementIds.has(elementId))
+        if (acceptedRemovals.length < (change.removeElementIds?.length ?? 0)) {
+          reject('Отклонено удаление неизвестного элемента модуля интерфейса.', ['world'])
+        }
+        const nextElementIds = new Set([...currentElementIds].filter((elementId) => !acceptedRemovals.includes(elementId)))
+        upsertedElementIds.forEach((elementId) => nextElementIds.add(elementId))
+        resultingModuleElements.set(change.moduleId, nextElementIds)
+        acceptedChanges.push({
+          ...change,
+          removeElementIds: acceptedRemovals.length ? acceptedRemovals : undefined,
+        })
+      })
+      worldPatch.interfaceModuleChanges = acceptedChanges.length ? acceptedChanges : undefined
+    }
+
+    const removedMetricIds = new Set(worldPatch.removeMetricIds ?? [])
+    const resultingMetrics = (campaign.world.metrics ?? [])
+      .filter((metric) => !removedMetricIds.has(metric.id))
+      .map((metric) => ({ ...metric }))
+    if (worldPatch.upsertMetrics?.length) {
+      const acceptedMetrics: NonNullable<NonNullable<TurnPatch['world']>['upsertMetrics']> = []
+      worldPatch.upsertMetrics.forEach((metric) => {
+        const existingIndex = resultingMetrics.findIndex((current) => current.id === metric.id)
+        const duplicateKey = resultingMetrics.some((current, index) => (
+          index !== existingIndex && normalizedReference(current.key) === normalizedReference(metric.key)
+        ))
+        if (duplicateKey) {
+          reject('Отклонен показатель мира с ключом, который уже принадлежит другому показателю.', ['world'])
+          return
+        }
+        if (existingIndex >= 0) resultingMetrics[existingIndex] = { ...metric, lastChangedTurn: metric.lastChangedTurn ?? campaign.turn + 1 }
+        else resultingMetrics.push({ ...metric, lastChangedTurn: metric.lastChangedTurn ?? campaign.turn + 1 })
+        acceptedMetrics.push(metric)
+      })
+      worldPatch.upsertMetrics = acceptedMetrics.length ? acceptedMetrics : undefined
+    }
+    if (worldPatch.metricDeltas) {
+      const entries = Object.entries(worldPatch.metricDeltas)
+      const accepted = entries.filter(([reference]) => {
+        const normalized = normalizedReference(reference)
+        const matches = resultingMetrics.filter((metric) => (
+          metric.id === reference
+          || normalizedReference(metric.key) === normalized
+          || normalizedReference(metric.label) === normalized
+        ))
+        return matches.length === 1
+      })
+      worldPatch.metricDeltas = accepted.length ? Object.fromEntries(accepted) : undefined
+      if (accepted.length < entries.length) reject('Отклонено изменение неизвестного или неоднозначного показателя мира.', ['world'])
+    }
   }
   const reputationUpsertCount = plan.statePatch.upsertFactionReputation?.length ?? 0
   plan.statePatch.upsertFactionReputation = plan.statePatch.upsertFactionReputation?.filter((entry) => knownFactions.has(entry.factionName.toLocaleLowerCase('ru-RU')))
@@ -834,7 +909,12 @@ export function mergePatches(backgroundInput: TurnPatch | null | undefined, fore
     upsertMechanics: concat(background.world?.upsertMechanics, foreground.world?.upsertMechanics),
     removeMechanicIds: unique(background.world?.removeMechanicIds, foreground.world?.removeMechanicIds),
     upsertInterfaceModules: concat(background.world?.upsertInterfaceModules, foreground.world?.upsertInterfaceModules),
+    interfaceModuleChanges: concat(background.world?.interfaceModuleChanges, foreground.world?.interfaceModuleChanges),
     removeInterfaceModuleIds: unique(background.world?.removeInterfaceModuleIds, foreground.world?.removeInterfaceModuleIds),
+    interfaceBlueprint: foreground.world?.interfaceBlueprint ?? background.world?.interfaceBlueprint,
+    upsertMetrics: concat(background.world?.upsertMetrics, foreground.world?.upsertMetrics),
+    metricDeltas: sumRecords(background.world?.metricDeltas, foreground.world?.metricDeltas),
+    removeMetricIds: unique(background.world?.removeMetricIds, foreground.world?.removeMetricIds),
     system: worldSystem,
     presentation: worldPresentation,
     ...(hasCalendarDayDelta ? { calendarDayDelta: (background.world?.calendarDayDelta ?? 0) + (foreground.world?.calendarDayDelta ?? 0) } : {}),
@@ -1277,6 +1357,7 @@ export function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditIn
       })
       additional.world.presentation = Object.keys(mergedPresentation ?? {}).length ? mergedPresentation : undefined
     }
+    if (base.world.interfaceBlueprint) additional.world.interfaceBlueprint = undefined
     additional.world.upsertFactions = onlyNewEntities(base.world.upsertFactions, additional.world.upsertFactions)
     additional.world.upsertLocations = onlyNewEntities(base.world.upsertLocations, additional.world.upsertLocations)
     additional.world.upsertRoutes = onlyNewEntities(base.world.upsertRoutes, additional.world.upsertRoutes)
@@ -1284,7 +1365,72 @@ export function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditIn
     additional.world.upsertProcesses = onlyNewEntities(base.world.upsertProcesses, additional.world.upsertProcesses)
     additional.world.upsertLaws = onlyNewEntities(base.world.upsertLaws, additional.world.upsertLaws)
     additional.world.upsertMechanics = onlyNewEntities(base.world.upsertMechanics, additional.world.upsertMechanics)
-    additional.world.upsertInterfaceModules = onlyNewEntities(base.world.upsertInterfaceModules, additional.world.upsertInterfaceModules)
+
+    // Interface modules have one identity only: their stable id. A matching title must never
+    // overwrite or suppress an unrelated module.
+    const baseFullModuleIds = new Set((base.world.upsertInterfaceModules ?? []).map((module) => module.id))
+    const baseRemovedModuleIds = new Set(base.world.removeInterfaceModuleIds ?? [])
+    const baseModuleChanges = base.world.interfaceModuleChanges ?? []
+    const baseChangedModuleIds = new Set(baseModuleChanges.map((change) => change.moduleId))
+    const occupiedModuleIds = new Set([...baseFullModuleIds, ...baseRemovedModuleIds, ...baseChangedModuleIds])
+    additional.world.upsertInterfaceModules = additional.world.upsertInterfaceModules?.filter((module) => {
+      if (occupiedModuleIds.has(module.id)) return false
+      occupiedModuleIds.add(module.id)
+      return true
+    })
+    additional.world.interfaceModuleChanges = additional.world.interfaceModuleChanges?.flatMap((change) => {
+      if (baseFullModuleIds.has(change.moduleId) || baseRemovedModuleIds.has(change.moduleId)) return []
+      const prior = baseModuleChanges.filter((recorded) => recorded.moduleId === change.moduleId)
+      if (!prior.length) return [change]
+      const recordedModuleFields = new Set(prior.flatMap((recorded) => Object.keys(recorded.module ?? {})))
+      const module = change.module
+        ? Object.fromEntries(Object.entries(change.module).filter(([key]) => !recordedModuleFields.has(key))) as typeof change.module
+        : undefined
+      const touchedElementIds = new Set(prior.flatMap((recorded) => [
+        ...(recorded.upsertElements ?? []).map((element) => element.id),
+        ...(recorded.removeElementIds ?? []),
+      ]))
+      const upsertElements = change.upsertElements?.filter((element) => !touchedElementIds.has(element.id))
+      const removeElementIds = change.removeElementIds?.filter((elementId) => !touchedElementIds.has(elementId))
+      if (!Object.keys(module ?? {}).length && !upsertElements?.length && !removeElementIds?.length) return []
+      return [{
+        ...change,
+        module: Object.keys(module ?? {}).length ? module : undefined,
+        upsertElements: upsertElements?.length ? upsertElements : undefined,
+        removeElementIds: removeElementIds?.length ? removeElementIds : undefined,
+      }]
+    })
+
+    const auditMetricDefinitions = additional.world.upsertMetrics ?? []
+    const metricAliases = new Map<string, Set<string>>()
+    ;[...(base.world.upsertMetrics ?? []), ...auditMetricDefinitions].forEach((metric) => {
+      ;[metric.id, metric.key, metric.label].forEach((alias) => {
+        const normalized = normalizedReference(alias)
+        const identities = metricAliases.get(normalized) ?? new Set<string>()
+        identities.add(metric.id)
+        metricAliases.set(normalized, identities)
+      })
+    })
+    const metricDeltaIdentity = (reference: string) => {
+      const normalized = normalizedReference(reference)
+      const identities = metricAliases.get(normalized)
+      return identities?.size === 1 ? `id:${[...identities][0]}` : `reference:${normalized}`
+    }
+    const recordedMetricDeltas = new Set(Object.keys(base.world.metricDeltas ?? {}).map(metricDeltaIdentity))
+    if (additional.world.metricDeltas) {
+      const filtered = Object.fromEntries(Object.entries(additional.world.metricDeltas)
+        .filter(([reference]) => !recordedMetricDeltas.has(metricDeltaIdentity(reference))))
+      additional.world.metricDeltas = Object.keys(filtered).length ? filtered : undefined
+    }
+    const occupiedMetricIds = new Set((base.world.upsertMetrics ?? []).map((metric) => metric.id))
+    const occupiedMetricKeys = new Set((base.world.upsertMetrics ?? []).map((metric) => normalizedReference(metric.key)))
+    additional.world.upsertMetrics = auditMetricDefinitions.filter((metric) => {
+      const key = normalizedReference(metric.key)
+      if (occupiedMetricIds.has(metric.id) || occupiedMetricKeys.has(key)) return false
+      occupiedMetricIds.add(metric.id)
+      occupiedMetricKeys.add(key)
+      return true
+    })
   }
 
   const recordedMemories = new Set(base.memories?.map((memory) => memory.content.toLocaleLowerCase('ru-RU')) ?? [])

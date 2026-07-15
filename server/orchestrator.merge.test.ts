@@ -4,6 +4,25 @@ import { createDemoCampaign } from '../src/lib/demo'
 import { mergeAuditPatch, mergePatches, sanitizePlan } from './orchestrator'
 import { turnPlanSchema } from './schemas'
 
+type InterfaceModuleDraft = NonNullable<NonNullable<TurnPatch['world']>['upsertInterfaceModules']>[number]
+type WorldMetricDraft = NonNullable<NonNullable<TurnPatch['world']>['upsertMetrics']>[number]
+
+function interfaceModule(id: string, title = 'Пульс мира', elementId = `${id}-value`): InterfaceModuleDraft {
+  return {
+    id, title, description: `Живой модуль «${title}».`, placement: 'dashboard', visual: 'cards', icon: 'pulse',
+    accent: '#71d3b1', secondary: '#e7b96b', priority: 70, visibility: 'known', reason: 'Важен для этого мира.',
+    updatePolicy: 'Обновлять при значимых событиях.', collapsible: true, collapsedByDefault: false,
+    elements: [{ id: elementId, label: 'Значение', kind: 'value', value: 1, state: 'normal', links: [] }],
+  }
+}
+
+function worldMetric(id: string, key: string, label: string): WorldMetricDraft {
+  return {
+    id, key, label, description: `Показатель «${label}».`, value: 10, min: 0, max: 100, visibility: 'known',
+    source: 'Состояние мира', updatePolicy: 'Менять после значимых событий.',
+  }
+}
+
 describe('turn patch merging', () => {
   it('keeps supplemental consequences without applying the same relationship, level or NPC field twice', () => {
     const merged = mergeAuditPatch({
@@ -174,6 +193,7 @@ describe('turn patch merging', () => {
           removeLawIds: ['law-missing'],
           removeMechanicIds: ['mechanic-missing'],
           removeInterfaceModuleIds: ['module-missing'],
+          removeMetricIds: ['metric-missing'],
         },
       },
     })
@@ -191,6 +211,7 @@ describe('turn patch merging', () => {
       removeLawIds: undefined,
       removeMechanicIds: undefined,
       removeInterfaceModuleIds: undefined,
+      removeMetricIds: undefined,
     })
     expect(sanitized.rejections.map((entry) => entry.message)).toEqual(expect.arrayContaining([
       expect.stringContaining('неизвестного правила'),
@@ -203,7 +224,44 @@ describe('turn patch merging', () => {
       expect.stringContaining('неизвестного закона'),
       expect.stringContaining('неизвестной механики'),
       expect.stringContaining('неизвестного модуля'),
+      expect.stringContaining('неизвестного показателя мира'),
       expect.stringContaining('нет в отряде'),
+    ]))
+  })
+
+  it('sanitizes granular module and metric references in the same order in which the engine applies them', () => {
+    const campaign = createDemoCampaign()
+    campaign.world.interfaceModules = [{ ...interfaceModule('module-existing', 'След угрозы', 'element-existing'), createdTurn: 0, lastChangedTurn: 0 }]
+    campaign.world.metrics = [{ ...worldMetric('metric-existing', 'threat_heat', 'Угроза'), lastChangedTurn: 0 }]
+    const freshModule = interfaceModule('module-fresh', 'Контур ритуала', 'element-fresh')
+    const plan = turnPlanSchema.parse({
+      outcome: 'Интерфейс подстраивается под изменения мира.',
+      beats: ['Угроза растёт.'],
+      suggestions: ['Осмотреть пульт', 'Продолжить'],
+      statePatch: { world: {
+        upsertInterfaceModules: [freshModule],
+        interfaceModuleChanges: [
+          { moduleId: 'module-existing', module: { priority: 88 }, removeElementIds: ['element-existing', 'element-missing'] },
+          { moduleId: 'module-fresh', removeElementIds: ['element-fresh'], upsertElements: [{ id: 'element-new', label: 'Стабильность', kind: 'meter', min: 0, max: 100, state: 'warning', links: [] }] },
+          { moduleId: 'module-missing', module: { title: 'Ошибочная карточка' } },
+        ],
+        upsertMetrics: [worldMetric('metric-fresh', 'ritual_stability', 'Стабильность ритуала')],
+        metricDeltas: { threat_heat: 2, 'metric-fresh': 3, metric_missing: 1 },
+        removeMetricIds: ['metric-missing'],
+      } },
+    })
+
+    const sanitized = sanitizePlan(campaign, plan)
+
+    expect(sanitized.plan.statePatch.world?.interfaceModuleChanges).toHaveLength(2)
+    expect(sanitized.plan.statePatch.world?.interfaceModuleChanges?.[0].removeElementIds).toEqual(['element-existing'])
+    expect(sanitized.plan.statePatch.world?.interfaceModuleChanges?.[1]).toMatchObject({ moduleId: 'module-fresh', removeElementIds: ['element-fresh'] })
+    expect(sanitized.plan.statePatch.world?.metricDeltas).toEqual({ threat_heat: 2, 'metric-fresh': 3 })
+    expect(sanitized.plan.statePatch.world?.removeMetricIds).toBeUndefined()
+    expect(sanitized.rejections.map((entry) => entry.message)).toEqual(expect.arrayContaining([
+      expect.stringContaining('неизвестного модуля'),
+      expect.stringContaining('неизвестного элемента'),
+      expect.stringContaining('неизвестного или неоднозначного показателя'),
     ]))
   })
 
@@ -215,7 +273,12 @@ describe('turn patch merging', () => {
         upsertLaws: [{ id: 'law-neural', title: 'Нейронный предел' }],
         upsertMechanics: [{ id: 'mechanic-strain', name: 'Нейронная нагрузка' }],
         upsertInterfaceModules: [{ id: 'module-neural', title: 'Состояние кибернетики' }],
+        interfaceModuleChanges: [{ moduleId: 'module-neural', module: { priority: 65 } }],
         removeInterfaceModuleIds: ['module-old'],
+        interfaceBlueprint: { title: 'Нейропульт', subtitle: 'Фоновая компоновка' },
+        upsertMetrics: [{ id: 'metric-strain', key: 'strain' }],
+        metricDeltas: { strain: 2 },
+        removeMetricIds: ['metric-old'],
       },
     } as TurnPatch
     const foreground = {
@@ -225,6 +288,11 @@ describe('turn patch merging', () => {
         upsertLaws: [{ id: 'law-corp', title: 'Корпоративный контроль' }],
         upsertMechanics: [{ id: 'mechanic-scan', name: 'Удалённое сканирование' }],
         upsertInterfaceModules: [{ id: 'module-corp', title: 'Внимание корпорации' }],
+        interfaceModuleChanges: [{ moduleId: 'module-corp', module: { pinned: true } }],
+        interfaceBlueprint: { title: 'Корпоративный пульт', subtitle: 'Текущая компоновка' },
+        upsertMetrics: [{ id: 'metric-alert', key: 'alert' }],
+        metricDeltas: { strain: 3, alert: 1 },
+        removeMetricIds: ['metric-obsolete'],
         removeLawIds: ['law-obsolete'],
       },
     } as TurnPatch
@@ -234,7 +302,12 @@ describe('turn patch merging', () => {
     expect(merged.world?.upsertLaws?.map((entry) => entry.id)).toEqual(['law-neural', 'law-corp'])
     expect(merged.world?.upsertMechanics?.map((entry) => entry.id)).toEqual(['mechanic-strain', 'mechanic-scan'])
     expect(merged.world?.upsertInterfaceModules?.map((entry) => entry.id)).toEqual(['module-neural', 'module-corp'])
+    expect(merged.world?.interfaceModuleChanges?.map((entry) => entry.moduleId)).toEqual(['module-neural', 'module-corp'])
     expect(merged.world?.removeInterfaceModuleIds).toEqual(['module-old'])
+    expect(merged.world?.interfaceBlueprint).toMatchObject({ title: 'Корпоративный пульт' })
+    expect(merged.world?.upsertMetrics?.map((entry) => entry.id)).toEqual(['metric-strain', 'metric-alert'])
+    expect(merged.world?.metricDeltas).toEqual({ strain: 5, alert: 1 })
+    expect(merged.world?.removeMetricIds).toEqual(['metric-old', 'metric-obsolete'])
     expect(merged.world?.removeLawIds).toEqual(['law-obsolete'])
     expect(merged.world?.system).toMatchObject({
       summary: 'Нейронная нагрузка меняет состояние имплантов.',
@@ -245,5 +318,49 @@ describe('turn patch merging', () => {
       categoryLabels: { artifact: 'Киберимплант' },
       rarityLabels: { legendary: 'Единственный прототип' },
     })
+  })
+
+  it('keeps audit additions supplemental for adaptive modules, blueprints and world metrics', () => {
+    const base = {
+      world: {
+        upsertInterfaceModules: [interfaceModule('module-base', 'Общее название')],
+        interfaceModuleChanges: [{ moduleId: 'module-evolving', module: { priority: 70 }, upsertElements: [{ id: 'element-recorded' }] }],
+        interfaceBlueprint: { title: 'Основной пульт' },
+        upsertMetrics: [worldMetric('metric-heat', 'heat', 'Накал')],
+        metricDeltas: { heat: 5 },
+      },
+    } as TurnPatch
+    const audit = {
+      world: {
+        upsertInterfaceModules: [
+          interfaceModule('module-base', 'Попытка замены'),
+          interfaceModule('module-distinct', 'Общее название'),
+          interfaceModule('module-evolving', 'Полная замена из аудита'),
+        ],
+        interfaceModuleChanges: [
+          { moduleId: 'module-base', module: { subtitle: 'Не заменять полный апсерт' } },
+          {
+            moduleId: 'module-evolving', module: { priority: 99, subtitle: 'Новая деталь' },
+            upsertElements: [{ id: 'element-recorded' }, { id: 'element-new' }], removeElementIds: ['element-recorded', 'element-old'],
+          },
+          { moduleId: 'module-distinct', module: { pinned: true } },
+        ],
+        interfaceBlueprint: { title: 'Аудитор не должен заменять пульт' },
+        upsertMetrics: [worldMetric('metric-heat', 'heat', 'Накал'), worldMetric('metric-moon', 'moon', 'Луна')],
+        metricDeltas: { 'metric-heat': 5, moon: 2 },
+      },
+    } as TurnPatch
+
+    const merged = mergeAuditPatch(base, audit)
+
+    expect(merged.world?.upsertInterfaceModules?.map((module) => module.id)).toEqual(['module-base', 'module-distinct'])
+    expect(merged.world?.interfaceModuleChanges).toEqual([
+      expect.objectContaining({ moduleId: 'module-evolving', module: { priority: 70 }, upsertElements: [{ id: 'element-recorded' }] }),
+      expect.objectContaining({ moduleId: 'module-evolving', module: { subtitle: 'Новая деталь' }, upsertElements: [{ id: 'element-new' }], removeElementIds: ['element-old'] }),
+      expect.objectContaining({ moduleId: 'module-distinct', module: { pinned: true } }),
+    ])
+    expect(merged.world?.interfaceBlueprint).toMatchObject({ title: 'Основной пульт' })
+    expect(merged.world?.upsertMetrics?.map((metric) => metric.id)).toEqual(['metric-heat', 'metric-moon'])
+    expect(merged.world?.metricDeltas).toEqual({ heat: 5, moon: 2 })
   })
 })

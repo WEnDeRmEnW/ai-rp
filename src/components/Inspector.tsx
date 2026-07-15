@@ -1,21 +1,22 @@
 import {
-  Activity, Backpack, BookMarked, Check, ChevronDown, CircleGauge, Coins, Globe2, HeartHandshake, History, MapPin,
+  Activity, Backpack, BookMarked, Check, ChevronDown, CircleGauge, Coins, Globe2, HeartHandshake, History, LayoutDashboard, MapPin,
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Ability, ArtifactPower, Campaign, InventoryItem, LoreEntry, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldPresentation } from '../../shared/types'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldPresentation } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
 import { readCanonDocument } from '../lib/canon'
 import { localizeTechnicalText, resourceUiLabel, uiLabel } from '../lib/ui-labels'
-import { getWorldPresentation, getWorldSystem } from '../lib/world-customization'
+import { getWorldInterfaceBlueprint, getWorldPresentation, getWorldSystem } from '../lib/world-customization'
 import { Modal } from './Modal'
 import { legacyChangeLabel } from '../lib/state-change-labels'
 import { StateChangeLine } from './StateReceipt'
 import { AdaptiveWorldModules } from './AdaptiveWorldModules'
 import { getNpcDisclosure } from '../lib/npc-disclosure'
+import { WorldCockpit } from './WorldCockpit'
 
-export type InspectorTab = 'scene' | 'hero' | 'inventory' | 'changes' | 'world'
+export type InspectorTab = InspectorTabId
 type ChangeFilter = 'all' | 'character' | 'inventory' | 'social' | 'world'
 
 interface InspectorProps {
@@ -25,14 +26,14 @@ interface InspectorProps {
   onTabChange: (tab: InspectorTab) => void
   onClose: () => void
   onUpdate: (updater: (campaign: Campaign) => Campaign) => Promise<void>
-  onDesignInterface?: () => void
+  onDesignInterface?: (instruction?: string) => void
   designingInterface?: boolean
 }
 
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   const [expanded, setExpanded] = useState(true)
   return <section className={`inspector-section ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
-    <div className="section-heading"><button className="section-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}><ChevronDown size={14} /><h3>{title}</h3></button>{action && <div className="section-action">{action}</div>}</div>
+    <div className="section-heading"><button className="section-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}><ChevronDown size={14} /><span className="section-title">{title}</span></button>{action && <div className="section-action">{action}</div>}</div>
     {expanded && <div className="section-content">{children}</div>}
   </section>
 }
@@ -318,7 +319,7 @@ function LoreEditor({ open, onClose, onSave }: { open: boolean; onClose: () => v
   </Modal>
 }
 
-export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab, onClose, onUpdate, onDesignInterface, designingInterface }: InspectorProps) {
+function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTab, onClose, onUpdate, onDesignInterface, designingInterface }: InspectorProps) {
   const [itemEditor, setItemEditor] = useState(false)
   const [loreEditor, setLoreEditor] = useState(false)
   const [query, setQuery] = useState('')
@@ -358,6 +359,7 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
   }, [campaign.world.places])
   const visibleProcesses = (campaign.world.processes ?? []).filter((process) => process.visibility !== 'hidden' && ['active', 'stalled'].includes(process.status))
   const presentation = getWorldPresentation(campaign.world)
+  const interfaceBlueprint = getWorldInterfaceBlueprint(campaign.world)
   const system = getWorldSystem(campaign.world)
   const labels = presentation.labels
   const entityName = (entityId?: string) => entityId === campaign.player.id ? campaign.player.name : campaign.npcs.find((npc) => npc.id === entityId)?.name ?? entityId ?? 'Неизвестно'
@@ -369,6 +371,10 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
     inspectorBody.current?.scrollTo({ top: 0, behavior: 'auto' })
     if (tab === 'changes') setChangeLimit(30)
   }, [tab, campaign.id])
+
+  useEffect(() => {
+    if (!interfaceBlueprint.tabs.some((entry) => entry.id === tab && entry.visible)) setTab(interfaceBlueprint.defaultTab)
+  }, [campaign.id, interfaceBlueprint.defaultTab, interfaceBlueprint.tabs, setTab, tab])
 
   const mutate = (updater: (next: Campaign) => void) => void onUpdate((next) => { updater(next); return next })
   const importCanon = async (file?: File) => {
@@ -387,15 +393,23 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
       {open && <button className="inspector-scrim" onClick={onClose} aria-label="Закрыть сведения" />}
       <aside className={`inspector ${open ? 'is-open' : ''}`} aria-label="Сведения о кампании">
         <div className="inspector-mobile-heading"><strong>Сведения</strong><button className="icon-button" onClick={onClose} aria-label="Закрыть"><X size={18} /></button></div>
-        <div className="inspector-tabs" role="tablist">
-          <button role="tab" aria-selected={tab === 'scene'} className={tab === 'scene' ? 'is-active' : ''} onClick={() => setTab('scene')}><MapPin size={16} /><span>{labels.scene}</span></button>
-          <button role="tab" aria-selected={tab === 'hero'} className={tab === 'hero' ? 'is-active' : ''} onClick={() => setTab('hero')}><UserRound size={16} /><span>{labels.character}</span></button>
-          <button role="tab" aria-selected={tab === 'inventory'} className={tab === 'inventory' ? 'is-active' : ''} onClick={() => setTab('inventory')}><Backpack size={16} /><span>{labels.inventory}</span><i>{campaign.inventory.length}</i></button>
-          <button role="tab" aria-selected={tab === 'changes'} className={tab === 'changes' ? 'is-active' : ''} onClick={() => setTab('changes')}><History size={16} /><span>Изменения</span></button>
-          <button role="tab" aria-selected={tab === 'world'} className={tab === 'world' ? 'is-active' : ''} onClick={() => setTab('world')}><BookMarked size={16} /><span>{labels.world}</span></button>
+        <div className="inspector-tabs" role="tablist" aria-label="Разделы пульта" style={{ '--visible-tabs': interfaceBlueprint.tabs.filter((entry) => entry.visible).length } as React.CSSProperties} onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          const visible = interfaceBlueprint.tabs.filter((entry) => entry.visible)
+          const current = visible.findIndex((entry) => entry.id === tab)
+          const index = event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + visible.length) % visible.length
+          event.preventDefault()
+          setTab(visible[index].id)
+          requestAnimationFrame(() => document.querySelector<HTMLElement>(`#inspector-tab-${visible[index].id}`)?.focus())
+        }}>
+          {interfaceBlueprint.tabs.filter((entry) => entry.visible).map((entry) => {
+            const Icon = entry.id === 'dashboard' ? LayoutDashboard : entry.id === 'scene' ? MapPin : entry.id === 'hero' ? UserRound : entry.id === 'inventory' ? Backpack : entry.id === 'changes' ? History : BookMarked
+            return <button id={`inspector-tab-${entry.id}`} key={entry.id} role="tab" aria-selected={tab === entry.id} tabIndex={tab === entry.id ? 0 : -1} className={tab === entry.id ? 'is-active' : ''} onClick={() => setTab(entry.id)}><Icon size={16} /><span>{entry.label}</span>{entry.id === 'inventory' && <i>{campaign.inventory.length}</i>}</button>
+          })}
         </div>
 
         <div className="inspector-body" ref={inspectorBody}>
+          {tab === 'dashboard' && <WorldCockpit campaign={campaign} onNavigate={setTab} onUpdate={onUpdate} onDesign={(instruction) => onDesignInterface?.(instruction)} designing={designingInterface} />}
           {tab === 'scene' && <>
             <div className="scene-card">
               <div className="eyebrow">Сейчас</div>
@@ -800,3 +814,11 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
     </>
   )
 }
+
+/** Keeps typing in the composer independent from the large campaign inspector tree. */
+export const Inspector = memo(InspectorComponent, (previous, next) => (
+  previous.campaign === next.campaign
+  && previous.open === next.open
+  && previous.activeTab === next.activeTab
+  && previous.designingInterface === next.designingInterface
+))

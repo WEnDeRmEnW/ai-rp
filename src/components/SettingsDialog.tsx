@@ -45,6 +45,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
   const [contentBoundaries, setContentBoundaries] = useState(campaign?.settings.contentBoundaries ?? '')
   const [saved, setSaved] = useState(false)
   const [interfaceDraft, setInterfaceDraft] = useState(interfacePreferences)
+  const [themeDraft, setThemeDraft] = useState(theme)
 
   useEffect(() => {
     if (open) {
@@ -64,12 +65,14 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
       setCanonMode(campaign?.settings.canonMode ?? 'flexible')
       setContentBoundaries(campaign?.settings.contentBoundaries ?? '')
       setInterfaceDraft(interfacePreferences)
+      setThemeDraft(theme)
       setSaved(false)
     }
-  }, [open, provider, campaign, interfacePreferences])
+  }, [open, provider, campaign, interfacePreferences, theme])
 
   const save = async () => {
     onProvider(draft)
+    onTheme(themeDraft)
     onInterface(interfaceDraft)
     if (campaign) await onCampaign((next) => {
       next.settings.authorsNote = authorsNote.trim()
@@ -131,15 +134,16 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
       </section>}
 
       <section className="settings-section">
-        <div className="settings-title"><div>{theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}</div><span><h3>Интерфейс и чтение</h3><p>Настройте под свой экран и привычный темп — параметры применяются ко всему приложению.</p></span></div>
+        <div className="settings-title"><div>{themeDraft === 'dark' ? <Moon size={18} /> : <Sun size={18} />}</div><span><h3>Интерфейс и чтение</h3><p>Настройте под свой экран и привычный темп — параметры применяются ко всему приложению после сохранения.</p></span></div>
         <div className="theme-switch">
-          <button className={theme === 'dark' ? 'is-selected' : ''} onClick={() => onTheme('dark')}><Moon size={17} /> Тёмная</button>
-          <button className={theme === 'light' ? 'is-selected' : ''} onClick={() => onTheme('light')}><Sun size={17} /> Светлая</button>
+          <button className={themeDraft === 'dark' ? 'is-selected' : ''} onClick={() => setThemeDraft('dark')}><Moon size={17} /> Тёмная</button>
+          <button className={themeDraft === 'light' ? 'is-selected' : ''} onClick={() => setThemeDraft('light')}><Sun size={17} /> Светлая</button>
         </div>
         <div className="interface-settings-grid">
           <label className="field"><span><BookOpen size={13} /> Ширина истории</span><select value={interfaceDraft.readingWidth} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, readingWidth: event.target.value as InterfacePreferences['readingWidth'] })}><option value="narrow">Узкая — для сосредоточения</option><option value="balanced">Сбалансированная</option><option value="wide">Широкая — для больших экранов</option></select></label>
           <label className="field"><span><Type size={13} /> Шрифт истории</span><select value={interfaceDraft.readingFont} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, readingFont: event.target.value as InterfacePreferences['readingFont'] })}><option value="literary">Литературный</option><option value="modern">Современный</option></select></label>
           <label className="field"><span><AlignJustify size={13} /> Плотность панелей</span><select value={interfaceDraft.density} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, density: event.target.value as InterfacePreferences['density'] })}><option value="comfortable">Просторная</option><option value="compact">Компактная</option></select></label>
+          <label className="field"><span><AlignJustify size={13} /> Ширина правого пульта</span><select value={interfaceDraft.inspectorWidth} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, inspectorWidth: event.target.value as InterfacePreferences['inspectorWidth'] })}><option value="compact">Компактная</option><option value="balanced">Сбалансированная</option><option value="wide">Широкая</option></select></label>
           <label className="field"><span><Gauge size={13} /> Размер текста: {interfaceDraft.fontScale}%</span><input type="range" min={90} max={125} step={5} value={interfaceDraft.fontScale} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, fontScale: Number(event.target.value) })} /></label>
         </div>
         <div className="interface-toggle-list">

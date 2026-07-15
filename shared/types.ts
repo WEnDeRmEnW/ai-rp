@@ -49,24 +49,46 @@ export interface WorldPresentation {
 }
 
 /** Safe visual grammar which the model composes into a world-specific interface. */
-export type AdaptiveInterfacePlacement = 'scene' | 'hero' | 'inventory' | 'world'
-export type AdaptiveInterfaceVisual = 'meters' | 'nodes' | 'slots' | 'track' | 'ledger' | 'signals' | 'radar'
+export type AdaptiveInterfacePlacement = 'dashboard' | 'scene' | 'hero' | 'inventory' | 'world'
+export type AdaptiveInterfaceVisual = 'meters' | 'nodes' | 'slots' | 'track' | 'ledger' | 'signals' | 'radar' | 'cards'
 export type AdaptiveInterfaceIcon = 'spark' | 'eye' | 'shield' | 'network' | 'pulse' | 'compass' | 'crown' | 'rune' | 'gear' | 'flame' | 'star' | 'moon'
 export type AdaptiveInterfaceElementKind = 'meter' | 'value' | 'badge' | 'node' | 'slot' | 'step' | 'text'
 export type AdaptiveInterfaceElementState = 'normal' | 'positive' | 'warning' | 'danger' | 'locked' | 'inactive'
 export type AdaptiveInterfaceBindingDomain =
   | 'custom'
+  | 'player.level'
   | 'player.resource'
   | 'player.stat'
   | 'player.currency'
   | 'player.condition-count'
+  | 'player.ability-mastery'
   | 'scene.tension'
+  | 'conflict.round'
+  | 'conflict.participant-readiness'
+  | 'conflict.participant-morale'
   | 'world.day'
+  | 'world.metric'
+  | 'world.location-danger'
+  | 'world.process-momentum'
+  | 'world.pressure'
   | 'faction.reputation'
+  | 'faction.power'
   | 'inventory.category-count'
   | 'inventory.item-charges'
+  | 'inventory.item-quantity'
+  | 'inventory.item-durability'
+  | 'artifact.mastery'
+  | 'artifact.attunement'
+  | 'artifact.bond'
+  | 'artifact.power-mastery'
   | 'quest.active-count'
+  | 'quest.objective-progress'
+  | 'mystery.progress'
+  | 'party.size'
+  | 'npc.stat'
   | 'npc.resource'
+  | 'npc.initiative-urgency'
+  | 'npc.relationship-dimension'
   | 'npc.relationship'
 
 export interface AdaptiveInterfaceBinding {
@@ -87,6 +109,15 @@ export interface AdaptiveInterfaceElement {
   max?: number
   unit?: string
   state: AdaptiveInterfaceElementState
+  /** Optional live thresholds. They derive the visual state from a numeric binding without another model call. */
+  stateRules?: {
+    dangerBelow?: number
+    warningBelow?: number
+    positiveBelow?: number
+    positiveAbove?: number
+    warningAbove?: number
+    dangerAbove?: number
+  }
   binding?: AdaptiveInterfaceBinding
   links?: ID[]
 }
@@ -109,8 +140,53 @@ export interface AdaptiveInterfaceModule {
   updatePolicy: string
   collapsible: boolean
   collapsedByDefault: boolean
+  /** Pinned modules are also surfaced in the campaign dashboard. */
+  pinned?: boolean
+  density?: 'compact' | 'comfortable'
+  emphasis?: 'quiet' | 'standard' | 'prominent'
   elements: AdaptiveInterfaceElement[]
   createdTurn: number
+  lastChangedTurn: number
+}
+
+/** A safe granular update for an existing adaptive module. Full structural redesign still uses upsertInterfaceModules. */
+export interface AdaptiveInterfaceModuleChange {
+  moduleId: ID
+  module?: Partial<Pick<AdaptiveInterfaceModule,
+    'title' | 'subtitle' | 'description' | 'placement' | 'visual' | 'icon' | 'accent' | 'secondary' |
+    'priority' | 'visibility' | 'reason' | 'updatePolicy' | 'collapsible' | 'collapsedByDefault' | 'pinned' | 'density' | 'emphasis'
+  >>
+  upsertElements?: AdaptiveInterfaceElement[]
+  removeElementIds?: ID[]
+}
+
+export type InspectorTabId = 'dashboard' | 'scene' | 'hero' | 'inventory' | 'changes' | 'world'
+export type DashboardSectionId = 'scene' | 'stakes' | 'modules' | 'worldPulse' | 'openLoops' | 'mechanics' | 'interfaceHealth'
+
+/** Declarative, model-safe composition of the right panel. It never contains HTML or executable code. */
+export interface WorldInterfaceBlueprint {
+  title: string
+  subtitle: string
+  defaultTab: InspectorTabId
+  tabs: Array<{ id: InspectorTabId; label: string; visible: boolean }>
+  dashboardSections: DashboardSectionId[]
+  reason: string
+  updatedTurn: number
+}
+
+/** A real world-specific counter such as neural load, lunar phase, wanted level or ritual stability. */
+export interface WorldMetric {
+  id: ID
+  key: string
+  label: string
+  description: string
+  value: number
+  min: number
+  max: number
+  unit?: string
+  visibility: 'known' | 'rumored' | 'hidden'
+  source: string
+  updatePolicy: string
   lastChangedTurn: number
 }
 
@@ -1127,6 +1203,8 @@ export interface World {
   laws?: WorldLaw[]
   mechanics?: WorldMechanic[]
   interfaceModules?: AdaptiveInterfaceModule[]
+  interfaceBlueprint?: WorldInterfaceBlueprint
+  metrics?: WorldMetric[]
   system?: WorldSystem
   presentation?: WorldPresentation
 }
@@ -1302,7 +1380,12 @@ export interface WorldPatch {
   upsertMechanics?: Array<Omit<WorldMechanic, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldMechanic, 'createdTurn' | 'lastChangedTurn'>>>
   removeMechanicIds?: ID[]
   upsertInterfaceModules?: Array<Omit<AdaptiveInterfaceModule, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<AdaptiveInterfaceModule, 'createdTurn' | 'lastChangedTurn'>>>
+  interfaceModuleChanges?: AdaptiveInterfaceModuleChange[]
   removeInterfaceModuleIds?: ID[]
+  interfaceBlueprint?: Omit<WorldInterfaceBlueprint, 'updatedTurn'> & Partial<Pick<WorldInterfaceBlueprint, 'updatedTurn'>>
+  upsertMetrics?: Array<Omit<WorldMetric, 'lastChangedTurn'> & Partial<Pick<WorldMetric, 'lastChangedTurn'>>>
+  metricDeltas?: Record<string, number>
+  removeMetricIds?: ID[]
 }
 
 export interface PlayerProfilePatch {

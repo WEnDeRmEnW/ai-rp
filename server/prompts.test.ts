@@ -44,8 +44,17 @@ describe('world architect prompt', () => {
     expect(system.content).toContain('МИР ДОЛЖЕН УМЕТЬ РАЗВИВАТЬСЯ БЕЗ ГЕРОЯ')
     expect(system.content).toContain('АДАПТИВНЫЙ ИНТЕРФЕЙС, КОТОРЫЙ РОЖДАЕТСЯ ИЗ МИРА')
     expect(system.content).toContain('Это не жанровые пресеты')
+    expect(system.content).toContain('interfaceBlueprint{title,subtitle,defaultTab,tabs[{id,label,visible}],dashboardSections[],reason}')
+    expect(system.content).toContain('metrics[{id,key,label,description,value,min,max,unit?,visibility,source,updatePolicy}]')
     expect(system.content).toContain('interfaceModules[{id,title,subtitle?')
-    expect(system.content).toContain('binding.domain: custom, player.resource')
+    expect(system.content).toContain('pinned?,density?,emphasis?')
+    expect(system.content).toContain('stateRules?{dangerBelow?,warningBelow?,positiveBelow?,positiveAbove?,warningAbove?,dangerAbove?}')
+    expect(system.content).toContain('Допустимые interfaceBlueprint tab.id/defaultTab: dashboard, scene, hero, inventory, changes, world')
+    expect(system.content).toContain('Допустимые interfaceModules.placement: dashboard, scene, hero, inventory, world')
+    expect(system.content).toContain('visual: meters, nodes, slots, track, ledger, signals, radar, cards')
+    expect(system.content).toContain('binding.domain: custom, player.level, player.resource')
+    expect(system.content).toContain('world.metric, world.location-danger, world.process-momentum')
+    expect(system.content).toContain('Машинные enum не переводи на русский')
     expect(system.content).toContain('worldPressures[{sourceKind,sourceName,sourceNpcName?')
     expect(system.content).toContain('opening{scene{title,location,time,weather,tension,presentNpcNames[]},pacing{beat,intensity,challengeTier,reason}')
     expect(system.content).toContain('threatProfile?{tier,scope,reputation')
@@ -84,7 +93,7 @@ describe('world architect prompt', () => {
     expect(critic).toContain('Каждая core и major возможность')
     expect(critic).toContain('подменена одноимённым аналогом')
     expect(critic).toContain('Живой мир готов к самостоятельному развитию')
-    expect(critic).toContain('interfaceModules спроектированы из фактической структуры именно этого мира')
+    expect(critic).toContain('interfaceBlueprint, metrics и interfaceModules спроектированы из фактической структуры именно этого мира')
     expect(critic).toContain('Каждое worldPressure причинно')
     expect(critic).toContain('Стартовое dossier каждого NPC')
     expect(critic).toContain('opening.pacing совпадает с реальной первой сценой')
@@ -111,9 +120,61 @@ describe('runtime customization prompts', () => {
     expect(editor).toContain('settingsPatch')
     expect(editor).toContain('world.name/tagline/inspiration/genre/tone/overview/era/system/presentation')
     expect(editor).toContain('точные существующие id')
-    expect(editor).toContain('world.upsertInterfaceModules/removeInterfaceModuleIds')
+    expect(editor).toContain('world.interfaceBlueprint, world.upsertInterfaceModules, world.interfaceModuleChanges')
+    expect(editor).toContain('world.upsertMetrics, world.metricDeltas и world.removeMetricIds')
+    expect(editor).toContain('granular interfaceModuleChanges')
+    expect(editor).toContain('dashboard/cards, pinned/density/emphasis')
     expect(director).toContain('Элемент с binding обновляется приложением автоматически')
+    expect(director).toContain('metricDeltas используй только после фактического причинного триггера')
+    expect(director).toContain('interfaceBlueprint не перестраивай на каждом ходе')
     expect(director).toContain('Досье NPC — строгая граница знаний ГЕРОЯ')
+  })
+
+  it('gives the owner editor the complete structured canon without dumping story prose', () => {
+    const campaign = createDemoCampaign()
+    campaign.lore = [{
+      id: 'lore-complete-catalog', title: 'Полный пласт лора', type: 'history', content: 'Структурированный канон редактора.',
+      keys: ['полный-каталог'], enabled: true, alwaysOn: false, secret: true, discovered: false, priority: 1,
+    }]
+    campaign.memories = [{
+      id: 'memory-complete-catalog', kind: 'fact', content: 'Полная память редактора.', tags: ['полный-каталог'],
+      importance: 1, turn: 1, createdAt: '2026-07-15T00:00:00.000Z',
+    }]
+    campaign.archives = [{
+      id: 'archive-complete-catalog', kind: 'chapter', title: 'Архив редактора', summary: 'Структурированный итог главы.',
+      startTurn: 1, endTurn: 2, tags: ['полный-каталог'], entityIds: [], importance: 1, createdAt: '2026-07-15T00:00:00.000Z',
+    }]
+    campaign.threads = [{
+      id: 'thread-complete-catalog', type: 'rumor', title: 'Нить редактора', detail: 'Полная сюжетная нить.',
+      participantIds: [], status: 'active', secret: true, createdTurn: 1,
+    }]
+    campaign.worldEvents = [{
+      id: 'event-complete-catalog', title: 'Событие редактора', description: 'Полное отложенное событие.', status: 'scheduled',
+      visibility: 'hidden', involvedIds: [], createdTurn: 1,
+    }]
+    campaign.documents = [{
+      id: 'document-complete-catalog', title: 'Документ редактора', createdAt: '2026-07-15T00:00:00.000Z',
+      chunks: [{ id: 'document-chunk-catalog', keys: ['полный-каталог'], text: 'СЕКРЕТНЫЙ_ПОЛНЫЙ_ТЕКСТ_ДОКУМЕНТА' }],
+    }]
+    campaign.messages.push({
+      id: 'message-catalog-entry', role: 'assistant', turn: campaign.turn, createdAt: '2026-07-15T00:00:00.000Z',
+      content: 'ПОЛНЫЙ_ХУДОЖЕСТВЕННЫЙ_ТЕКСТ_НЕ_ДОЛЖЕН_ПОПАСТЬ_В_РЕДАКТОР',
+    })
+
+    const user = campaignEditorPrompt(campaign, 'Проверь весь канон.')[1].content
+    expect(user).toContain('"lore-complete-catalog"')
+    expect(user).toContain('"memory-complete-catalog"')
+    expect(user).toContain('"archive-complete-catalog"')
+    expect(user).toContain('"thread-complete-catalog"')
+    expect(user).toContain('"event-complete-catalog"')
+    expect(user).toContain('"documentCatalog"')
+    expect(user).toContain('"document-chunk-catalog"')
+    expect(user).toContain('"characterCount":32')
+    expect(user).toContain('"recentMessageIndex"')
+    expect(user).toContain('"message-catalog-entry"')
+    expect(user).not.toContain('ПОЛНЫЙ_ХУДОЖЕСТВЕННЫЙ_ТЕКСТ_НЕ_ДОЛЖЕН_ПОПАСТЬ_В_РЕДАКТОР')
+    expect(user).not.toContain('СЕКРЕТНЫЙ_ПОЛНЫЙ_ТЕКСТ_ДОКУМЕНТА')
+    expect(user).not.toContain('"recentStory"')
   })
 })
 
@@ -235,6 +296,12 @@ describe('turn patch prompt contracts', () => {
     expect(system).toContain('world.processes — долгие войны')
     expect(system).toContain('Отдельно проверяй worldPressures')
     expect(system).toContain('Без канала знания реакции нет')
+    expect(system).toContain('используй локальный interfaceModuleChanges')
+    expect(system).toContain('metricDeltas разрешён только если именно сейчас реально выполнен названный триггер')
+    expect(system).toContain('{"interfaceBlueprint":{"title":"название пульта этого мира"')
+    expect(system).toContain('{"interfaceModuleChanges":[{"moduleId":"точный существующий module.id"')
+    expect(system).toContain('{"metricDeltas":{"точный существующий metric.key":5}}')
+    expect(system).toContain('artifact.power-mastery, quest.active-count, quest.objective-progress')
     expect(system).toContain('и cleanup')
     expect(system).toContain('Новая фракция возникает лишь когда')
     expect(system).not.toContain(oldAmbiguousArtifactWording)

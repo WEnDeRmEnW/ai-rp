@@ -8,6 +8,28 @@ function revealNpc(npc: NPC, sections: NPCDossierSection[], statKeys: string[] =
   npc.dossier = { familiarity: 'familiar', revealedSections: sections, revealedStatKeys: statKeys, revealedResourceKeys: resourceKeys, revealedAbilityIds: abilityIds, evidence: [], updatedTurn: 0 }
 }
 
+type InterfaceModuleDraft = NonNullable<NonNullable<TurnPatch['world']>['upsertInterfaceModules']>[number]
+
+function interfaceModule(id: string, title: string, priority: number, elements?: InterfaceModuleDraft['elements']): InterfaceModuleDraft {
+  return {
+    id,
+    title,
+    description: `Живой модуль «${title}».`,
+    placement: 'dashboard',
+    visual: 'cards',
+    icon: 'pulse',
+    accent: '#71d3b1',
+    secondary: '#e7b96b',
+    priority,
+    visibility: 'known',
+    reason: 'Показатель важен для этого мира.',
+    updatePolicy: 'Обновлять при изменении соответствующего состояния.',
+    collapsible: true,
+    collapsedByDefault: false,
+    elements: elements ?? [{ id: `${id}-value`, label: 'Значение', kind: 'value', value: 1, state: 'normal', links: [] }],
+  }
+}
+
 describe('state engine', () => {
   it('maintains a large-scale atlas and archives finished active state instead of losing history', () => {
     const campaign = createDemoCampaign()
@@ -60,6 +82,83 @@ describe('state engine', () => {
 
     const removed = applyPatch(evolved, { world: { removeInterfaceModuleIds: [module.id] } }, 8)
     expect(removed.world.interfaceModules).toEqual([])
+  })
+
+  it('keeps same-title modules separate and deterministically rejects only the lowest priorities beyond the limit', () => {
+    const campaign = createDemoCampaign()
+    const diagnostics: StateChange[] = []
+    const modules = Array.from({ length: 9 }, (_, index) => interfaceModule(
+      `module-${index + 1}`,
+      index >= 7 ? 'Одинаковое название' : `Модуль ${index + 1}`,
+      index + 1,
+    ))
+
+    const next = applyPatch(campaign, { world: { upsertInterfaceModules: modules } }, 4, diagnostics)
+
+    expect(next.world.interfaceModules?.map((module) => module.id)).toEqual([
+      'module-9', 'module-8', 'module-7', 'module-6', 'module-5', 'module-4', 'module-3', 'module-2',
+    ])
+    expect(next.world.interfaceModules?.filter((module) => module.title === 'Одинаковое название').map((module) => module.id)).toEqual(['module-9', 'module-8'])
+    expect(diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityId: 'module-1', detail: expect.stringContaining('превышен лимит 8') }),
+    ]))
+  })
+
+  it('applies granular interface changes by stable ids and repairs dangling element links with diagnostics', () => {
+    const campaign = createDemoCampaign()
+    const created = applyPatch(campaign, { world: { upsertInterfaceModules: [interfaceModule('module-thread', 'Нить сюжета', 50, [
+      { id: 'beat-a', label: 'Завязка', kind: 'node', state: 'normal', links: ['beat-b'] },
+      { id: 'beat-b', label: 'Развилка', kind: 'node', state: 'warning', links: [] },
+    ])] } }, 2)
+    const diagnostics: StateChange[] = []
+
+    const evolved = applyPatch(created, { world: { interfaceModuleChanges: [{
+      moduleId: 'module-thread',
+      module: { title: 'Живая нить', priority: 91, pinned: true },
+      removeElementIds: ['beat-b', 'missing-element'],
+      upsertElements: [{ id: 'beat-c', label: 'Контрмера', kind: 'node', state: 'danger', links: ['beat-a', 'missing-link'] }],
+    }] } }, 6, diagnostics)
+
+    expect(evolved.world.interfaceModules?.[0]).toMatchObject({
+      id: 'module-thread', title: 'Живая нить', priority: 91, pinned: true, createdTurn: 2, lastChangedTurn: 6,
+    })
+    expect(evolved.world.interfaceModules?.[0].elements).toEqual([
+      expect.objectContaining({ id: 'beat-a', links: [] }),
+      expect.objectContaining({ id: 'beat-c', links: ['beat-a'] }),
+    ])
+    expect(diagnostics.map((entry) => entry.detail)).toEqual(expect.arrayContaining([
+      expect.stringContaining('missing-element'),
+      expect.stringContaining('missing-link'),
+      expect.stringContaining('beat-b'),
+    ]))
+  })
+
+  it('owns interface blueprint timestamps and applies world metrics with clamping, removals and diagnostics', () => {
+    const campaign = createDemoCampaign()
+    const diagnostics: StateChange[] = []
+    const created = applyPatch(campaign, { world: {
+      interfaceBlueprint: {
+        title: 'Пульт розыска', subtitle: 'Живая обстановка', defaultTab: 'dashboard',
+        tabs: [{ id: 'dashboard', label: 'Пульт', visible: true }, { id: 'world', label: 'Мир', visible: true }],
+        dashboardSections: ['stakes', 'modules'], reason: 'Розыск определяет реакцию города.', updatedTurn: 999,
+      },
+      upsertMetrics: [
+        { id: 'metric-heat', key: 'wanted_heat', label: 'Розыск', description: 'Насколько активно ищут героя.', value: 30, min: 0, max: 100, unit: '%', visibility: 'known', source: 'Городская стража', updatePolicy: 'Растёт после свидетелей.', lastChangedTurn: 999 },
+        { id: 'metric-moon', key: 'moon_phase', label: 'Фаза луны', description: 'Влияние ночи.', value: 5, min: 0, max: 10, visibility: 'known', source: 'Календарь', updatePolicy: 'Меняется каждый день.' },
+      ],
+      metricDeltas: { wanted_heat: 80, missing_metric: 2 },
+      removeMetricIds: ['metric-missing'],
+    } }, 4, diagnostics)
+
+    expect(created.world.interfaceBlueprint).toMatchObject({ title: 'Пульт розыска', updatedTurn: 4 })
+    expect(created.world.metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'metric-heat', value: 100, lastChangedTurn: 4 }),
+      expect.objectContaining({ id: 'metric-moon', value: 5, lastChangedTurn: 4 }),
+    ]))
+    expect(diagnostics.map((entry) => entry.entityId)).toEqual(expect.arrayContaining(['metric-missing', 'missing_metric']))
+
+    const evolved = applyPatch(created, { world: { metricDeltas: { 'Розыск': -250 }, removeMetricIds: ['metric-moon'] } }, 8)
+    expect(evolved.world.metrics).toEqual([expect.objectContaining({ id: 'metric-heat', value: 0, lastChangedTurn: 8 })])
   })
 
   it('rejects an incomplete server turn before reading a null statePatch', () => {

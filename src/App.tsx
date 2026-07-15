@@ -26,7 +26,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth <= 800 ? false : localStorage.getItem('letopis-sidebar-visible') !== 'false')
   const [inspectorOpen, setInspectorOpen] = useState(() => window.innerWidth > 800)
-  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('scene')
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('dashboard')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [mode, setMode] = useState<ActionType>('do')
 
@@ -63,6 +63,7 @@ export function App() {
     '--accent-soft': `color-mix(in srgb, ${presentation.accent} 12%, transparent)`,
     '--gold': presentation.secondary,
     '--reader-scale': interfacePreferences.fontScale / 100,
+    '--inspector-width': interfacePreferences.inspectorWidth === 'compact' ? '360px' : interfacePreferences.inspectorWidth === 'wide' ? '500px' : '420px',
   } as CSSProperties
 
   const send = async () => {
@@ -159,7 +160,7 @@ export function App() {
       onClose={() => setInspectorOpen(false)}
       onUpdate={app.updateActiveCampaign}
       designingInterface={app.generating}
-      onDesignInterface={() => void app.aiEditCampaign('Самостоятельно спроектируй для этого конкретного мира 2–6 уникальных адаптивных интерфейсных модулей. Не используй жанровые шаблоны и не копируй обычные HP, характеристики или инвентарь. Изучи фактические законы, механику сил, фракции, особые ресурсы, путь героя и открытые тайны; сама реши, что важно постоянно видеть, где это расположить и каким визуальным способом показать. Используй живые привязки к данным там, где они существуют, и custom только для действительно уникального состояния мира. Верни модули через world.upsertInterfaceModules, не меняя сюжет, время и установленные факты.')}
+      onDesignInterface={(instruction) => void app.aiEditCampaign(instruction?.trim() || 'Полностью и безопасно перестрой правую панель именно под этот мир. Создай или обнови world.interfaceBlueprint, настоящие world.metrics и 2–6 уникальных адаптивных модулей с живыми привязками. Сохрани закреплённые пользователем модули, не раскрывай скрытые знания и не меняй сюжет, время или установленные факты.')}
     />
 
     <NewWorldDialog
@@ -172,7 +173,7 @@ export function App() {
       onCreate={app.createCampaign}
     />
     <SettingsDialog open={settingsOpen} provider={app.provider} theme={app.theme} interfacePreferences={interfacePreferences} campaign={campaign} onClose={() => setSettingsOpen(false)} onProvider={app.setProvider} onTheme={app.setTheme} onInterface={setInterfacePreferences} onCampaign={app.updateActiveCampaign} />
-    <CampaignEditorDialog open={editorOpen} campaign={campaign} generating={app.generating} progress={app.operationProgress} onClose={() => setEditorOpen(false)} onManual={app.updateActiveCampaign} onAi={app.aiEditCampaign} />
+    <CampaignEditorDialog open={editorOpen} campaign={campaign} generating={app.generating} progress={app.operationProgress} onClose={() => setEditorOpen(false)} onManual={app.updateActiveCampaign} onAi={app.aiEditCampaign} onUndoEdit={app.undoLastEdit} canUndoEdit={app.canUndoEdit} />
 
     <CommandPalette
       open={commandOpen}

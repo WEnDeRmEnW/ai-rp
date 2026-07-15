@@ -1,7 +1,8 @@
-import { ArrowDown, BookmarkPlus, Check, Clock3, CloudSun, Copy, Dices, Flame, GitBranch, MapPin, RefreshCcw, RotateCcw } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { ArrowDown, BookmarkPlus, Check, Clock3, CloudSun, Copy, Dices, Flame, GitBranch, History, MapPin, RefreshCcw, RotateCcw } from 'lucide-react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Campaign, OperationProgress, StoryMessage } from '../../shared/types'
 import { formatStoryText } from '../lib/story-format'
+import { DEFAULT_STORY_WINDOW_TURNS, selectStoryWindow } from '../lib/story-window'
 import { getWorldPresentation } from '../lib/world-customization'
 import { OperationProgressPanel } from './OperationProgressPanel'
 import { StateReceipt } from './StateReceipt'
@@ -17,7 +18,19 @@ interface StoryViewProps {
   onBranch: () => void
 }
 
-function AssistantMessage({ message, campaign, isLast, onSuggestion, onPin, onUndo, onRetry, onBranch }: {
+const INITIAL_VISIBLE_TURNS = DEFAULT_STORY_WINDOW_TURNS
+const HISTORY_REVEAL_STEP = 20
+
+function turnWord(count: number) {
+  const lastTwo = count % 100
+  const last = count % 10
+  if (lastTwo >= 11 && lastTwo <= 19) return 'ходов'
+  if (last === 1) return 'ход'
+  if (last >= 2 && last <= 4) return 'хода'
+  return 'ходов'
+}
+
+const AssistantMessage = memo(function AssistantMessage({ message, campaign, isLast, onSuggestion, onPin, onUndo, onRetry, onBranch }: {
   message: StoryMessage
   campaign: Campaign
   isLast: boolean
@@ -28,6 +41,7 @@ function AssistantMessage({ message, campaign, isLast, onSuggestion, onPin, onUn
   onBranch: () => void
 }) {
   const [copied, setCopied] = useState(false)
+  const storyBlocks = useMemo(() => formatStoryText(message.content), [message.content])
   const copy = async () => {
     await navigator.clipboard.writeText(message.content)
     setCopied(true)
@@ -39,7 +53,7 @@ function AssistantMessage({ message, campaign, isLast, onSuggestion, onPin, onUn
       <div className="turn-content">
         <div className="turn-kicker"><span>Мир отвечает</span><i /> <span>ход {message.turn}</span></div>
         <div className="story-prose">
-          {formatStoryText(message.content).map((block, index) => (
+          {storyBlocks.map((block, index) => (
             <p className={`story-block story-${block.kind}`} key={index}>
               {block.kind === 'thought' && <span className="story-thought-label">Мысль</span>}
               <span>{block.text}</span>
@@ -63,17 +77,59 @@ function AssistantMessage({ message, campaign, isLast, onSuggestion, onPin, onUn
       </div>
     </article>
   )
-}
+})
 
-export function StoryView({ campaign, generating, progress, onSuggestion, onPin, onUndo, onRetry, onBranch }: StoryViewProps) {
+const PlayerMessage = memo(function PlayerMessage({ message, actionLabel }: { message: StoryMessage; actionLabel: string }) {
+  return <article className="story-turn player-turn">
+    <div className="player-action-label"><span>{actionLabel}</span><i>ход {message.turn}</i></div>
+    <p>{message.content}</p>
+  </article>
+})
+
+function StoryViewComponent({ campaign, generating, progress, onSuggestion, onPin, onUndo, onRetry, onBranch }: StoryViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLElement>(null)
+  const previousCampaignIdRef = useRef<string | undefined>(undefined)
+  const previousMessageCountRef = useRef(0)
+  const previousScrollHeightRef = useRef<number | undefined>(undefined)
   const [awayFromLatest, setAwayFromLatest] = useState(false)
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [campaign.messages.length, generating])
+  const [historyWindow, setHistoryWindow] = useState({ campaignId: campaign.id, turnCount: INITIAL_VISIBLE_TURNS })
+  const requestedTurnCount = historyWindow.campaignId === campaign.id ? historyWindow.turnCount : INITIAL_VISIBLE_TURNS
+  const storyWindow = useMemo(() => selectStoryWindow(campaign.messages, requestedTurnCount), [campaign.messages, requestedTurnCount])
+
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current
+    const previousHeight = previousScrollHeightRef.current
+    previousScrollHeightRef.current = undefined
+    if (scroller && previousHeight !== undefined) scroller.scrollTop += scroller.scrollHeight - previousHeight
+  }, [campaign.id, storyWindow.visibleTurnCount])
+
+  useLayoutEffect(() => {
+    const campaignChanged = previousCampaignIdRef.current !== campaign.id
+    const messageCountChanged = previousMessageCountRef.current !== campaign.messages.length
+    previousCampaignIdRef.current = campaign.id
+    previousMessageCountRef.current = campaign.messages.length
+
+    if (campaignChanged) {
+      previousScrollHeightRef.current = undefined
+      setAwayFromLatest(false)
+      setHistoryWindow({ campaignId: campaign.id, turnCount: INITIAL_VISIBLE_TURNS })
+      bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
+      return
+    }
+    if (messageCountChanged || generating) bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [campaign.id, campaign.messages.length, generating])
+
+  const revealEarlier = (all = false) => {
+    if (scrollRef.current) previousScrollHeightRef.current = scrollRef.current.scrollHeight
+    setHistoryWindow({
+      campaignId: campaign.id,
+      turnCount: all ? Number.MAX_SAFE_INTEGER : Math.min(storyWindow.totalTurnCount, storyWindow.visibleTurnCount + HISTORY_REVEAL_STEP),
+    })
+  }
 
   const lastAssistantId = [...campaign.messages].reverse().find((message) => message.role === 'assistant')?.id
+  const nextRevealCount = Math.min(HISTORY_REVEAL_STEP, storyWindow.hiddenTurnCount)
   const presentation = getWorldPresentation(campaign.world)
   return (
     <main className="story-scroll" id="main-story" ref={scrollRef} onScroll={(event) => {
@@ -89,13 +145,17 @@ export function StoryView({ campaign, generating, progress, onSuggestion, onPin,
         </section>
 
         <div className="story-messages">
-          {campaign.messages.map((message) => message.role === 'assistant' ? (
+          {storyWindow.hiddenTurnCount > 0 && <nav className="story-history-window" aria-label="Архив предыдущих ходов">
+            <div className="story-history-summary"><span><History size={15} /></span><div><strong>Ранее в истории</strong><small>Сейчас показаны последние {storyWindow.visibleTurnCount} из {storyWindow.totalTurnCount} ходов</small></div></div>
+            <div className="story-history-actions">
+              <button onClick={() => revealEarlier()} aria-label={`Показать ещё ${nextRevealCount} ${turnWord(nextRevealCount)} из предыдущей части истории`}>Ещё {nextRevealCount}</button>
+              <button onClick={() => revealEarlier(true)}>Показать всё</button>
+            </div>
+          </nav>}
+          {storyWindow.messages.map((message) => message.role === 'assistant' ? (
             <AssistantMessage key={message.id} message={message} campaign={campaign} isLast={message.id === lastAssistantId} onSuggestion={onSuggestion} onPin={onPin} onUndo={onUndo} onRetry={onRetry} onBranch={onBranch} />
           ) : (
-            <article className="story-turn player-turn" key={message.id}>
-              <div className="player-action-label"><span>{message.actionType === 'say' ? presentation.labels.speech : message.actionType === 'story' ? presentation.labels.direction : message.actionType === 'continue' ? presentation.labels.continue : presentation.labels.action}</span><i>ход {message.turn}</i></div>
-              <p>{message.content}</p>
-            </article>
+            <PlayerMessage key={message.id} message={message} actionLabel={message.actionType === 'say' ? presentation.labels.speech : message.actionType === 'story' ? presentation.labels.direction : message.actionType === 'continue' ? presentation.labels.continue : presentation.labels.action} />
           ))}
           {generating && (
             <article className="story-turn assistant-turn is-generating" aria-live="polite">
@@ -110,3 +170,9 @@ export function StoryView({ campaign, generating, progress, onSuggestion, onPin,
     </main>
   )
 }
+
+export const StoryView = memo(StoryViewComponent, (previous, next) => (
+  previous.campaign === next.campaign
+  && previous.generating === next.generating
+  && previous.progress === next.progress
+))

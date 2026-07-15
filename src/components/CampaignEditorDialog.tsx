@@ -1,10 +1,12 @@
-import { Bot, Braces, Check, PencilLine, Save, Sparkles, WandSparkles } from 'lucide-react'
+import { Bot, Braces, Check, PencilLine, RotateCcw, Save, Sparkles, WandSparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Campaign, OperationProgress } from '../../shared/types'
+import { migrateCampaign } from '../lib/storage'
 import { Modal } from './Modal'
 import { OperationProgressPanel } from './OperationProgressPanel'
 
 type EditorMode = 'basic' | 'ai' | 'json'
+type AiEditScope = 'all' | 'world' | 'interface' | 'hero' | 'ability' | 'artifact' | 'npc' | 'faction' | 'mechanic'
 
 interface CampaignEditorDialogProps {
   open: boolean
@@ -14,6 +16,8 @@ interface CampaignEditorDialogProps {
   onClose: () => void
   onManual: (updater: (campaign: Campaign) => Campaign) => Promise<void>
   onAi: (instruction: string) => Promise<string | undefined>
+  onUndoEdit?: () => Promise<void>
+  canUndoEdit?: boolean
 }
 
 const aiSeeds = [
@@ -25,13 +29,53 @@ const aiSeeds = [
   'Самостоятельно спроектируй уникальные адаптивные модули интерфейса из реальных законов, сил, ресурсов и конфликтов именно этого мира. Не используй жанровые шаблоны и не дублируй обычные панели.',
 ]
 
-export function CampaignEditorDialog({ open, campaign, generating, progress, onClose, onManual, onAi }: CampaignEditorDialogProps) {
+const scopeLabels: Record<AiEditScope, string> = {
+  all: 'Вся кампания', world: 'Мир и его жизнь', interface: 'Правая панель и механики', hero: 'Главный герой', ability: 'Способность героя',
+  artifact: 'Предмет или артефакт', npc: 'Персонаж мира', faction: 'Фракция', mechanic: 'Закон или механика',
+}
+
+function validateEditableCampaign(value: unknown, protectedId: string): Campaign {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Корень JSON должен быть объектом кампании.')
+  const campaign = value as Campaign
+  const requiredArrays: Array<[string, unknown]> = [
+    ['inventory', campaign.inventory], ['npcs', campaign.npcs], ['messages', campaign.messages], ['lore', campaign.lore], ['memories', campaign.memories],
+    ['timeline', campaign.timeline], ['quests', campaign.quests], ['snapshots', campaign.snapshots], ['world.rules', campaign.world?.rules],
+    ['world.factions', campaign.world?.factions], ['world.locations', campaign.world?.locations], ['world.mysteries', campaign.world?.mysteries],
+    ['player.stats', campaign.player?.stats], ['player.resources', campaign.player?.resources], ['player.abilities', campaign.player?.abilities],
+    ['player.conditions', campaign.player?.conditions], ['scene.presentNpcIds', campaign.scene?.presentNpcIds],
+  ]
+  const missing = requiredArrays.filter(([, entry]) => !Array.isArray(entry)).map(([name]) => name)
+  if (missing.length) throw new Error(`Повреждена структура массивов: ${missing.join(', ')}.`)
+  if (!campaign.world || !campaign.player || !campaign.scene || !campaign.settings || typeof campaign.player.currency !== 'object' || Array.isArray(campaign.player.currency)) throw new Error('Обязательные объекты мира, героя, сцены, валют и настроек должны существовать.')
+  if (!Number.isFinite(campaign.turn) || !Number.isFinite(campaign.scene.tension) || campaign.scene.tension < 0 || campaign.scene.tension > 100) throw new Error('Номер хода и напряжение сцены должны быть корректными числами.')
+  const identityGroups: Array<[string, Array<{ id?: string }>]> = [['предметов', campaign.inventory], ['NPC', campaign.npcs], ['сообщений', campaign.messages], ['способностей', campaign.player.abilities]]
+  for (const [label, entries] of identityGroups) {
+    const ids = entries.map((entry) => entry.id)
+    if (ids.some((id) => typeof id !== 'string' || !id.trim()) || new Set(ids).size !== ids.length) throw new Error(`Идентификаторы ${label} должны существовать и быть уникальными.`)
+  }
+  for (const metric of campaign.world.metrics ?? []) {
+    if (!metric.id?.trim() || !metric.key?.trim() || !Number.isFinite(metric.value) || !Number.isFinite(metric.min) || !Number.isFinite(metric.max) || metric.max <= metric.min || metric.value < metric.min || metric.value > metric.max) throw new Error(`Показатель мира «${metric.label || metric.key || 'без названия'}» имеет неверный диапазон или значение.`)
+  }
+  for (const module of campaign.world.interfaceModules ?? []) {
+    if (!module.id?.trim() || !Array.isArray(module.elements)) throw new Error('Каждый модуль интерфейса должен иметь id и массив элементов.')
+    const ids = module.elements.map((entry) => entry.id)
+    if (new Set(ids).size !== ids.length) throw new Error(`В модуле «${module.title}» повторяются идентификаторы элементов.`)
+    const known = new Set(ids)
+    if (module.elements.some((entry) => entry.links?.some((link) => link === entry.id || !known.has(link)))) throw new Error(`В модуле «${module.title}» есть ссылка на отсутствующий или тот же самый элемент.`)
+  }
+  campaign.id = protectedId
+  return migrateCampaign(campaign)
+}
+
+export function CampaignEditorDialog({ open, campaign, generating, progress, onClose, onManual, onAi, onUndoEdit, canUndoEdit }: CampaignEditorDialogProps) {
   const [mode, setMode] = useState<EditorMode>('basic')
   const [basic, setBasic] = useState(() => structuredClone(campaign))
   const [json, setJson] = useState('')
   const [instruction, setInstruction] = useState('')
   const [message, setMessage] = useState<string>()
   const [error, setError] = useState<string>()
+  const [scope, setScope] = useState<AiEditScope>('all')
+  const [entityId, setEntityId] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -40,6 +84,8 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
     setJson(JSON.stringify(campaign, null, 2))
     setMessage(undefined)
     setError(undefined)
+    setScope('all')
+    setEntityId('')
   }, [open, campaign])
 
   useEffect(() => {
@@ -65,11 +111,7 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
   const saveJson = async () => {
     setError(undefined)
     try {
-      const parsed = JSON.parse(json) as Campaign
-      if (!parsed || typeof parsed !== 'object' || !parsed.world || !parsed.player || !parsed.scene || !parsed.settings || !Array.isArray(parsed.inventory) || !Array.isArray(parsed.npcs) || !Array.isArray(parsed.messages)) {
-        throw new Error('Полное состояние должно содержать мир, героя, сцену, настройки, инвентарь, персонажей и сообщения.')
-      }
-      parsed.id = campaign.id
+      const parsed = validateEditableCampaign(JSON.parse(json), campaign.id)
       parsed.createdAt = campaign.createdAt
       await onManual(() => parsed)
       setMessage('Полное состояние проверено и сохранено. Идентификатор кампании защищён от случайной замены.')
@@ -82,7 +124,14 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
     setError(undefined)
     setMessage(undefined)
     if (instruction.trim().length < 3) return setError('Опишите, что именно нужно изменить.')
-    const result = await onAi(instruction.trim())
+    const candidates = scope === 'ability' ? campaign.player.abilities.map((entry) => ({ id: entry.id, name: entry.name }))
+      : scope === 'artifact' ? campaign.inventory.map((entry) => ({ id: entry.id, name: entry.name }))
+        : scope === 'npc' ? campaign.npcs.map((entry) => ({ id: entry.id, name: entry.name }))
+          : scope === 'faction' ? campaign.world.factions.map((entry) => ({ id: entry.id ?? entry.name, name: entry.name }))
+            : scope === 'mechanic' ? (campaign.world.mechanics ?? []).map((entry) => ({ id: entry.id, name: entry.name })) : []
+    const entity = candidates.find((entry) => entry.id === entityId)
+    const scopeInstruction = `ОБЛАСТЬ ПРАВКИ: ${scopeLabels[scope]}.${entity ? ` ТОЧНАЯ СУЩНОСТЬ: «${entity.name}», id=${entity.id}.` : ''} Не изменяй данные вне выбранной области, кроме обязательных ссылок для целостности.\n\n${instruction.trim()}`
+    const result = await onAi(scopeInstruction)
     if (result) {
       setMessage(result)
       setInstruction('')
@@ -96,6 +145,11 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
     ...current,
     world: { ...current.world, system: { ...(current.world.system ?? { name: '', summary: '', progression: '', conflictResolution: '', consequences: '', equipmentSlots: [] }), [field]: value } },
   }))
+  const entityOptions = scope === 'ability' ? campaign.player.abilities.map((entry) => ({ id: entry.id, name: entry.name }))
+    : scope === 'artifact' ? campaign.inventory.map((entry) => ({ id: entry.id, name: entry.name }))
+      : scope === 'npc' ? campaign.npcs.map((entry) => ({ id: entry.id, name: entry.name }))
+        : scope === 'faction' ? campaign.world.factions.map((entry) => ({ id: entry.id ?? entry.name, name: entry.name }))
+          : scope === 'mechanic' ? (campaign.world.mechanics ?? []).map((entry) => ({ id: entry.id, name: entry.name })) : []
 
   return <Modal open={open} onClose={() => !generating && onClose()} title="Мастерская кампании" eyebrow="Полный контроль" width="large">
     <div className="campaign-editor-tabs" role="tablist" aria-label="Режим редактора">
@@ -142,6 +196,7 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
 
       {mode === 'ai' && <div className="campaign-editor-ai">
         <div className="editor-ai-intro"><WandSparkles size={22} /><div><strong>Корректировка без сюжетного хода</strong><span>ИИ читает фактическое состояние, использует точные идентификаторы и возвращает только проверенные изменения. Время и история не двигаются.</span></div></div>
+        <div className="editor-ai-scope"><label className="field"><span>Область правки</span><select value={scope} onChange={(event) => { setScope(event.target.value as AiEditScope); setEntityId('') }}>{Object.entries(scopeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{entityOptions.length > 0 && <label className="field"><span>Точная сущность</span><select value={entityId} onChange={(event) => setEntityId(event.target.value)}><option value="">Выбрать…</option>{entityOptions.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</select></label>}</div>
         <label className="field field--large"><span>Что изменить</span><textarea autoFocus rows={7} value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Например: Нунобоко должен быть каноничным оружием из мира Naruto. Перепроверь его силы, ограничения и связь со способностью героя, сохрани уже произошедшие сцены…" /></label>
         <div className="editor-ai-seeds">{aiSeeds.map((seed) => <button key={seed} onClick={() => setInstruction(seed)}>{seed}</button>)}</div>
         {generating && <OperationProgressPanel progress={progress} />}
@@ -154,7 +209,7 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
     </div>
 
     {error && <div className="inline-error">{error}</div>}
-    {message && <div className="editor-success"><Check size={16} /><span>{message}</span></div>}
+    {message && <div className="editor-success"><Check size={16} /><span>{message}</span>{canUndoEdit && onUndoEdit && <button onClick={() => void onUndoEdit()}><RotateCcw size={14} /> Вернуть состояние до правки</button>}</div>}
     <div className="modal-actions settings-actions">
       <button className="secondary-button" disabled={generating} onClick={onClose}>Закрыть</button>
       {mode === 'basic' && <button className="primary-button" onClick={() => void saveBasic()}><Save size={16} /> Сохранить правки</button>}

@@ -22,6 +22,48 @@ describe('campaign editor contract', () => {
   })
 })
 
+describe('safe adaptive cockpit contract', () => {
+  const validModule = {
+    id: 'ui-alert', title: 'Контур тревоги', description: 'Показывает реакцию мира.', placement: 'dashboard', visual: 'cards', icon: 'pulse',
+    accent: '#71d3b1', secondary: '#e7b96b', priority: 90, visibility: 'known', reason: 'Розыск важен в этом мире.',
+    updatePolicy: 'Следовать показателю alert.', collapsible: true, collapsedByDefault: false, pinned: true, density: 'compact', emphasis: 'prominent',
+    elements: [{ id: 'alert-meter', label: 'Розыск', kind: 'meter', state: 'normal', stateRules: { warningAbove: 50, dangerAbove: 80 }, binding: { domain: 'world.metric', key: 'alert' }, links: [] }],
+  }
+
+  it('accepts a blueprint, real metric and granular module changes in one patch', () => {
+    const parsed = turnPatchSchema.parse({ world: {
+      interfaceBlueprint: {
+        title: 'Пульт беглеца', subtitle: 'Внимание города', defaultTab: 'dashboard', reason: 'Мир реагирует на героя.',
+        tabs: [{ id: 'dashboard', label: 'Пульт', visible: true }, { id: 'world', label: 'Город', visible: true }],
+        dashboardSections: ['scene', 'modules', 'worldPulse', 'interfaceHealth'],
+      },
+      upsertMetrics: [{ id: 'metric-alert', key: 'alert', label: 'Розыск', description: 'Насколько активно героя ищут.', value: 35, min: 0, max: 100, unit: '%', visibility: 'known', source: 'Городская стража', updatePolicy: 'Растёт от известных преступлений.' }],
+      upsertInterfaceModules: [validModule],
+      interfaceModuleChanges: [{ moduleId: 'ui-alert', module: { priority: 95 }, upsertElements: [{ id: 'escape-window', label: 'Окно побега', kind: 'value', value: 'Ночь', state: 'positive', binding: { domain: 'custom' }, links: [] }] }],
+      metricDeltas: { alert: 12 },
+    } })
+    expect(parsed.world?.interfaceBlueprint).toMatchObject({ defaultTab: 'dashboard', dashboardSections: ['scene', 'modules', 'worldPulse', 'interfaceHealth'] })
+    expect(parsed.world?.upsertMetrics?.[0]).toMatchObject({ id: 'metric-alert', value: 35, max: 100 })
+    expect(parsed.world?.upsertInterfaceModules?.[0]).toMatchObject({ placement: 'dashboard', visual: 'cards', pinned: true, density: 'compact', emphasis: 'prominent' })
+    expect(parsed.world?.interfaceModuleChanges?.[0]).toMatchObject({ moduleId: 'ui-alert', module: { priority: 95 } })
+    expect(parsed.world?.metricDeltas).toEqual({ alert: 12 })
+  })
+
+  it('rejects ambiguous live bindings, duplicate ids, invalid links and inverted ranges', () => {
+    const malformed = structuredClone(validModule)
+    malformed.elements = [
+      { id: 'same', label: 'A', kind: 'meter', state: 'normal', min: 10, max: 1, binding: { domain: 'player.resource' }, links: ['missing'] },
+      { id: 'same', label: 'B', kind: 'value', state: 'normal', binding: { domain: 'custom' }, links: [] },
+    ] as typeof validModule.elements
+    expect(turnPatchSchema.safeParse({ world: { upsertInterfaceModules: [malformed] } }).success).toBe(false)
+    expect(turnPatchSchema.safeParse({ world: { interfaceModuleChanges: [{ moduleId: 'ui-alert', upsertElements: [{ id: 'broken-resource', label: 'Ресурс', kind: 'meter', state: 'normal', binding: { domain: 'player.resource' } }] }] } }).success).toBe(false)
+  })
+
+  it('rejects metrics outside their declared range', () => {
+    expect(turnPatchSchema.safeParse({ world: { upsertMetrics: [{ id: 'bad', key: 'bad', label: 'Ошибка', description: 'За пределом.', value: 120, min: 0, max: 100, visibility: 'known', source: 'Тест', updatePolicy: 'Никогда' }] } }).success).toBe(false)
+  })
+})
+
 describe('persistent living-world patches', () => {
   it('accepts a granular Russian NPC dossier without exposing unrelated fields', () => {
     const parsed = turnPatchSchema.parse({ npcs: [{ operation: 'update', targetId: 'npc-elder', npc: { dossier: {

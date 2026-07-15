@@ -24,6 +24,10 @@ import type {
   StatusEffect,
   StateChange,
   WorldPressure,
+  AdaptiveInterfaceElement,
+  AdaptiveInterfaceModule,
+  WorldInterfaceBlueprint,
+  WorldMetric,
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
@@ -34,6 +38,9 @@ const id = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const normalizedName = (value: string) => value.trim().toLocaleLowerCase('ru-RU')
+const INTERFACE_MODULE_LIMIT = 8
+const INTERFACE_ELEMENT_LIMIT = 16
+const WORLD_METRIC_LIMIT = 48
 
 function rejectedReference(diagnostics: StateChange[] | undefined, path: string, reference: string | undefined, reason = 'ссылка не найдена') {
   diagnostics?.push({
@@ -49,6 +56,61 @@ function rejectedReference(diagnostics: StateChange[] | undefined, path: string,
 function metricMatches(metric: { key: string; label: string; aliases?: string[] }, candidate: string): boolean {
   const normalizedCandidate = normalizedName(candidate)
   return [metric.key, metric.label, ...(metric.aliases ?? [])].some((value) => normalizedName(value) === normalizedCandidate)
+}
+
+function normalizeInterfaceElements(
+  elements: AdaptiveInterfaceElement[],
+  diagnostics: StateChange[] | undefined,
+  path: string,
+): AdaptiveInterfaceElement[] {
+  const byId = new Map<string, AdaptiveInterfaceElement>()
+  elements.forEach((element, index) => {
+    if (byId.has(element.id)) rejectedReference(diagnostics, `${path}[${index}].id`, element.id, 'повторяющийся идентификатор элемента; сохранена последняя версия')
+    byId.set(element.id, structuredClone(element))
+  })
+  const uniqueElements = [...byId.values()]
+  const kept = uniqueElements.slice(0, INTERFACE_ELEMENT_LIMIT)
+  uniqueElements.slice(INTERFACE_ELEMENT_LIMIT).forEach((element) => {
+    rejectedReference(diagnostics, path, element.id, `превышен лимит ${INTERFACE_ELEMENT_LIMIT} элементов модуля`)
+  })
+  const ids = new Set(kept.map((element) => element.id))
+  return kept.map((element, elementIndex) => {
+    const links = [...new Set(element.links ?? [])].filter((link, linkIndex) => {
+      const valid = link !== element.id && ids.has(link)
+      if (!valid) rejectedReference(diagnostics, `${path}[${elementIndex}].links[${linkIndex}]`, link, 'связь ведёт к отсутствующему или тому же элементу')
+      return valid
+    })
+    return { ...element, links }
+  })
+}
+
+function normalizeInterfaceModule(
+  incoming: Omit<AdaptiveInterfaceModule, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<AdaptiveInterfaceModule, 'createdTurn' | 'lastChangedTurn'>>,
+  turn: number,
+  diagnostics: StateChange[] | undefined,
+  path: string,
+  existing?: AdaptiveInterfaceModule,
+): AdaptiveInterfaceModule {
+  return {
+    ...incoming,
+    id: existing?.id ?? incoming.id,
+    pinned: existing?.pinned === true ? true : incoming.pinned,
+    density: incoming.density ?? existing?.density,
+    emphasis: incoming.emphasis ?? existing?.emphasis,
+    priority: clamp(Number.isFinite(incoming.priority) ? incoming.priority : 0, 0, 100),
+    elements: normalizeInterfaceElements(incoming.elements ?? [], diagnostics, `${path}.elements`),
+    createdTurn: existing?.createdTurn ?? turn,
+    lastChangedTurn: turn,
+  }
+}
+
+function validInterfaceBlueprint(blueprint: WorldInterfaceBlueprint): boolean {
+  const tabIds = blueprint.tabs.map((tab) => tab.id)
+  return tabIds.length > 0
+    && new Set(tabIds).size === tabIds.length
+    && blueprint.tabs.some((tab) => tab.id === blueprint.defaultTab && tab.visible)
+    && blueprint.dashboardSections.length > 0
+    && new Set(blueprint.dashboardSections).size === blueprint.dashboardSections.length
 }
 
 function normalizedMeter(value: number | undefined, maximum: number | undefined): number | undefined {
@@ -1464,6 +1526,9 @@ export function applyPatch(
     worldPatch.removeInterfaceModuleIds?.forEach((moduleId, index) => {
       if (!(campaign.world.interfaceModules ?? []).some((module) => module.id === moduleId)) rejectedReference(diagnostics, `statePatch.world.removeInterfaceModuleIds[${index}]`, moduleId, 'модуль интерфейса не найден')
     })
+    worldPatch.removeMetricIds?.forEach((metricId, index) => {
+      if (!(campaign.world.metrics ?? []).some((metric) => metric.id === metricId)) rejectedReference(diagnostics, `statePatch.world.removeMetricIds[${index}]`, metricId, 'показатель мира не найден')
+    })
     const removeByText = (values: string[], removed: string[] | undefined) => {
       const set = new Set((removed ?? []).map((value) => value.toLocaleLowerCase('ru-RU')))
       return values.filter((value) => !set.has(value.toLocaleLowerCase('ru-RU')))
@@ -1571,18 +1636,97 @@ export function applyPatch(
     campaign.world.mechanics = mechanics.slice(0, 40)
 
     const removedInterfaceModuleIds = new Set(worldPatch.removeInterfaceModuleIds ?? [])
-    const interfaceModules = (campaign.world.interfaceModules ?? []).filter((module) => !removedInterfaceModuleIds.has(module.id))
-    ;(worldPatch.upsertInterfaceModules ?? []).forEach((incoming) => {
-      const existing = interfaceModules.find((module) => module.id === incoming.id || normalizedName(module.title) === normalizedName(incoming.title))
-      const normalized = {
-        ...incoming,
-        priority: clamp(incoming.priority, 0, 100),
-        elements: incoming.elements.slice(0, 16).map((element) => ({ ...element, links: element.links?.slice(0, 16) })),
-      }
-      if (existing) Object.assign(existing, normalized, { id: existing.id, createdTurn: existing.createdTurn, lastChangedTurn: turn })
-      else interfaceModules.push({ ...normalized, createdTurn: incoming.createdTurn ?? turn, lastChangedTurn: turn })
+    const interfaceModules = (campaign.world.interfaceModules ?? [])
+      .filter((module) => !removedInterfaceModuleIds.has(module.id))
+      .map((module) => structuredClone(module))
+    ;(worldPatch.upsertInterfaceModules ?? []).forEach((incoming, moduleIndex) => {
+      const existingIndex = interfaceModules.findIndex((module) => module.id === incoming.id)
+      const existing = existingIndex >= 0 ? interfaceModules[existingIndex] : undefined
+      const normalized = normalizeInterfaceModule(incoming, turn, diagnostics, `statePatch.world.upsertInterfaceModules[${moduleIndex}]`, existing)
+      if (existingIndex >= 0) interfaceModules[existingIndex] = normalized
+      else interfaceModules.push(normalized)
     })
-    campaign.world.interfaceModules = interfaceModules.slice(0, 8)
+    ;(worldPatch.interfaceModuleChanges ?? []).forEach((change, changeIndex) => {
+      const module = interfaceModules.find((candidate) => candidate.id === change.moduleId)
+      if (!module) {
+        rejectedReference(diagnostics, `statePatch.world.interfaceModuleChanges[${changeIndex}].moduleId`, change.moduleId, 'модуль интерфейса не найден')
+        return
+      }
+      const knownElementIds = new Set([
+        ...module.elements.map((element) => element.id),
+        ...(change.upsertElements ?? []).map((element) => element.id),
+      ])
+      ;(change.removeElementIds ?? []).forEach((elementId, elementIndex) => {
+        if (!knownElementIds.has(elementId)) rejectedReference(diagnostics, `statePatch.world.interfaceModuleChanges[${changeIndex}].removeElementIds[${elementIndex}]`, elementId, 'элемент модуля не найден')
+      })
+      const removedElementIds = new Set(change.removeElementIds ?? [])
+      const elements = module.elements.filter((element) => !removedElementIds.has(element.id)).map((element) => structuredClone(element))
+      ;(change.upsertElements ?? []).forEach((element) => {
+        const existingElementIndex = elements.findIndex((candidate) => candidate.id === element.id)
+        if (existingElementIndex >= 0) elements[existingElementIndex] = structuredClone(element)
+        else elements.push(structuredClone(element))
+      })
+      Object.assign(module, change.module ?? {}, {
+        id: module.id,
+        createdTurn: module.createdTurn,
+        lastChangedTurn: turn,
+        pinned: module.pinned === true ? true : change.module?.pinned ?? module.pinned,
+        priority: clamp(Number.isFinite(change.module?.priority) ? change.module!.priority! : module.priority, 0, 100),
+        elements: normalizeInterfaceElements(elements, diagnostics, `statePatch.world.interfaceModuleChanges[${changeIndex}].upsertElements`),
+      })
+    })
+    interfaceModules.sort((left, right) => (
+      Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))
+      || right.priority - left.priority
+      || left.createdTurn - right.createdTurn
+      || left.id.localeCompare(right.id, 'ru')
+    ))
+    interfaceModules.slice(INTERFACE_MODULE_LIMIT).forEach((module) => {
+      rejectedReference(diagnostics, 'statePatch.world.interfaceModules', module.id, `превышен лимит ${INTERFACE_MODULE_LIMIT} модулей; отклонён модуль с меньшим приоритетом`)
+    })
+    campaign.world.interfaceModules = interfaceModules.slice(0, INTERFACE_MODULE_LIMIT)
+
+    if (worldPatch.interfaceBlueprint) {
+      const blueprint = { ...structuredClone(worldPatch.interfaceBlueprint), updatedTurn: turn }
+      if (validInterfaceBlueprint(blueprint)) campaign.world.interfaceBlueprint = blueprint
+      else rejectedReference(diagnostics, 'statePatch.world.interfaceBlueprint', blueprint.defaultTab, 'некорректная компоновка правой панели')
+    }
+
+    const removedMetricIds = new Set(worldPatch.removeMetricIds ?? [])
+    const metrics = (campaign.world.metrics ?? []).filter((metric) => !removedMetricIds.has(metric.id)).map((metric) => structuredClone(metric))
+    ;(worldPatch.upsertMetrics ?? []).forEach((incoming, metricIndex) => {
+      const existingIndex = metrics.findIndex((metric) => metric.id === incoming.id)
+      const duplicateKey = metrics.find((metric, index) => index !== existingIndex && normalizedName(metric.key) === normalizedName(incoming.key))
+      if (duplicateKey) {
+        rejectedReference(diagnostics, `statePatch.world.upsertMetrics[${metricIndex}].key`, incoming.key, `ключ уже принадлежит показателю «${duplicateKey.label}»`)
+        return
+      }
+      if (!Number.isFinite(incoming.min) || !Number.isFinite(incoming.max) || incoming.max <= incoming.min) {
+        rejectedReference(diagnostics, `statePatch.world.upsertMetrics[${metricIndex}]`, incoming.id, 'некорректный диапазон показателя')
+        return
+      }
+      const normalized: WorldMetric = {
+        ...incoming,
+        id: existingIndex >= 0 ? metrics[existingIndex].id : incoming.id,
+        value: clamp(Number.isFinite(incoming.value) ? incoming.value : incoming.min, incoming.min, incoming.max),
+        lastChangedTurn: turn,
+      }
+      if (existingIndex >= 0) metrics[existingIndex] = normalized
+      else if (metrics.length < WORLD_METRIC_LIMIT) metrics.push(normalized)
+      else rejectedReference(diagnostics, `statePatch.world.upsertMetrics[${metricIndex}]`, incoming.id, `превышен лимит ${WORLD_METRIC_LIMIT} показателей мира`)
+    })
+    Object.entries(worldPatch.metricDeltas ?? {}).forEach(([reference, delta]) => {
+      const candidates = metrics.filter((metric) => metric.id === reference || normalizedName(metric.key) === normalizedName(reference) || normalizedName(metric.label) === normalizedName(reference))
+      if (candidates.length !== 1) {
+        rejectedReference(diagnostics, `statePatch.world.metricDeltas.${reference}`, reference, candidates.length ? 'ссылка на показатель неоднозначна' : 'показатель мира не найден')
+        return
+      }
+      if (!Number.isFinite(delta)) return
+      const metric = candidates[0]
+      metric.value = clamp(metric.value + delta, metric.min, metric.max)
+      metric.lastChangedTurn = turn
+    })
+    campaign.world.metrics = metrics
     if (Number.isFinite(worldPatch.calendarDayDelta)) campaign.world.calendar.day = Math.max(1, campaign.world.calendar.day + (worldPatch.calendarDayDelta ?? 0))
     if (worldPatch.calendarLabel) campaign.world.calendar.label = worldPatch.calendarLabel
   }

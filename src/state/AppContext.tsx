@@ -32,6 +32,8 @@ interface AppContextValue {
   createCampaign: (request: Omit<WorldGenerationRequest, 'provider'>) => Promise<Campaign | undefined>
   aiEditCampaign: (instruction: string) => Promise<string | undefined>
   updateActiveCampaign: (updater: (campaign: Campaign) => Campaign) => Promise<void>
+  undoLastEdit: () => Promise<void>
+  canUndoEdit: boolean
   undoTurn: () => Promise<void>
   duplicateCampaign: (id: string) => Promise<void>
   removeCampaign: (id: string) => Promise<void>
@@ -55,6 +57,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const lastFailedTurnRef = useRef<{ input: string; actionType: ActionType } | undefined>(undefined)
   const [canRetryFailedTurn, setCanRetryFailedTurn] = useState(false)
   const initializedRef = useRef(false)
+  const lastEditBackupRef = useRef<Campaign | undefined>(undefined)
+  const [canUndoEdit, setCanUndoEdit] = useState(false)
 
   useEffect(() => {
     if (initializedRef.current) return
@@ -110,6 +114,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const updated = updater(draft)
     const next = ensureCampaignIdentity(updated && typeof updated === 'object' && !Array.isArray(updated) ? updated : draft, current.id)
     next.updatedAt = new Date().toISOString()
+    lastEditBackupRef.current = structuredClone(current)
+    setCanUndoEdit(true)
     await upsert(next)
   }, [activeCampaignId, campaigns, upsert])
 
@@ -216,6 +222,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (response.campaignPatch?.title?.trim()) next.title = response.campaignPatch.title.trim()
       if (response.settingsPatch) next.settings = { ...next.settings, ...response.settingsPatch }
       next.updatedAt = new Date().toISOString()
+      lastEditBackupRef.current = structuredClone(campaign)
+      setCanUndoEdit(true)
       await upsert(next)
       return diagnostics.length ? `${response.summary} Отклонено небезопасных ссылок: ${diagnostics.length}.` : response.summary
     } catch (cause) {
@@ -226,6 +234,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setGenerating(false)
     }
   }, [activeCampaignId, campaigns, generating, provider, upsert])
+
+  const undoLastEdit = useCallback(async () => {
+    const backup = lastEditBackupRef.current
+    if (!backup) return
+    const restored = structuredClone(backup)
+    restored.updatedAt = new Date().toISOString()
+    lastEditBackupRef.current = undefined
+    setCanUndoEdit(false)
+    await upsert(restored)
+  }, [upsert])
 
   const undoTurn = useCallback(async () => {
     if (!activeCampaign?.snapshots.length) return
@@ -274,8 +292,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppContextValue>(() => ({
     campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress,
     setActiveCampaignId, setProvider, setTheme, dismissError: () => setError(undefined), sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, canRetryFailedTurn, createCampaign, aiEditCampaign,
-    updateActiveCampaign, undoTurn, duplicateCampaign, removeCampaign, importCampaign,
-  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, updateActiveCampaign, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
+    updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign,
+  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

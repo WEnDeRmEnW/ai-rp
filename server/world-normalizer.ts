@@ -73,6 +73,8 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       laws: generated.world.laws.map((law) => ({ ...law, id: id(), createdTurn: 0, lastChangedTurn: 0 })),
       mechanics: generated.world.mechanics.map((mechanic) => ({ ...mechanic, id: id(), createdTurn: 0, lastChangedTurn: 0 })),
       interfaceModules: generated.world.interfaceModules.map((module) => ({ ...module, createdTurn: 0, lastChangedTurn: 0 })),
+      interfaceBlueprint: generated.world.interfaceBlueprint ? { ...generated.world.interfaceBlueprint, updatedTurn: 0 } : undefined,
+      metrics: generated.world.metrics?.map((metric) => ({ ...metric, lastChangedTurn: 0 })),
       calendar: { day: 1, label: generated.opening.scene.time },
     },
     player: {

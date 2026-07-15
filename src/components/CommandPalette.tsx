@@ -1,5 +1,5 @@
 import {
-  Backpack, BookOpen, BookOpenText, Command, History, MapPin, Maximize2,
+  Backpack, BookOpen, BookOpenText, Command, History, LayoutDashboard, MapPin, Maximize2,
   PanelLeft, PanelRight, PencilRuler, Plus, RotateCcw, Search, Settings2, UserRound, X,
   type LucideIcon,
 } from 'lucide-react'
@@ -39,6 +39,8 @@ export function CommandPalette(props: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const paletteOpen = props.open
+  const closePalette = props.onClose
 
   const actions = useMemo<PaletteAction[]>(() => {
     const openTab = (tab: InspectorTab) => {
@@ -49,6 +51,7 @@ export function CommandPalette(props: CommandPaletteProps) {
       { id: 'focus', label: props.focusMode ? 'Выйти из режима чтения' : 'Режим чтения', detail: 'Оставить историю и поле ввода без отвлекающих панелей', group: 'Вид', icon: Maximize2, run: () => { props.onFocusMode(); props.onClose() } },
       { id: 'left', label: 'Показать или скрыть список кампаний', detail: 'Левая панель с вашими мирами', group: 'Вид', icon: PanelLeft, run: () => { props.onSidebar(); props.onClose() } },
       { id: 'right', label: 'Показать или скрыть сведения', detail: 'Правая панель состояния кампании', group: 'Вид', icon: PanelRight, run: () => { props.onInspector(); props.onClose() } },
+      { id: 'dashboard', label: 'Открыть Пульт мира', detail: 'Текущая сцена, ставки, живые процессы, механики и уникальные показатели', group: 'Разделы', icon: LayoutDashboard, run: () => openTab('dashboard') },
       { id: 'scene', label: 'Открыть текущую сцену', detail: 'Персонажи рядом, миссии и последствия', group: 'Разделы', icon: MapPin, run: () => openTab('scene') },
       { id: 'hero', label: 'Открыть персонажа', detail: 'Ресурсы, характеристики и способности', group: 'Разделы', icon: UserRound, run: () => openTab('hero') },
       { id: 'inventory', label: 'Открыть снаряжение', detail: `${props.campaign.inventory.length} предметов в текущей кампании`, group: 'Разделы', icon: Backpack, run: () => openTab('inventory') },
@@ -76,6 +79,13 @@ export function CommandPalette(props: CommandPaletteProps) {
   }, [props.open])
 
   useEffect(() => setSelected((current) => Math.min(current, Math.max(0, visible.length - 1))), [visible.length])
+
+  useEffect(() => {
+    if (!paletteOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closePalette() }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [closePalette, paletteOpen])
 
   if (!props.open) return null
   return <div className="command-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose() }}>

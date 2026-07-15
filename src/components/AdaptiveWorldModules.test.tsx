@@ -13,6 +13,7 @@ describe('adaptive world interface live bindings', () => {
     const resource = campaign.player.resources[0]
     const stat = campaign.player.stats[0]
     const npc = campaign.npcs[0]
+    npc.dossier = { familiarity: 'familiar', revealedSections: ['relationship'], revealedStatKeys: [], revealedResourceKeys: [], revealedAbilityIds: [], evidence: [], updatedTurn: campaign.turn }
     const item = campaign.inventory[0]
     item.charges = 3
     item.maxCharges = 7
@@ -21,7 +22,7 @@ describe('adaptive world interface live bindings', () => {
 
     expect(resolveAdaptiveInterfaceElement(campaign, element('player.resource', resource.key))).toMatchObject({ value: resource.value, max: resource.max })
     expect(resolveAdaptiveInterfaceElement(campaign, element('player.stat', stat.label))).toMatchObject({ value: stat.value, max: stat.max })
-    expect(resolveAdaptiveInterfaceElement(campaign, element('scene.tension'))).toEqual({ value: 73, min: 0, max: 100, unit: '%' })
+    expect(resolveAdaptiveInterfaceElement(campaign, element('scene.tension'))).toMatchObject({ value: 73, min: 0, max: 100, unit: '%', live: true, missing: false })
     expect(resolveAdaptiveInterfaceElement(campaign, element('faction.reputation', 'Латунный хор'))).toMatchObject({ value: -14, min: -100, max: 100 })
     expect(resolveAdaptiveInterfaceElement(campaign, element('inventory.item-charges', undefined, item.id))).toMatchObject({ value: 3, max: 7 })
     expect(resolveAdaptiveInterfaceElement(campaign, element('npc.relationship', undefined, npc.name))).toMatchObject({ value: npc.relationship, min: -100, max: 100 })

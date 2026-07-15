@@ -1,9 +1,11 @@
 import { ArrowUp, Feather, MessageCircle, MoreHorizontal, Square, WandSparkles } from 'lucide-react'
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import type { ActionType, OperationProgress, WorldLabels } from '../../shared/types'
 import { OperationProgressPanel } from './OperationProgressPanel'
 
-const createModes = (labels: WorldLabels): Array<{ value: ActionType; label: string; icon: typeof Feather; placeholder: string; description: string }> => [
+type ComposerLabels = Pick<WorldLabels, 'action' | 'speech' | 'direction' | 'continue'>
+
+const createModes = (labels: ComposerLabels): Array<{ value: ActionType; label: string; icon: typeof Feather; placeholder: string; description: string }> => [
   { value: 'do', label: labels.action, icon: Feather, placeholder: `Опишите: ${labels.action.toLocaleLowerCase('ru-RU')}…`, description: 'Что делает ваш герой' },
   { value: 'say', label: labels.speech, icon: MessageCircle, placeholder: `Введите: ${labels.speech.toLocaleLowerCase('ru-RU')}…`, description: 'Точные слова героя' },
   { value: 'story', label: labels.direction, icon: WandSparkles, placeholder: `Направьте сцену: ${labels.direction.toLocaleLowerCase('ru-RU')}…`, description: 'Авторская правка или факт' },
@@ -22,13 +24,14 @@ interface ComposerProps {
   onCancel: () => void
 }
 
-export function Composer({ value, mode, generating, progress, labels, onValue, onMode, onSend, onCancel }: ComposerProps) {
+export const Composer = memo(function Composer({ value, mode, generating, progress, labels, onValue, onMode, onSend, onCancel }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const modes = createModes(labels)
+  const { action, speech, direction, continue: continueLabel } = labels
+  const modes = useMemo(() => createModes({ action, speech, direction, continue: continueLabel }), [action, continueLabel, direction, speech])
   const selected = modes.find((item) => item.value === mode)!
   const SelectedIcon = selected.icon
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = '0px'
@@ -73,4 +76,4 @@ export function Composer({ value, mode, generating, progress, labels, onValue, o
       </div>
     </div>
   )
-}
+})

@@ -31,6 +31,11 @@ const labels: Record<string, string> = {
 const technicalWords = Object.keys(labels).sort((left, right) => right.length - left.length)
 const technicalPattern = new RegExp(`\\b(${technicalWords.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'gi')
 const hasCyrillic = /[а-яё]/iu
+const uuidPattern = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu
+const internalPathPattern = /\b(?:statePatch|[a-z][A-Za-z0-9_$]*)(?:(?:\.[A-Za-z_$][\w$]*)|(?:\[\d+\]))+/gu
+const internalPathDetectionPattern = /\b(?:statePatch|[a-z][A-Za-z0-9_$]*)(?:(?:\.[A-Za-z_$][\w$]*)|(?:\[\d+\]))+/u
+const internalIdentifierPattern = /\b(?:[a-z][a-z0-9]*_[a-z0-9_]{2,}|[a-f0-9]{12,})\b/giu
+const internalCamelCasePattern = /\b[a-z]+(?:[A-Z][A-Za-z0-9]*)+\b/g
 
 export function uiLabel(value: string | undefined, fallback = 'Другое') {
   if (!value?.trim()) return fallback
@@ -45,6 +50,27 @@ export function uiLabel(value: string | undefined, fallback = 'Другое') {
 /** Localizes previously stored technical receipts without mutating campaign data. */
 export function localizeTechnicalText(value: string) {
   return value.replace(/\bNPC\b/g, 'персонаж').replace(technicalPattern, (match) => labels[match.toLocaleLowerCase('ru-RU')] ?? match)
+}
+
+/** Removes implementation details from persistent player-facing change receipts. */
+export function sanitizeReceiptText(value: string, fallback = 'Состояние мира обновлено') {
+  const localized = localizeTechnicalText(value)
+  const sanitized = localized
+    .replace(uuidPattern, 'служебная запись')
+    .replace(internalPathPattern, 'служебное поле')
+    .replace(internalIdentifierPattern, 'служебная запись')
+    .replace(internalCamelCasePattern, 'служебное поле')
+    .replace(/(?:служебное (?:поле|значение|запись))(?:[\s:·,;—-]+служебное (?:поле|значение|запись))+/giu, 'служебные данные')
+    .replace(/\s+([,.;:])/gu, '$1')
+    .replace(/\s{2,}/gu, ' ')
+    .trim()
+  return sanitized || fallback
+}
+
+export function isTechnicalReceiptText(value: string) {
+  return /(?:^|\s)(?:изменение не применено|служебная (?:ошибка|сверка)|техническая (?:ошибка|сверка))/iu.test(value)
+    || /\bstatePatch\b/iu.test(value)
+    || internalPathDetectionPattern.test(value)
 }
 
 export function resourceUiLabel(key: string, available?: Array<{ key: string; label: string; aliases?: string[] }>) {

@@ -1,4 +1,4 @@
-import type { World, WorldPresentation, WorldSystem } from '../../shared/types'
+import type { DashboardSectionId, InspectorTabId, World, WorldInterfaceBlueprint, WorldPresentation, WorldSystem } from '../../shared/types'
 
 const legacyPresentation: WorldPresentation = {
   accent: '#71d3b1',
@@ -33,9 +33,57 @@ const legacySystem: WorldSystem = {
 }
 
 export function getWorldPresentation(world: World): WorldPresentation {
-  return world.presentation ?? legacyPresentation
+  const presentation = world.presentation
+  if (!presentation) return legacyPresentation
+  return {
+    ...legacyPresentation,
+    ...presentation,
+    labels: { ...legacyPresentation.labels, ...presentation.labels },
+    categoryLabels: { ...legacyPresentation.categoryLabels, ...presentation.categoryLabels },
+    rarityLabels: { ...legacyPresentation.rarityLabels, ...presentation.rarityLabels },
+  }
 }
 
 export function getWorldSystem(world: World): WorldSystem {
-  return world.system ?? legacySystem
+  return { ...legacySystem, ...world.system, equipmentSlots: world.system?.equipmentSlots ?? legacySystem.equipmentSlots }
+}
+
+const defaultTabOrder: InspectorTabId[] = ['dashboard', 'scene', 'hero', 'inventory', 'changes', 'world']
+const defaultDashboardSections: DashboardSectionId[] = ['scene', 'stakes', 'modules', 'worldPulse', 'openLoops', 'mechanics', 'interfaceHealth']
+
+/**
+ * Resolves a safe, recoverable right-panel layout for both legacy and AI-designed worlds.
+ * Dashboard is always available so the player can repair or reconfigure a broken design.
+ */
+export function getWorldInterfaceBlueprint(world: World): WorldInterfaceBlueprint {
+  const labels = getWorldPresentation(world).labels
+  const defaults: Record<InspectorTabId, string> = {
+    dashboard: 'Пульт',
+    scene: labels.scene,
+    hero: labels.character,
+    inventory: labels.inventory,
+    changes: 'Изменения',
+    world: labels.world,
+  }
+  const stored = world.interfaceBlueprint
+  const storedTabs = new Map(stored?.tabs.map((tab) => [tab.id, tab]))
+  const tabs = defaultTabOrder.map((id) => ({
+    id,
+    label: storedTabs.get(id)?.label?.trim() || defaults[id],
+    visible: id === 'dashboard' ? true : stored ? (storedTabs.get(id)?.visible ?? false) : true,
+  }))
+  const visibleIds = new Set(tabs.filter((tab) => tab.visible).map((tab) => tab.id))
+  const requestedDefault = stored?.defaultTab
+  const defaultTab = requestedDefault && visibleIds.has(requestedDefault) ? requestedDefault : 'dashboard'
+  const sections = (stored?.dashboardSections ?? defaultDashboardSections).filter((section, index, values) => defaultDashboardSections.includes(section) && values.indexOf(section) === index)
+  for (const section of defaultDashboardSections) if (!sections.includes(section)) sections.push(section)
+  return {
+    title: stored?.title?.trim() || world.name,
+    subtitle: stored?.subtitle?.trim() || world.tagline,
+    defaultTab,
+    tabs,
+    dashboardSections: sections,
+    reason: stored?.reason?.trim() || 'Безопасный пульт собран из актуального состояния мира.',
+    updatedTurn: stored?.updatedTurn ?? 0,
+  }
 }

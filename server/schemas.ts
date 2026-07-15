@@ -48,26 +48,56 @@ const worldFactionKindSchema = z.preprocess(alias({ государство: 'gov
 const worldPlaceKindSchema = z.preprocess(alias({ континент: 'continent', страна: 'country', регион: 'region', область: 'region', город: 'city', район: 'district', поселение: 'settlement', деревня: 'settlement', пустошь: 'wilderness', дикая_местность: 'wilderness', царство: 'realm', мир: 'realm', планета: 'planet', система: 'system', станция: 'station', измерение: 'dimension', другое: 'other' }), z.enum(['continent', 'country', 'region', 'city', 'district', 'settlement', 'wilderness', 'realm', 'planet', 'system', 'station', 'dimension', 'other']))
 const worldProcessStatusSchema = z.preprocess(alias({ активно: 'active', развивается: 'active', застопорилось: 'stalled', остановлено: 'stalled', завершено: 'resolved', разрешено: 'resolved', провалено: 'failed' }), z.enum(['active', 'stalled', 'resolved', 'failed']))
 const worldProcessDirectionSchema = z.preprocess(alias({ растет: 'rising', растёт: 'rising', усиливается: 'rising', стабильно: 'stable', без_изменений: 'stable', снижается: 'declining', ослабевает: 'declining' }), z.enum(['rising', 'stable', 'declining']))
-const interfacePlacementSchema = z.preprocess(alias({ сцена: 'scene', герой: 'hero', персонаж: 'hero', инвентарь: 'inventory', снаряжение: 'inventory', мир: 'world' }), z.enum(['scene', 'hero', 'inventory', 'world']))
-const interfaceVisualSchema = z.preprocess(alias({ шкалы: 'meters', индикаторы: 'meters', узлы: 'nodes', сеть: 'nodes', слоты: 'slots', ячейки: 'slots', путь: 'track', этапы: 'track', журнал: 'ledger', реестр: 'ledger', сигналы: 'signals', сообщения: 'signals', радар: 'radar', диаграмма: 'radar' }), z.enum(['meters', 'nodes', 'slots', 'track', 'ledger', 'signals', 'radar']))
+const interfacePlacementSchema = z.preprocess(alias({ пульт: 'dashboard', сводка: 'dashboard', обзор: 'dashboard', сцена: 'scene', герой: 'hero', персонаж: 'hero', инвентарь: 'inventory', снаряжение: 'inventory', мир: 'world' }), z.enum(['dashboard', 'scene', 'hero', 'inventory', 'world']))
+const interfaceVisualSchema = z.preprocess(alias({ шкалы: 'meters', индикаторы: 'meters', узлы: 'nodes', сеть: 'nodes', слоты: 'slots', ячейки: 'slots', путь: 'track', этапы: 'track', журнал: 'ledger', реестр: 'ledger', сигналы: 'signals', сообщения: 'signals', радар: 'radar', диаграмма: 'radar', карточки: 'cards', плитки: 'cards' }), z.enum(['meters', 'nodes', 'slots', 'track', 'ledger', 'signals', 'radar', 'cards']))
 const interfaceIconSchema = z.preprocess(alias({ искра: 'spark', глаз: 'eye', взгляд: 'eye', щит: 'shield', сеть: 'network', узлы: 'network', пульс: 'pulse', сердце: 'pulse', компас: 'compass', корона: 'crown', руна: 'rune', механизм: 'gear', шестерня: 'gear', пламя: 'flame', огонь: 'flame', звезда: 'star', луна: 'moon' }), z.enum(['spark', 'eye', 'shield', 'network', 'pulse', 'compass', 'crown', 'rune', 'gear', 'flame', 'star', 'moon']))
 const interfaceElementKindSchema = z.preprocess(alias({ шкала: 'meter', значение: 'value', метка: 'badge', узел: 'node', слот: 'slot', этап: 'step', текст: 'text' }), z.enum(['meter', 'value', 'badge', 'node', 'slot', 'step', 'text']))
 const interfaceElementStateSchema = z.preprocess(alias({ обычно: 'normal', норма: 'normal', положительно: 'positive', хорошо: 'positive', предупреждение: 'warning', внимание: 'warning', опасность: 'danger', критично: 'danger', заблокировано: 'locked', закрыто: 'locked', неактивно: 'inactive' }), z.enum(['normal', 'positive', 'warning', 'danger', 'locked', 'inactive']))
 const interfaceBindingDomainSchema = z.preprocess(alias({
   свое: 'custom', своё: 'custom', уникальное: 'custom',
+  'уровень игрока': 'player.level', 'уровень героя': 'player.level',
   'ресурс игрока': 'player.resource', 'ресурс героя': 'player.resource',
   'характеристика игрока': 'player.stat', 'характеристика героя': 'player.stat',
   'валюта игрока': 'player.currency', 'валюта героя': 'player.currency',
   'состояния игрока': 'player.condition-count', 'состояния героя': 'player.condition-count',
+  'освоение способности': 'player.ability-mastery', 'мастерство способности': 'player.ability-mastery',
   'напряжение сцены': 'scene.tension', напряжение: 'scene.tension',
+  'раунд конфликта': 'conflict.round',
+  'готовность участника': 'conflict.participant-readiness',
+  'мораль участника': 'conflict.participant-morale',
   'день мира': 'world.day', день: 'world.day',
+  'показатель мира': 'world.metric', 'метрика мира': 'world.metric',
+  'опасность локации': 'world.location-danger',
+  'импульс процесса': 'world.process-momentum',
+  'давление мира': 'world.pressure',
   'репутация фракции': 'faction.reputation', репутация: 'faction.reputation',
+  'сила фракции': 'faction.power',
   'категория инвентаря': 'inventory.category-count', 'число предметов': 'inventory.category-count',
   'заряды предмета': 'inventory.item-charges', заряды: 'inventory.item-charges',
+  'количество предмета': 'inventory.item-quantity',
+  'прочность предмета': 'inventory.item-durability',
+  'освоение артефакта': 'artifact.mastery',
+  'настройка артефакта': 'artifact.attunement',
+  'связь с артефактом': 'artifact.bond',
+  'освоение силы артефакта': 'artifact.power-mastery',
   'активные задания': 'quest.active-count', задания: 'quest.active-count',
+  'прогресс задания': 'quest.objective-progress',
+  'прогресс тайны': 'mystery.progress',
+  'размер отряда': 'party.size',
+  'характеристика нпс': 'npc.stat', 'характеристика npc': 'npc.stat',
   'ресурс нпс': 'npc.resource', 'ресурс npc': 'npc.resource',
+  'срочность нпс': 'npc.initiative-urgency', 'срочность npc': 'npc.initiative-urgency',
+  'грань отношения нпс': 'npc.relationship-dimension', 'грань отношения npc': 'npc.relationship-dimension',
   'отношение нпс': 'npc.relationship', 'отношение npc': 'npc.relationship',
-}), z.enum(['custom', 'player.resource', 'player.stat', 'player.currency', 'player.condition-count', 'scene.tension', 'world.day', 'faction.reputation', 'inventory.category-count', 'inventory.item-charges', 'quest.active-count', 'npc.resource', 'npc.relationship']))
+}), z.enum([
+  'custom', 'player.level', 'player.resource', 'player.stat', 'player.currency', 'player.condition-count', 'player.ability-mastery',
+  'scene.tension', 'conflict.round', 'conflict.participant-readiness', 'conflict.participant-morale',
+  'world.day', 'world.metric', 'world.location-danger', 'world.process-momentum', 'world.pressure',
+  'faction.reputation', 'faction.power', 'inventory.category-count', 'inventory.item-charges', 'inventory.item-quantity', 'inventory.item-durability',
+  'artifact.mastery', 'artifact.attunement', 'artifact.bond', 'artifact.power-mastery',
+  'quest.active-count', 'quest.objective-progress', 'mystery.progress', 'party.size',
+  'npc.stat', 'npc.resource', 'npc.initiative-urgency', 'npc.relationship-dimension', 'npc.relationship',
+]))
 const knowledgeStatusSchema = z.preprocess(alias({ известно: 'known', знает: 'known', убежден: 'believed', убеждён: 'believed', верит: 'believed', предполагает: 'suspected', подозревает: 'suspected', ложно: 'false', ложь: 'false', ошибочно: 'false' }), z.enum(['known', 'believed', 'suspected', 'false']))
 const loreTypeSchema = z.preprocess(alias({ персонаж: 'character', герой: 'character', локация: 'location', место: 'location', фракция: 'faction', организация: 'faction', предмет: 'object', объект: 'object', правило: 'rule', закон: 'rule', история: 'history', тайна: 'secret', секрет: 'secret' }), z.enum(['character', 'location', 'faction', 'object', 'rule', 'history', 'secret']))
 const memoryKindSchema = z.preprocess(alias({ сводка: 'summary', итог: 'summary', факт: 'fact', обещание: 'promise', отношение: 'relationship', отношения: 'relationship', тайна: 'mystery', загадка: 'mystery' }), z.enum(['summary', 'fact', 'promise', 'relationship', 'mystery']))
@@ -271,11 +301,19 @@ const adaptiveInterfaceElementSchema = z.object({
   max: optionalModelNumber(z.number().min(-1_000_000).max(1_000_000)),
   unit: z.string().trim().max(80).optional(),
   state: interfaceElementStateSchema,
+  stateRules: z.object({
+    dangerBelow: optionalModelNumber(z.number().min(-1_000_000).max(1_000_000)),
+    warningBelow: optionalModelNumber(z.number().min(-1_000_000).max(1_000_000)),
+    positiveBelow: optionalModelNumber(z.number().min(-1_000_000).max(1_000_000)),
+    positiveAbove: optionalModelNumber(z.number().min(-1_000_000).max(1_000_000)),
+    warningAbove: optionalModelNumber(z.number().min(-1_000_000).max(1_000_000)),
+    dangerAbove: optionalModelNumber(z.number().min(-1_000_000).max(1_000_000)),
+  }).strict().optional(),
   binding: adaptiveInterfaceBindingSchema.optional(),
   links: z.array(idSchema).max(16).optional(),
 }).strict()
 
-const adaptiveInterfaceModuleDraftSchema = z.object({
+const adaptiveInterfaceModuleDraftBaseSchema = z.object({
   id: idSchema,
   title: shortText,
   subtitle: shortText.optional(),
@@ -291,10 +329,102 @@ const adaptiveInterfaceModuleDraftSchema = z.object({
   updatePolicy: longText,
   collapsible: modelBoolean,
   collapsedByDefault: modelBoolean,
+  pinned: modelBoolean.optional(),
+  density: z.preprocess(alias({ компактно: 'compact', компактный: 'compact', удобно: 'comfortable', просторный: 'comfortable' }), z.enum(['compact', 'comfortable'])).optional(),
+  emphasis: z.preprocess(alias({ тихий: 'quiet', спокойный: 'quiet', обычный: 'standard', стандартный: 'standard', важный: 'prominent', заметный: 'prominent' }), z.enum(['quiet', 'standard', 'prominent'])).optional(),
   elements: z.array(adaptiveInterfaceElementSchema).min(1).max(16),
   createdTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
   lastChangedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
 }).strict()
+
+const adaptiveInterfaceModuleDraftSchema = adaptiveInterfaceModuleDraftBaseSchema.superRefine((module, context) => {
+  const elementIds = new Set<string>()
+  module.elements.forEach((element, index) => {
+    if (elementIds.has(element.id)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'id'], message: 'Идентификаторы элементов внутри модуля должны быть уникальны.' })
+    elementIds.add(element.id)
+  })
+  module.elements.forEach((element, index) => {
+    if (element.min !== undefined && element.max !== undefined && element.max <= element.min) context.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'max'], message: 'Максимум элемента должен быть больше минимума.' })
+  })
+  module.elements.forEach((element, index) => {
+    element.links?.forEach((link, linkIndex) => {
+      if (link === element.id || !elementIds.has(link)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'links', linkIndex], message: 'Связь должна вести к другому существующему элементу этого модуля.' })
+    })
+    const binding = element.binding
+    if (!binding || binding.domain === 'custom') return
+    const keyRequired = new Set([
+      'player.resource', 'player.stat', 'player.currency', 'player.condition-count', 'inventory.category-count',
+      'artifact.power-mastery', 'npc.stat', 'npc.resource', 'npc.relationship-dimension',
+    ])
+    const targetRequired = new Set([
+      'conflict.participant-readiness', 'conflict.participant-morale', 'world.process-momentum', 'world.pressure',
+      'inventory.item-charges', 'inventory.item-quantity', 'inventory.item-durability', 'artifact.mastery', 'artifact.attunement',
+      'artifact.bond', 'artifact.power-mastery', 'quest.objective-progress', 'mystery.progress', 'npc.stat', 'npc.resource',
+      'npc.initiative-urgency', 'npc.relationship-dimension', 'npc.relationship',
+    ])
+    const keyOrTargetRequired = new Set(['player.ability-mastery', 'world.metric', 'world.location-danger', 'faction.reputation', 'faction.power'])
+    if (keyRequired.has(binding.domain) && !binding.key) context.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'binding', 'key'], message: 'Для этой живой привязки обязателен точный key.' })
+    if (targetRequired.has(binding.domain) && !binding.target) context.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'binding', 'target'], message: 'Для этой живой привязки обязателен точный target.' })
+    if (keyOrTargetRequired.has(binding.domain) && !binding.key && !binding.target) context.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'binding'], message: 'Для этой живой привязки обязателен key или target.' })
+  })
+})
+
+const adaptiveInterfaceModuleChangeSchema = z.object({
+  moduleId: idSchema,
+  module: adaptiveInterfaceModuleDraftBaseSchema.omit({ id: true, elements: true, createdTurn: true, lastChangedTurn: true }).partial().strict().optional(),
+  upsertElements: z.array(adaptiveInterfaceElementSchema).max(16).optional(),
+  removeElementIds: z.array(idSchema).max(16).optional(),
+}).strict().superRefine((change, context) => {
+  const ids = new Set<string>()
+  change.upsertElements?.forEach((element, index) => {
+    if (ids.has(element.id)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['upsertElements', index, 'id'], message: 'Один granular patch не может дважды обновлять один element.id.' })
+    ids.add(element.id)
+    if (element.min !== undefined && element.max !== undefined && element.max <= element.min) context.addIssue({ code: z.ZodIssueCode.custom, path: ['upsertElements', index, 'max'], message: 'Максимум элемента должен быть больше минимума.' })
+    const binding = element.binding
+    if (!binding || binding.domain === 'custom') return
+    const keyRequired = ['player.resource', 'player.stat', 'player.currency', 'player.condition-count', 'inventory.category-count', 'artifact.power-mastery', 'npc.stat', 'npc.resource', 'npc.relationship-dimension']
+    const targetRequired = ['conflict.participant-readiness', 'conflict.participant-morale', 'world.process-momentum', 'world.pressure', 'inventory.item-charges', 'inventory.item-quantity', 'inventory.item-durability', 'artifact.mastery', 'artifact.attunement', 'artifact.bond', 'artifact.power-mastery', 'quest.objective-progress', 'mystery.progress', 'npc.stat', 'npc.resource', 'npc.initiative-urgency', 'npc.relationship-dimension', 'npc.relationship']
+    const keyOrTargetRequired = ['player.ability-mastery', 'world.metric', 'world.location-danger', 'faction.reputation', 'faction.power']
+    if (keyRequired.includes(binding.domain) && !binding.key) context.addIssue({ code: z.ZodIssueCode.custom, path: ['upsertElements', index, 'binding', 'key'], message: 'Для этой живой привязки обязателен точный key.' })
+    if (targetRequired.includes(binding.domain) && !binding.target) context.addIssue({ code: z.ZodIssueCode.custom, path: ['upsertElements', index, 'binding', 'target'], message: 'Для этой живой привязки обязателен точный target.' })
+    if (keyOrTargetRequired.includes(binding.domain) && !binding.key && !binding.target) context.addIssue({ code: z.ZodIssueCode.custom, path: ['upsertElements', index, 'binding'], message: 'Для этой живой привязки обязателен key или target.' })
+  })
+})
+
+const inspectorTabIdSchema = z.enum(['dashboard', 'scene', 'hero', 'inventory', 'changes', 'world'])
+const dashboardSectionIdSchema = z.enum(['scene', 'stakes', 'modules', 'worldPulse', 'openLoops', 'mechanics', 'interfaceHealth'])
+const worldInterfaceBlueprintDraftSchema = z.object({
+  title: shortText,
+  subtitle: shortText,
+  defaultTab: inspectorTabIdSchema,
+  tabs: z.array(z.object({ id: inspectorTabIdSchema, label: shortText, visible: modelBoolean }).strict()).min(1).max(6),
+  dashboardSections: z.array(dashboardSectionIdSchema).min(1).max(7),
+  reason: longText,
+  updatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict().superRefine((blueprint, context) => {
+  const tabIds = blueprint.tabs.map((tab) => tab.id)
+  if (new Set(tabIds).size !== tabIds.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ['tabs'], message: 'Вкладки пульта должны иметь уникальные id.' })
+  if (!blueprint.tabs.some((tab) => tab.id === blueprint.defaultTab && tab.visible)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['defaultTab'], message: 'Стартовая вкладка должна существовать и быть видимой.' })
+  if (new Set(blueprint.dashboardSections).size !== blueprint.dashboardSections.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ['dashboardSections'], message: 'Разделы пульта не должны повторяться.' })
+})
+
+const worldMetricPatchSchema = z.object({
+  id: idSchema,
+  key: shortText,
+  label: shortText,
+  description: longText,
+  value: modelNumber(z.number().min(-1_000_000).max(1_000_000)),
+  min: modelNumber(z.number().min(-1_000_000).max(1_000_000)),
+  max: modelNumber(z.number().min(-1_000_000).max(1_000_000)),
+  unit: z.string().trim().max(80).optional(),
+  visibility: worldVisibilitySchema,
+  source: longText,
+  updatePolicy: longText,
+  lastChangedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict().superRefine((metric, context) => {
+  if (metric.max <= metric.min) context.addIssue({ code: z.ZodIssueCode.custom, path: ['max'], message: 'Максимум показателя должен быть больше минимума.' })
+  if (metric.value < metric.min || metric.value > metric.max) context.addIssue({ code: z.ZodIssueCode.custom, path: ['value'], message: 'Значение показателя должно находиться внутри диапазона.' })
+})
 
 const abilityKindSchema = z.enum(['active', 'passive', 'reaction', 'ritual', 'transformation', 'other'])
 const powerCategorySchema = z.enum(['offense', 'defense', 'control', 'mobility', 'utility', 'perception', 'creation', 'summoning', 'transformation', 'reality', 'time', 'space', 'mind', 'soul', 'energy', 'matter', 'other'])
@@ -1096,7 +1226,13 @@ const turnPatchContract = z.object({
     upsertProcesses: z.array(worldProcessPatchSchema).max(24).optional(), retireProcessIds: z.array(idSchema).max(24).optional(),
     upsertLaws: z.array(worldLawPatchSchema).max(24).optional(), removeLawIds: z.array(idSchema).max(24).optional(),
     upsertMechanics: z.array(worldMechanicPatchSchema).max(24).optional(), removeMechanicIds: z.array(idSchema).max(24).optional(),
-    upsertInterfaceModules: z.array(adaptiveInterfaceModuleDraftSchema).max(8).optional(), removeInterfaceModuleIds: z.array(idSchema).max(8).optional(),
+    upsertInterfaceModules: z.array(adaptiveInterfaceModuleDraftSchema).max(8).optional(),
+    interfaceModuleChanges: z.array(adaptiveInterfaceModuleChangeSchema).max(16).optional(),
+    removeInterfaceModuleIds: z.array(idSchema).max(8).optional(),
+    interfaceBlueprint: worldInterfaceBlueprintDraftSchema.optional(),
+    upsertMetrics: z.array(worldMetricPatchSchema).max(24).optional(),
+    metricDeltas: z.record(shortText, modelNumber(z.number().min(-1_000_000).max(1_000_000))).optional(),
+    removeMetricIds: z.array(idSchema).max(24).optional(),
   }).strict().optional(),
   socialLinks: z.array(socialLinkSchema).max(40).optional(),
   threads: z.preprocess((value) => normalizeNestedMutations(value, 'thread'), z.array(z.object({
@@ -1605,6 +1741,8 @@ const generatedWorldContract = z.object({
     laws: z.array(generatedWorldLawSchema).min(2).max(12),
     mechanics: z.array(generatedWorldMechanicSchema).min(2).max(12),
     interfaceModules: z.array(adaptiveInterfaceModuleDraftSchema).min(2).max(6),
+    interfaceBlueprint: worldInterfaceBlueprintDraftSchema.optional(),
+    metrics: z.array(worldMetricPatchSchema).max(12).optional(),
     system: z.object({
       name: shortText, summary: longText, progression: longText, conflictResolution: longText, consequences: longText,
       equipmentSlots: z.array(z.object({ key: shortText, label: shortText, accepts: z.array(itemCategorySchema).min(1).max(7) }).strict()).min(1).max(12),
