@@ -146,8 +146,29 @@ async function optionalStage<T>(label: string, work: () => Promise<T>, fallback:
   }
 }
 
+type ConsequenceDomain = ConsequenceAudit['omissions'][number]['domain']
+
+type SanitizationRejection = {
+  message: string
+  domains: ConsequenceDomain[]
+}
+
+function normalizedReference(value: string | undefined) {
+  return (value ?? '')
+    .trim()
+    .toLocaleLowerCase('ru-RU')
+    .replace(/[ё]/g, 'е')
+    .replace(/[^a-zа-я0-9]+/gi, ' ')
+    .trim()
+}
+
 function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema.parse>) {
   const notes: string[] = []
+  const rejections: SanitizationRejection[] = []
+  const reject = (message: string, domains: ConsequenceDomain[]) => {
+    notes.push(message)
+    rejections.push({ message, domains })
+  }
   const sanitizeTechniquePatch = (
     existingTechniqueIds: string[],
     change: {
@@ -169,7 +190,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     const beforeRemovals = change.removeTechniqueIds?.length ?? 0
     change.removeTechniqueIds = change.removeTechniqueIds?.filter((techniqueId) => knownTechniqueIds.has(techniqueId))
     if ((change.techniqueChanges?.length ?? 0) < beforeChanges || (change.removeTechniqueIds?.length ?? 0) < beforeRemovals) {
-      notes.push(`Отклонено изменение неизвестной подспособности: ${ownerLabel}.`)
+      reject(`Отклонено изменение неизвестной подспособности: ${ownerLabel}.`, ['abilities', 'artifacts', 'characters'])
     }
   }
   const knownItems = new Set(campaign.inventory.map((item) => item.id))
@@ -182,7 +203,6 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     ...(plan.statePatch.upsertResources ?? []),
   ].flatMap((stat) => [stat.key, stat.label, ...(stat.aliases ?? [])].map((key) => key.toLocaleLowerCase('ru-RU'))))
   const knownNpcs = new Set(campaign.npcs.map((npc) => npc.id))
-  const knownQuests = new Set(campaign.quests.map((quest) => quest.id))
   const knownAbilities = new Set([
     ...campaign.player.abilities.map((ability) => ability.id),
     ...(plan.statePatch.addAbilities ?? []).flatMap((ability) => ability.id ? [ability.id] : []),
@@ -210,25 +230,25 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       if (!mutation.targetId || !knownItems.has(mutation.targetId)) return false
       return true
     })
-    if (plan.statePatch.inventory.length < before) notes.push('Отклонено недопустимое изменение инвентаря.')
+    if (plan.statePatch.inventory.length < before) reject('Отклонено недопустимое изменение инвентаря.', ['inventory', 'equipment', 'artifacts'])
   }
   if (plan.statePatch.statDeltas) {
     const entries = Object.entries(plan.statePatch.statDeltas)
     const accepted = entries.filter(([key]) => knownStats.has(key.toLocaleLowerCase('ru-RU')))
     const rejected = entries.filter(([key]) => !knownStats.has(key.toLocaleLowerCase('ru-RU'))).map(([key]) => key)
     plan.statePatch.statDeltas = Object.fromEntries(accepted)
-    if (rejected.length) notes.push(`Отклонены неизвестные характеристики: ${rejected.join(', ')}.`)
+    if (rejected.length) reject(`Отклонены неизвестные характеристики: ${rejected.join(', ')}.`, ['stats'])
   }
   if (plan.statePatch.resourceDeltas) {
     const entries = Object.entries(plan.statePatch.resourceDeltas)
     const accepted = entries.filter(([key]) => knownResources.has(key.toLocaleLowerCase('ru-RU')))
     const rejected = entries.filter(([key]) => !knownResources.has(key.toLocaleLowerCase('ru-RU'))).map(([key]) => key)
     plan.statePatch.resourceDeltas = Object.fromEntries(accepted)
-    if (rejected.length) notes.push(`Отклонены неизвестные ресурсы: ${rejected.join(', ')}.`)
+    if (rejected.length) reject(`Отклонены неизвестные ресурсы: ${rejected.join(', ')}.`, ['health', 'resources'])
   }
   const relationshipCount = plan.statePatch.relationships?.length ?? 0
   plan.statePatch.relationships = plan.statePatch.relationships?.filter((change) => knownNpcs.has(change.npcId))
-  if ((plan.statePatch.relationships?.length ?? 0) < relationshipCount) notes.push('Отклонена связь с неизвестным персонажем.')
+  if ((plan.statePatch.relationships?.length ?? 0) < relationshipCount) reject('Отклонена связь с неизвестным персонажем.', ['relationships'])
   plan.statePatch.npcs = plan.statePatch.npcs?.map((mutation) => {
     if (mutation.operation !== 'add') return mutation
     const existing = campaign.npcs.find((npc) => npc.id === mutation.npc.id || npc.name.toLocaleLowerCase('ru-RU') === mutation.npc.name.toLocaleLowerCase('ru-RU'))
@@ -240,7 +260,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
   })
   const npcMutationCount = plan.statePatch.npcs?.length ?? 0
   plan.statePatch.npcs = plan.statePatch.npcs?.filter((mutation) => mutation.operation === 'add' ? !knownNpcs.has(mutation.npc.id) : knownNpcs.has(mutation.targetId))
-  if ((plan.statePatch.npcs?.length ?? 0) < npcMutationCount) notes.push('Отклонено противоречивое изменение персонажа.')
+  if ((plan.statePatch.npcs?.length ?? 0) < npcMutationCount) reject('Отклонено противоречивое изменение персонажа.', ['characters'])
   plan.statePatch.npcs = plan.statePatch.npcs?.map((mutation) => {
     const threatProfile = mutation.npc.threatProfile
     if (!threatProfile || !['legendary', 'mythic'].includes(threatProfile.tier)) return mutation
@@ -259,7 +279,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     const minimumMastery = threatProfile.tier === 'mythic' ? 90 : 75
     if (demonstratedMastery >= minimumMastery && threatProfile.constraints.length && threatProfile.defeatRequirements.length) return mutation
     delete mutation.npc.threatProfile
-    notes.push('Отклонён высокий ранг угрозы, не подкреплённый реальными способностями, ограничениями и условиями победы.')
+    reject('Отклонён высокий ранг угрозы, не подкреплённый реальными способностями, ограничениями и условиями победы.', ['characters', 'world_pressure'])
     return mutation
   })
   plan.statePatch.npcs = plan.statePatch.npcs?.map((mutation) => {
@@ -281,21 +301,60 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       return change
     })
     incoming.removeAbilityIds = incoming.removeAbilityIds?.filter((abilityId) => knownNpcAbilityIds.has(abilityId))
-    if (rejectedChanges + rejectedRemovals > 0) notes.push(`Отклонено изменение неизвестной способности персонажа «${existingNpc.name}».`)
+    if (rejectedChanges + rejectedRemovals > 0) reject(`Отклонено изменение неизвестной способности персонажа «${existingNpc.name}».`, ['abilities', 'characters'])
     return mutation
   })
   const unknownRemovedStats = plan.statePatch.removeStatKeys?.filter((key) => !knownStats.has(key.toLocaleLowerCase('ru-RU'))) ?? []
   plan.statePatch.removeStatKeys = plan.statePatch.removeStatKeys?.filter((key) => knownStats.has(key.toLocaleLowerCase('ru-RU')))
-  if (unknownRemovedStats.length) notes.push(`Нельзя удалить неизвестные характеристики: ${unknownRemovedStats.join(', ')}.`)
+  if (unknownRemovedStats.length) reject(`Нельзя удалить неизвестные характеристики: ${unknownRemovedStats.join(', ')}.`, ['stats'])
   const unknownRemovedResources = plan.statePatch.removeResourceKeys?.filter((key) => !knownResources.has(key.toLocaleLowerCase('ru-RU'))) ?? []
   plan.statePatch.removeResourceKeys = plan.statePatch.removeResourceKeys?.filter((key) => knownResources.has(key.toLocaleLowerCase('ru-RU')))
-  if (unknownRemovedResources.length) notes.push(`Нельзя удалить неизвестные ресурсы: ${unknownRemovedResources.join(', ')}.`)
-  const questMutationCount = plan.statePatch.quests?.length ?? 0
-  plan.statePatch.quests = plan.statePatch.quests?.filter((mutation) => mutation.operation === 'add' || Boolean(mutation.targetId && knownQuests.has(mutation.targetId)))
-  if ((plan.statePatch.quests?.length ?? 0) < questMutationCount) notes.push('Отклонено изменение неизвестного задания.')
+  if (unknownRemovedResources.length) reject(`Нельзя удалить неизвестные ресурсы: ${unknownRemovedResources.join(', ')}.`, ['health', 'resources'])
+
+  type QuestMutation = NonNullable<typeof plan.statePatch.quests>[number]
+  const questReferences: Array<{ id: string; title: string }> = campaign.quests.map((quest) => ({ id: quest.id, title: quest.title }))
+  const resolveQuestReference = (...references: Array<string | undefined>) => {
+    for (const reference of references) {
+      if (!reference) continue
+      const exactId = questReferences.find((quest) => quest.id === reference)
+      if (exactId) return exactId
+      const normalized = normalizedReference(reference)
+      if (!normalized) continue
+      const titleMatches = questReferences.filter((quest) => normalizedReference(quest.title) === normalized)
+      if (titleMatches.length === 1) return titleMatches[0]
+    }
+    return undefined
+  }
+  const normalizedQuestMutations: QuestMutation[] = []
+  for (const mutation of plan.statePatch.quests ?? []) {
+    if (mutation.operation === 'add') {
+      const existing = resolveQuestReference(mutation.quest.id, mutation.quest.title)
+      if (existing) {
+        const { id: _modelId, ...quest } = mutation.quest
+        void _modelId
+        normalizedQuestMutations.push({ operation: 'update', targetId: existing.id, quest })
+        notes.push(`Повторное добавление задания «${existing.title}» преобразовано в безопасное обновление.`)
+        continue
+      }
+      mutation.quest.id ??= randomUUID()
+      questReferences.push({ id: mutation.quest.id, title: mutation.quest.title })
+      normalizedQuestMutations.push(mutation)
+      continue
+    }
+    const resolved = resolveQuestReference(
+      mutation.targetId,
+      mutation.operation === 'update' ? mutation.quest.title : undefined,
+    )
+    if (!resolved) {
+      reject(`Отклонено изменение неизвестного задания «${mutation.targetId}».`, ['quests'])
+      continue
+    }
+    normalizedQuestMutations.push({ ...mutation, targetId: resolved.id })
+  }
+  plan.statePatch.quests = plan.statePatch.quests ? normalizedQuestMutations : undefined
   const removedAbilityCount = plan.statePatch.removeAbilityIds?.length ?? 0
   plan.statePatch.removeAbilityIds = plan.statePatch.removeAbilityIds?.filter((abilityId) => knownAbilities.has(abilityId))
-  if ((plan.statePatch.removeAbilityIds?.length ?? 0) < removedAbilityCount) notes.push('Отклонено удаление неизвестной способности.')
+  if ((plan.statePatch.removeAbilityIds?.length ?? 0) < removedAbilityCount) reject('Отклонено удаление неизвестной способности.', ['abilities'])
   const abilityChangeCount = plan.statePatch.abilityChanges?.length ?? 0
   plan.statePatch.abilityChanges = plan.statePatch.abilityChanges?.filter((change) => knownAbilities.has(change.abilityId)).map((change) => {
     if (change.mastery !== undefined && change.masteryDelta !== undefined) {
@@ -306,7 +365,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     sanitizeTechniquePatch((ability?.techniques ?? []).map((technique) => technique.id), change, ability?.name ?? change.abilityId)
     return change
   })
-  if ((plan.statePatch.abilityChanges?.length ?? 0) < abilityChangeCount) notes.push('Отклонено развитие неизвестной способности.')
+  if ((plan.statePatch.abilityChanges?.length ?? 0) < abilityChangeCount) reject('Отклонено развитие неизвестной способности.', ['abilities'])
   const artifactChangeCount = plan.statePatch.artifactChanges?.length ?? 0
   plan.statePatch.artifactChanges = plan.statePatch.artifactChanges?.filter((change) => knownArtifacts.has(change.itemId)).map((change) => {
     const artifact = campaign.inventory.find((item) => item.id === change.itemId)?.artifact
@@ -327,7 +386,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
         sanitizeTechniquePatch((power?.techniques ?? []).map((technique) => technique.id), powerChange, power?.name ?? powerChange.powerId)
         return powerChange
       })
-      if (change.powerChanges.length < powerChangeCount) notes.push('Отклонено изменение неизвестной силы особого предмета.')
+      if (change.powerChanges.length < powerChangeCount) reject('Отклонено изменение неизвестной силы особого предмета.', ['artifacts'])
     }
     const knownComponentIds = new Set([
       ...(artifact?.components.map((component) => component.id) ?? []),
@@ -336,7 +395,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     if (change.componentChanges) {
       const componentChangeCount = change.componentChanges.length
       change.componentChanges = change.componentChanges.filter((componentChange) => knownComponentIds.has(componentChange.componentId))
-      if (change.componentChanges.length < componentChangeCount) notes.push('Отклонено изменение неизвестного компонента особого предмета.')
+      if (change.componentChanges.length < componentChangeCount) reject('Отклонено изменение неизвестного компонента особого предмета.', ['artifacts'])
     }
     if (change.powerMasteryDeltas) {
       const powerChangeIds = new Set((change.powerChanges ?? []).filter((powerChange) => powerChange.mastery !== undefined || powerChange.masteryDelta !== undefined).map((powerChange) => powerChange.powerId))
@@ -346,15 +405,15 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     if (artifact?.sentient || change.mood === undefined) return change
     const { mood: _ignoredMood, ...safeChange } = change
     void _ignoredMood
-    notes.push('Отклонено настроение у неразумного предмета.')
+    reject('Отклонено настроение у неразумного предмета.', ['artifacts'])
     return safeChange
   })
-  if ((plan.statePatch.artifactChanges?.length ?? 0) < artifactChangeCount) notes.push('Отклонено изменение неизвестного особого предмета.')
+  if ((plan.statePatch.artifactChanges?.length ?? 0) < artifactChangeCount) reject('Отклонено изменение неизвестного особого предмета.', ['artifacts'])
   if (plan.statePatch.removeStatusEffectIds?.length) {
     const knownEffectIds = new Set((campaign.player.statusEffects ?? []).map((effect) => effect.id))
     const before = plan.statePatch.removeStatusEffectIds.length
     plan.statePatch.removeStatusEffectIds = plan.statePatch.removeStatusEffectIds.filter((effectId) => knownEffectIds.has(effectId))
-    if (plan.statePatch.removeStatusEffectIds.length < before) notes.push('Отклонено снятие неизвестного статусного эффекта.')
+    if (plan.statePatch.removeStatusEffectIds.length < before) reject('Отклонено снятие неизвестного статусного эффекта.', ['conditions'])
   }
   if (plan.statePatch.scene?.presentNpcIds) {
     const before = plan.statePatch.scene.presentNpcIds.length
@@ -364,7 +423,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       ...addedNpcIds,
     ])
     plan.statePatch.scene.presentNpcIds = plan.statePatch.scene.presentNpcIds.filter((npcId) => livingIds.has(npcId))
-    if (plan.statePatch.scene.presentNpcIds.length < before) notes.push('Убрано невозможное присутствие персонажа в сцене.')
+    if (plan.statePatch.scene.presentNpcIds.length < before) reject('Убрано невозможное присутствие персонажа в сцене.', ['characters', 'scene_time'])
   }
   if (plan.statePatch.conflict) {
     const mutation = plan.statePatch.conflict
@@ -380,7 +439,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
         : Boolean(campaign.activeConflict)
     if ((!participantsValid && mutation.operation !== 'resolve') || !operationValid) {
       plan.statePatch.conflict = undefined
-      notes.push('Отклонено противоречивое состояние противостояния.')
+      reject('Отклонено противоречивое состояние противостояния.', ['conflict'])
     }
   }
   const threadCount = plan.statePatch.threads?.length ?? 0
@@ -399,7 +458,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     thread.participantIds = thread.participantIds.filter((npcId) => usableNpcIds.has(npcId) || npcId === campaign.player.id)
     return true
   })
-  if ((plan.statePatch.threads?.length ?? 0) < threadCount) notes.push('Отклонено неполное или неизвестное обязательство.')
+  if ((plan.statePatch.threads?.length ?? 0) < threadCount) reject('Отклонено неполное или неизвестное обязательство.', ['quests', 'relationships', 'world'])
   const worldEventCount = plan.statePatch.worldEvents?.length ?? 0
   plan.statePatch.worldEvents = plan.statePatch.worldEvents?.map((mutation) => {
     if (mutation.operation !== 'add' || !mutation.event?.id || !campaign.worldEvents?.some((event) => event.id === mutation.event?.id)) return mutation
@@ -416,11 +475,11 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     event.involvedIds = event.involvedIds.filter((entityId) => usableNpcIds.has(entityId) || entityId === campaign.player.id)
     return true
   })
-  if ((plan.statePatch.worldEvents?.length ?? 0) < worldEventCount) notes.push('Отклонено неполное мировое событие.')
+  if ((plan.statePatch.worldEvents?.length ?? 0) < worldEventCount) reject('Отклонено неполное мировое событие.', ['world'])
   if (plan.statePatch.world?.upsertPlaces) {
     const before = plan.statePatch.world.upsertPlaces.length
     plan.statePatch.world.upsertPlaces = plan.statePatch.world.upsertPlaces.filter((place) => !place.parentId || (place.parentId !== place.id && knownPlaceIds.has(place.parentId)))
-    if (plan.statePatch.world.upsertPlaces.length < before) notes.push('Отклонено место атласа с неизвестным или циклическим родителем.')
+    if (plan.statePatch.world.upsertPlaces.length < before) reject('Отклонено место атласа с неизвестным или циклическим родителем.', ['world'])
   }
   if (plan.statePatch.world?.upsertProcesses) {
     const before = plan.statePatch.world.upsertProcesses.length
@@ -428,11 +487,11 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       process.scopeIds.every((placeId) => knownPlaceIds.has(placeId))
       && process.involvedFactionNames.every((name) => knownFactions.has(name.toLocaleLowerCase('ru-RU')))
     ))
-    if (plan.statePatch.world.upsertProcesses.length < before) notes.push('Отклонён внешний процесс с неизвестной областью или фракцией.')
+    if (plan.statePatch.world.upsertProcesses.length < before) reject('Отклонён внешний процесс с неизвестной областью или фракцией.', ['world', 'world_pressure'])
   }
   const reputationUpsertCount = plan.statePatch.upsertFactionReputation?.length ?? 0
   plan.statePatch.upsertFactionReputation = plan.statePatch.upsertFactionReputation?.filter((entry) => knownFactions.has(entry.factionName.toLocaleLowerCase('ru-RU')))
-  if ((plan.statePatch.upsertFactionReputation?.length ?? 0) < reputationUpsertCount) notes.push('Отклонено абсолютное изменение репутации неизвестной фракции.')
+  if ((plan.statePatch.upsertFactionReputation?.length ?? 0) < reputationUpsertCount) reject('Отклонено абсолютное изменение репутации неизвестной фракции.', ['relationships', 'world', 'world_pressure'])
   plan.statePatch.socialLinks = plan.statePatch.socialLinks?.filter((link) => link.fromNpcId !== link.toNpcId && usableNpcIds.has(link.fromNpcId) && usableNpcIds.has(link.toNpcId))
   if (plan.statePatch.party) {
     const requestedPartyAdds = plan.statePatch.party.addNpcIds ?? []
@@ -442,7 +501,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       const recruitment = plannedRecruitment ?? campaign.npcs.find((npc) => npc.id === npcId)?.recruitment
       return Boolean(recruitment && ['invited', 'member'].includes(recruitment.status) && recruitment.willingness >= 50)
     })
-    if ((plan.statePatch.party.addNpcIds?.length ?? 0) < requestedPartyAdds.length) notes.push('Отклонено добавление персонажа без его явного решения и выполненных условий вступления.')
+    if ((plan.statePatch.party.addNpcIds?.length ?? 0) < requestedPartyAdds.length) reject('Отклонено добавление персонажа без его явного решения и выполненных условий вступления.', ['characters', 'relationships'])
     plan.statePatch.party.removeNpcIds = plan.statePatch.party.removeNpcIds?.filter((npcId) => knownNpcs.has(npcId))
     const resultingPartyIds = new Set([...(campaign.partyMemberIds ?? []), ...(plan.statePatch.party.addNpcIds ?? [])])
     plan.statePatch.party.removeNpcIds?.forEach((npcId) => resultingPartyIds.delete(npcId))
@@ -506,21 +565,43 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
   plan.statePatch.upsertInfluenceAssets = plan.statePatch.upsertInfluenceAssets?.filter((asset) => campaignEntityIds.has(asset.holderId) && (!asset.targetId || campaignEntityIds.has(asset.targetId)))
   plan.statePatch.removeInfluenceAssetIds = plan.statePatch.removeInfluenceAssetIds?.filter((assetId) => campaign.influenceAssets?.some((asset) => asset.id === assetId))
   if (plan.statePatch.cleanup) {
+    plan.statePatch.cleanup.quests = plan.statePatch.cleanup.quests?.map((entry) => {
+      const resolved = resolveQuestReference(entry.targetId)
+      return resolved ? { ...entry, targetId: resolved.id } : entry
+    })
     const validTargets = {
       threads: new Set((campaign.threads ?? []).map((entry) => entry.id)),
       worldEvents: new Set((campaign.worldEvents ?? []).map((entry) => entry.id)),
-      quests: new Set(campaign.quests.map((entry) => entry.id)),
+      quests: new Set(questReferences.map((entry) => entry.id)),
       antagonistPlans: new Set((campaign.antagonistPlans ?? []).map((entry) => entry.id)),
       worldPressures: new Set((campaign.worldPressures ?? []).map((entry) => entry.id)),
       memories: new Set(campaign.memories.map((entry) => entry.id)),
     }
+    const cleanupDomains: Record<keyof typeof validTargets, ConsequenceDomain[]> = {
+      threads: ['quests', 'relationships', 'world'],
+      worldEvents: ['world'],
+      quests: ['quests'],
+      antagonistPlans: ['characters', 'world_pressure'],
+      worldPressures: ['world_pressure'],
+      memories: ['knowledge'],
+    }
     ;(Object.keys(validTargets) as Array<keyof typeof validTargets>).forEach((key) => {
       const before = plan.statePatch.cleanup?.[key]?.length ?? 0
       if (plan.statePatch.cleanup) plan.statePatch.cleanup[key] = plan.statePatch.cleanup[key]?.filter((entry) => validTargets[key].has(entry.targetId))
-      if ((plan.statePatch.cleanup?.[key]?.length ?? 0) < before) notes.push(`Отклонена очистка неизвестной записи: ${key}.`)
+      if ((plan.statePatch.cleanup?.[key]?.length ?? 0) < before) reject(`Отклонена очистка неизвестной записи: ${key}.`, cleanupDomains[key])
     })
   }
-  return { plan, notes }
+  return { plan, notes, rejections }
+}
+
+function blockingRejectionMessages(
+  sanitized: ReturnType<typeof sanitizePlan>,
+  omissions: ConsequenceAudit['omissions'],
+) {
+  const requiredDomains = new Set(omissions.map((omission) => omission.domain))
+  return [...new Set(sanitized.rejections
+    .filter((rejection) => rejection.domains.some((domain) => requiredDomains.has(domain)))
+    .map((rejection) => rejection.message))]
 }
 
 function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundInput: TurnPatch | null | undefined): TurnPatch {
@@ -957,30 +1038,30 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     reconciled = sanitizePlan(request.campaign, reconciled.plan)
 
     // A structurally valid patch can still reference an entity that no longer exists. Make the
-    // model repair that exact consequence rather than silently dropping it.
-    for (let referenceAttempt = 1; consequenceAudit.omissions.length > 0 && reconciled.notes.length > 0 && referenceAttempt < 3; referenceAttempt += 1) {
+    // model repair that exact consequence rather than silently dropping it. Only rejections in
+    // the same audited domain are blocking: an unrelated harmless normalization must not cancel
+    // the entire turn.
+    let blockingNotes = blockingRejectionMessages(reconciled, consequenceAudit.omissions)
+    for (let referenceAttempt = 1; blockingNotes.length > 0 && referenceAttempt < 3; referenceAttempt += 1) {
       const retryMessages = consequenceAuditorPrompt(
         request.campaign,
         request.input,
         request.actionType,
-        { ...reconciled.plan, rejectedConsequenceNotes: reconciled.notes },
+        { ...reconciled.plan, rejectedConsequenceNotes: blockingNotes },
         narrative,
         check,
       )
       const retryRaw = await completeJson(request.provider, retryMessages)
       const retryAudit = await parseWithRepair<ConsequenceAudit>(retryRaw, consequenceAuditSchema, request.provider, retryMessages)
-      if (retryAudit.pass) {
-        reconciled.notes = [...reconciled.notes, 'Повторная сверка не исправила отклонённое изменение состояния.']
-        continue
-      }
       consequenceAudit = retryAudit
       repairedOmissions.push(...retryAudit.omissions)
       narrativeAuditNotes.push(...retryAudit.narrativeIssues.map((issue) => `${issue.severity}: ${issue.requirement}`))
       reconciled.plan.statePatch = mergeAuditPatch(reconciled.plan.statePatch, retryAudit.statePatch) as typeof reconciled.plan.statePatch
       reconciled = sanitizePlan(request.campaign, reconciled.plan)
+      blockingNotes = blockingRejectionMessages(reconciled, consequenceAudit.omissions)
     }
-    if (consequenceAudit.omissions.length > 0 && reconciled.notes.length > 0) {
-      throw new Error(`DeepSeek не смог безопасно привязать обязательное последствие к текущему состоянию: ${reconciled.notes.join(' ')}`)
+    if (blockingNotes.length > 0) {
+      throw new Error(`DeepSeek не смог безопасно привязать обязательное последствие к текущему состоянию: ${blockingNotes.join(' ')}`)
     }
     if (consequenceAudit.narrativePass) break
     if (narrativeAttempt === 2) {

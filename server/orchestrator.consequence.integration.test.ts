@@ -387,4 +387,81 @@ describe('runTurn consequence reconciliation', () => {
     expect(directorCalls).toBe(5)
     expect(auditCalls).toBe(0)
   })
+
+  it('binds a quest mutation by an exact unique title instead of rejecting a model-authored target id', async () => {
+    const campaign = createDemoCampaign()
+    campaign.settings.qualityMode = 'balanced'
+    const quest = campaign.quests[0]
+    const narrative = `Герой приносит последнее доказательство, и задание «${quest.title}» считается выполненным.`
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = systemPrompt(body)
+      if (system.includes('скрытый симулятор живого мира')) return providerResponse(JSON.stringify({ signals: [], statePatch: {} }))
+      if (system.includes('режиссёр и строгий распорядитель состояния')) return providerResponse(JSON.stringify({
+        outcome: 'Доказательство принято.', beats: ['Задание завершается.'], suggestions: ['Спросить о награде', 'Уйти'], statePatch: {},
+      }))
+      if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse(narrative)
+      if (system.includes('строгий редактор непротиворечивости')) return providerResponse(JSON.stringify({ chosen: 'a', pass: true, issues: [], rewriteInstructions: '' }))
+      if (system.includes('последний обязательный аудитор причин и последствий')) return providerResponse(JSON.stringify({
+        pass: false,
+        narrativePass: true,
+        narrativeIssues: [],
+        verifiedDomains: consequenceDomains,
+        omissions: [{ domain: 'quests', evidence: narrative, requiredChange: 'Завершить существующее задание.', resolutionPath: 'quests.complete', severity: 'medium' }],
+        statePatch: { quests: [{ operation: 'complete', targetId: quest.title }] },
+      }))
+      if (system.includes('архивариус очень долгой ролевой кампании')) return providerResponse(JSON.stringify({ memories: [], archives: [] }))
+      return new Response(`Unexpected completion stage: ${system.slice(0, 120)}`, { status: 418 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runTurn({ campaign, input: 'Передаю последнее доказательство заказчику.', actionType: 'do', provider })
+
+    expect(result.statePatch.quests).toEqual([{ operation: 'complete', targetId: quest.id }])
+  })
+
+  it('accepts a clean repeat audit after an unresolvable quest mutation is withdrawn', async () => {
+    const campaign = createDemoCampaign()
+    campaign.settings.qualityMode = 'balanced'
+    let auditCalls = 0
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = systemPrompt(body)
+      if (system.includes('скрытый симулятор живого мира')) return providerResponse(JSON.stringify({ signals: [], statePatch: {} }))
+      if (system.includes('режиссёр и строгий распорядитель состояния')) return providerResponse(JSON.stringify({
+        outcome: 'Герой спокойно осматривает зал.', beats: ['Новых обязательств не возникает.'], suggestions: ['Осмотреть двери', 'Вернуться к спутнику'], statePatch: {},
+      }))
+      if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse('Герой осматривает пустой зал и не находит ничего, что меняло бы его текущие задания.')
+      if (system.includes('строгий редактор непротиворечивости')) return providerResponse(JSON.stringify({ chosen: 'a', pass: true, issues: [], rewriteInstructions: '' }))
+      if (system.includes('последний обязательный аудитор причин и последствий')) {
+        auditCalls += 1
+        if (auditCalls === 1) return providerResponse(JSON.stringify({
+          pass: false,
+          narrativePass: true,
+          narrativeIssues: [],
+          verifiedDomains: consequenceDomains,
+          omissions: [{ domain: 'quests', evidence: 'Ошибочная первичная гипотеза аудитора.', requiredChange: 'Завершить вымышленное задание.', resolutionPath: 'quests.complete', severity: 'low' }],
+          statePatch: { quests: [{ operation: 'complete', targetId: 'quest-that-does-not-exist' }] },
+        }))
+        return providerResponse(JSON.stringify({
+          pass: true,
+          narrativePass: true,
+          narrativeIssues: [],
+          verifiedDomains: consequenceDomains,
+          omissions: [],
+          statePatch: {},
+        }))
+      }
+      if (system.includes('архивариус очень долгой ролевой кампании')) return providerResponse(JSON.stringify({ memories: [], archives: [] }))
+      return new Response(`Unexpected completion stage: ${system.slice(0, 120)}`, { status: 418 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runTurn({ campaign, input: 'Осматриваю зал, не принимая новых обязательств.', actionType: 'do', provider })
+
+    expect(auditCalls).toBe(2)
+    expect(result.statePatch.quests ?? []).toEqual([])
+  })
 })
