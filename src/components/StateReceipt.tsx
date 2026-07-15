@@ -5,7 +5,8 @@ import {
 import { useState } from 'react'
 import type { Campaign, StateChange, StateChangeKind, StoryMessage } from '../../shared/types'
 import { legacyChangeLabel, stateChangeLabel } from '../lib/state-change-labels'
-import { localizeTechnicalText, uiLabel } from '../lib/ui-labels'
+import { formatStateChangeTransition } from '../lib/state-change-transition'
+import { localizeTechnicalText } from '../lib/ui-labels'
 
 const iconForKind = (kind: StateChangeKind) => {
   if (kind === 'health') return Heart
@@ -22,15 +23,9 @@ const iconForKind = (kind: StateChangeKind) => {
   return Sparkles
 }
 
-function formatTransition(change: StateChange) {
-  if (change.before !== undefined && change.after !== undefined) return `${typeof change.before === 'string' ? uiLabel(change.before, change.before) : change.before} → ${typeof change.after === 'string' ? uiLabel(change.after, change.after) : change.after}`
-  if (change.delta !== undefined) return `${change.delta > 0 ? '+' : ''}${change.delta}`
-  return undefined
-}
-
 export function StateChangeLine({ change, campaign }: { change: StateChange; campaign?: Campaign }) {
   const Icon = iconForKind(change.kind)
-  const transition = formatTransition(change)
+  const transition = formatStateChangeTransition(change)
   return <div className={`state-change-line tone-${change.tone}`}>
     <span className="state-change-icon" aria-hidden="true"><Icon size={14} /></span>
     <span className="state-change-copy"><strong>{stateChangeLabel(change, campaign)}</strong><small>{localizeTechnicalText(change.detail)}</small></span>
