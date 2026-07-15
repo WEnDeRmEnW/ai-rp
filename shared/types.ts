@@ -481,8 +481,27 @@ export interface NPCStrategy {
   blindSpots: string[]
   currentPlan: string
   contingencies: string[]
+  /** How this NPC approaches direct confrontation; omitted for true noncombatants. */
+  combatDoctrine?: string
+  preferredRange?: string
+  teamworkStyle?: string
+  moraleProfile?: string
+  retreatConditions?: string[]
+  ethicalLimits?: string[]
+  learnedAdaptations?: string[]
+  countermeasures?: TacticalCountermeasure[]
   visibility: 'known' | 'rumored' | 'hidden'
   lastUpdatedTurn: number
+}
+
+export interface TacticalCountermeasure {
+  name: string
+  against: string
+  response: string
+  requirements: string[]
+  tradeoffs: string[]
+  status: 'available' | 'prepared' | 'spent' | 'broken'
+  visibility: 'known' | 'rumored' | 'hidden'
 }
 
 export interface NPCRecruitment {
@@ -497,6 +516,7 @@ export interface NPC {
   name: string
   role: string
   description: string
+  personality?: string
   disposition: string
   relationship: number
   status: 'active' | 'absent' | 'missing' | 'dead' | 'unknown'
@@ -837,6 +857,39 @@ export interface SceneState {
   presentNpcIds: ID[]
 }
 
+export interface ConflictParticipantState {
+  entityId: ID
+  side: 'player' | 'ally' | 'opposition' | 'neutral'
+  objective: string
+  position: string
+  readiness: number
+  morale: number
+  intent: string
+  lastAction: string
+  advantages: string[]
+  vulnerabilities: string[]
+  visibility: 'known' | 'rumored' | 'hidden'
+}
+
+export interface ActiveConflict {
+  id: ID
+  kind: 'combat' | 'chase' | 'social' | 'stealth' | 'other'
+  title: string
+  round: number
+  phase: string
+  stakes: string
+  terrain: string[]
+  hazards: string[]
+  momentum: 'player' | 'opposition' | 'contested'
+  participants: ConflictParticipantState[]
+  startedTurn: number
+  lastUpdatedTurn: number
+}
+
+export type ConflictMutation =
+  | { operation: 'start' | 'update'; state: ActiveConflict }
+  | { operation: 'resolve'; outcome: string }
+
 export interface StoryMessage {
   id: ID
   role: 'user' | 'assistant'
@@ -855,7 +908,7 @@ export interface StoryMessage {
   failed?: boolean
 }
 
-export type StateChangeKind = 'health' | 'resource' | 'stat' | 'currency' | 'condition' | 'inventory' | 'ability' | 'artifact' | 'relationship' | 'reputation' | 'quest' | 'character' | 'knowledge' | 'scene' | 'world' | 'system'
+export type StateChangeKind = 'health' | 'resource' | 'stat' | 'currency' | 'condition' | 'inventory' | 'ability' | 'artifact' | 'relationship' | 'reputation' | 'quest' | 'character' | 'knowledge' | 'scene' | 'conflict' | 'world' | 'system'
 
 export interface StateChange {
   kind: StateChangeKind
@@ -881,6 +934,8 @@ export interface ActionCheck {
   oppositionNpcId?: ID
   oppositionLabel?: string
   oppositionModifier?: number
+  oppositionTier?: 'minor' | 'capable' | 'dangerous' | 'elite' | 'legendary'
+  oppositionFactors?: string[]
 }
 
 export interface World {
@@ -934,6 +989,7 @@ export interface CampaignSnapshot {
   lore: LoreEntry[]
   memories: MemoryEntry[]
   scene: SceneState
+  activeConflict?: ActiveConflict
   socialLinks?: SocialLink[]
   threads?: StoryThread[]
   worldEvents?: ScheduledWorldEvent[]
@@ -965,6 +1021,7 @@ export interface Campaign {
   timeline: GameEvent[]
   messages: StoryMessage[]
   scene: SceneState
+  activeConflict?: ActiveConflict
   socialLinks?: SocialLink[]
   threads?: StoryThread[]
   worldEvents?: ScheduledWorldEvent[]
@@ -1112,6 +1169,7 @@ export interface TurnPatch {
   quests?: QuestMutation[]
   lore?: Array<Omit<LoreEntry, 'id'> & { id?: ID }>
   scene?: Partial<SceneState>
+  conflict?: ConflictMutation
   world?: WorldPatch
   socialLinks?: SocialLink[]
   threads?: Array<{ operation: 'add' | 'update' | 'resolve' | 'break'; targetId?: ID; thread?: Partial<StoryThread> & { title?: string } }>

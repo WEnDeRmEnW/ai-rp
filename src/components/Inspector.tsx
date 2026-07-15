@@ -100,7 +100,7 @@ const changeMatchesFilter = (change: StateChange, filter: ChangeFilter) => {
   if (filter === 'character') return ['health', 'resource', 'stat', 'condition', 'ability', 'character'].includes(change.kind)
   if (filter === 'inventory') return ['inventory', 'artifact', 'currency'].includes(change.kind)
   if (filter === 'social') return ['relationship', 'reputation', 'quest'].includes(change.kind)
-  return ['knowledge', 'scene', 'world', 'system'].includes(change.kind)
+  return ['knowledge', 'scene', 'conflict', 'world', 'system'].includes(change.kind)
 }
 
 function ItemEditor({ open, presentation, onClose, onSave }: { open: boolean; presentation: WorldPresentation; onClose: () => void; onSave: (item: InventoryItem) => void }) {
@@ -258,6 +258,20 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
               <p>{campaign.scene.weather}</p>
               <div className="scene-meta"><span>{campaign.scene.time}</span><span>Напряжение {campaign.scene.tension}%</span></div>
             </div>
+            {campaign.activeConflict && <section className={`conflict-card momentum-${campaign.activeConflict.momentum}`} aria-label="Активное противостояние">
+              <header><span><Swords size={15} /> {campaign.activeConflict.kind === 'combat' ? 'Бой' : campaign.activeConflict.kind === 'chase' ? 'Погоня' : campaign.activeConflict.kind === 'social' ? 'Противостояние' : campaign.activeConflict.kind === 'stealth' ? 'Скрытное столкновение' : 'Конфликт'}</span><b>Раунд {campaign.activeConflict.round}</b></header>
+              <h3>{campaign.activeConflict.title}</h3>
+              <p>{campaign.activeConflict.phase}</p>
+              <small><strong>Ставки:</strong> {campaign.activeConflict.stakes}</small>
+              <div className="conflict-momentum"><i className="player" /><span>{campaign.activeConflict.momentum === 'player' ? 'Инициатива у героя' : campaign.activeConflict.momentum === 'opposition' ? 'Противник владеет темпом' : 'Темп оспаривается'}</span><i className="opposition" /></div>
+              <div className="conflict-participants">{campaign.activeConflict.participants.filter((participant) => participant.visibility !== 'hidden').map((participant) => <article key={participant.entityId}>
+                <div><strong>{entityName(participant.entityId)}</strong><span>{participant.side === 'player' ? 'Герой' : participant.side === 'ally' ? 'Союзник' : participant.side === 'opposition' ? 'Противник' : 'Нейтральная сторона'}</span></div>
+                <p>{participant.position}</p>
+                <div className="conflict-meters"><span>Готовность <b>{Math.round(participant.readiness)}%</b></span><i><em style={{ width: `${participant.readiness}%` }} /></i><span>Мораль <b>{Math.round(participant.morale)}%</b></span><i><em style={{ width: `${participant.morale}%` }} /></i></div>
+                <small>{participant.visibility === 'known' ? participant.intent : 'Точное намерение пока неясно'}</small>
+              </article>)}</div>
+              {(campaign.activeConflict.terrain.length > 0 || campaign.activeConflict.hazards.length > 0) && <details><summary>Поле боя и угрозы</summary><DetailList title="Особенности местности" values={campaign.activeConflict.terrain} /><DetailList title="Опасности" values={campaign.activeConflict.hazards} /></details>}
+            </section>}
             <AdaptiveWorldModules campaign={campaign} placement="scene" />
             <Section title="В сцене" action={<Users size={15} />}>
               <div className="npc-list">
@@ -275,6 +289,7 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                     <button className="npc-expand" aria-label={`${expandedNpc === npc.id ? 'Свернуть' : 'Подробнее'}: ${npc.name}`} onClick={() => setExpandedNpc(expandedNpc === npc.id ? undefined : npc.id)}><ChevronDown size={14} /></button>
                     {expandedNpc === npc.id && <div className="npc-details">
                       <div className="npc-detail-heading"><strong>Параметры</strong><span>{npc.disposition}</span></div>
+                      {npc.personality && <p className="npc-personality"><b>Характер:</b> {npc.personality}</p>}
                       {!!npc.stats?.length && <div className="npc-stat-grid">{npc.stats.map((stat) => <div key={stat.key}><span>{stat.label}</span><strong>{stat.value}{stat.max !== undefined ? ` / ${stat.max}` : ''}</strong>{stat.description && <small>{stat.description}</small>}</div>)}</div>}
                       {!!npc.resources?.length && <div className="npc-resource-list">{npc.resources.map((resource) => <div className={resource.criticalBelow !== undefined && resource.value <= resource.criticalBelow ? 'is-critical' : ''} key={resource.key}><span>{resource.label}</span><b>{resource.value} / {resource.max ?? '∞'}</b><i><em style={{ width: `${Math.max(0, Math.min(100, resource.max ? resource.value / resource.max * 100 : resource.value))}%`, background: resource.color }} /></i></div>)}</div>}
                       {npc.strategy && npc.strategy.visibility !== 'hidden' && <div className="npc-strategy">
@@ -289,6 +304,14 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                           <DetailList title="Сильные стороны" values={npc.strategy.strengths} />
                           <DetailList title="Слепые зоны" values={npc.strategy.blindSpots} />
                           <DetailList title="Запасные планы" values={npc.strategy.contingencies} />
+                          {npc.strategy.combatDoctrine && <p><b>Доктрина противостояния:</b> {npc.strategy.combatDoctrine}</p>}
+                          {npc.strategy.preferredRange && <p><b>Предпочтительная дистанция:</b> {npc.strategy.preferredRange}</p>}
+                          {npc.strategy.teamworkStyle && <p><b>Работа с союзниками:</b> {npc.strategy.teamworkStyle}</p>}
+                          {npc.strategy.moraleProfile && <p><b>Мораль:</b> {npc.strategy.moraleProfile}</p>}
+                          <DetailList title="Условия отступления" values={npc.strategy.retreatConditions} />
+                          <DetailList title="Личные пределы" values={npc.strategy.ethicalLimits} />
+                          <DetailList title="Освоенные адаптации" values={npc.strategy.learnedAdaptations} />
+                          {!!npc.strategy.countermeasures?.some((countermeasure) => countermeasure.visibility !== 'hidden') && <div className="countermeasure-list"><b>Известные контрмеры</b>{npc.strategy.countermeasures.filter((countermeasure) => countermeasure.visibility !== 'hidden').map((countermeasure) => <article key={`${countermeasure.name}:${countermeasure.against}`} className={`countermeasure-${countermeasure.status}`}><div><strong>{countermeasure.name}</strong><span>{countermeasure.status === 'prepared' ? 'Подготовлена' : countermeasure.status === 'spent' ? 'Израсходована' : countermeasure.status === 'broken' ? 'Сорвана' : 'Доступна'}</span></div><p>{countermeasure.visibility === 'rumored' ? countermeasure.against : countermeasure.response}</p>{countermeasure.visibility === 'known' && <><DetailList title="Против чего" values={[countermeasure.against]} /><DetailList title="Условия" values={countermeasure.requirements} /><DetailList title="Цена и риск" values={countermeasure.tradeoffs} /></>}</article>)}</div>}
                         </>}
                       </div>}
                       <div className="npc-detail-heading"><strong><Sparkles size={13} /> Способности</strong><span>{npc.abilities?.length ?? 0}</span></div>

@@ -69,6 +69,34 @@ describe('persistent living-world patches', () => {
     expect(parsed.world?.upsertProcesses?.[0]).toMatchObject({ momentum: 64, direction: 'rising', status: 'active', visibility: 'rumored' })
     expect(parsed.cleanup?.quests?.[0].targetId).toBe('quest-done')
   })
+
+  it('accepts a persistent tactical conflict and personality-driven countermeasures', () => {
+    const parsed = turnPatchSchema.parse({
+      npcs: [{ operation: 'update', targetId: 'npc-warden', npc: {
+        personality: 'Терпеливый командир, который бережёт подчинённых и не преследует отступающих.',
+        strategy: {
+          combatDoctrine: 'Удерживает узкий проход и вынуждает противника тратить силы.',
+          preferredRange: 'Средняя дистанция.', teamworkStyle: 'Передаёт цели короткими сигналами.', moraleProfile: 'Отступает организованно.',
+          retreatConditions: ['Потеря половины отряда'], ethicalLimits: ['Не атакует безоружных'], learnedAdaptations: ['Распознаёт прямой рывок героя'],
+          countermeasures: [{ name: 'Ломаная линия', against: 'Прямой рывок', response: 'Смещается за щитоносца.', requirements: ['Щитоносец рядом'], tradeoffs: ['Открывает фланг'], status: 'подготовлена', visibility: 'скрыто' }],
+        },
+      } }],
+      conflict: {
+        operation: 'начать',
+        state: {
+          id: 'conflict-gate', kind: 'сражение', title: 'Бой у ворот', round: '1', phase: 'Стороны занимают позиции.', stakes: 'Проход в крепость.', terrain: ['Узкие ворота'], hazards: ['Горящее масло'], momentum: 'оспаривается',
+          participants: [
+            { entityId: 'player-1', side: 'герой', objective: 'Пройти ворота.', position: 'Перед баррикадой.', readiness: '70%', morale: '85%', intent: 'Найти проход.', lastAction: 'Подошёл к воротам.', advantages: ['Манёвренность'], vulnerabilities: [], visibility: 'известно' },
+            { entityId: 'npc-warden', side: 'противник', objective: 'Удержать ворота.', position: 'За щитами.', readiness: '90%', morale: '75%', intent: 'Встретить рывок.', lastAction: 'Поднял щит.', advantages: ['Укрытие'], vulnerabilities: ['Открытый фланг'], visibility: 'слухи' },
+          ],
+          startedTurn: '4', lastUpdatedTurn: '4',
+        },
+      },
+    })
+
+    expect(parsed.npcs?.[0]).toMatchObject({ operation: 'update', npc: { personality: expect.stringContaining('командир'), strategy: { countermeasures: [expect.objectContaining({ status: 'prepared', visibility: 'hidden' })] } } })
+    expect(parsed.conflict).toMatchObject({ operation: 'start', state: { kind: 'combat', round: 1, momentum: 'contested', participants: [expect.objectContaining({ side: 'player', readiness: 70 }), expect.objectContaining({ side: 'opposition', visibility: 'rumored' })] } })
+  })
 })
 
 describe('DeepSeek-compatible relationship patches', () => {
@@ -192,7 +220,7 @@ describe('canon quality gate', () => {
 describe('consequence completeness audit', () => {
   const allDomains = [
     'HP', 'ресурсы', 'attributes', 'эффекты', 'рюкзак', 'снаряжение', 'навыки', 'реликвии',
-    'деньги', 'социальные связи', 'задания', 'NPC', 'scene/time', 'состояние мира', 'память и знания',
+    'деньги', 'социальные связи', 'задания', 'NPC', 'противостояние', 'scene/time', 'состояние мира', 'память и знания',
   ]
 
   it('normalizes every audit domain and its supplemental state patch without dropping values', () => {
@@ -223,7 +251,7 @@ describe('consequence completeness audit', () => {
 
     expect(parsed.verifiedDomains).toEqual([
       'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
-      'currency', 'relationships', 'quests', 'characters', 'scene_time', 'world', 'knowledge',
+      'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'knowledge',
     ])
     expect(parsed.omissions[0].domain).toBe('health')
     expect(parsed.statePatch.playerProfile?.lifeState).toBe('unconscious')
@@ -232,7 +260,7 @@ describe('consequence completeness audit', () => {
     expect(parsed.statePatch.inventory?.[0].item).toMatchObject({ state: 'damaged', charges: 0, maxCharges: 3 })
   })
 
-  it('rejects an audit that repeats a domain instead of checking all fifteen', () => {
+  it('rejects an audit that repeats a domain instead of checking all sixteen', () => {
     const duplicated = [...allDomains.slice(0, -1), 'мир']
     const result = consequenceAuditSchema.safeParse({ pass: true, narrativePass: true, narrativeIssues: [], verifiedDomains: duplicated, omissions: [], statePatch: {} })
 

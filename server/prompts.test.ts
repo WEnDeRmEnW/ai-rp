@@ -16,7 +16,7 @@ describe('world architect prompt', () => {
       contentBoundaries: '',
     })
 
-    expect(system.content).toContain('npcs[{name,role,description,disposition,relationship,currentGoal,lastSeen,notes[],stats[')
+    expect(system.content).toContain('npcs[{name,role,description,personality,disposition,relationship,currentGoal,lastSeen,notes[],stats[')
     expect(system.content).toContain('strategy{intelligence,tacticalSkill,strategicSkill,predictionSkill')
     expect(system.content).toContain('Для каждого NPC обязательно самостоятельно придумай все поля')
     expect(system.content).toContain('не используй заглушки')

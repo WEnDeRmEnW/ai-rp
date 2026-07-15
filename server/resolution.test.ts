@@ -83,4 +83,65 @@ describe('token-efficient action checks', () => {
     const check = resolveActionCheck(campaign, 'Взламываю старый замок на пустом складе', 'do', () => 12)
     expect(check?.oppositionNpcId).toBeUndefined()
   })
+
+  it('makes an elite prepared opponent materially harder without granting a universal counter', () => {
+    const campaign = createDemoCampaign()
+    campaign.settings.resolutionMode = 'visible'
+    const npc = campaign.npcs[0]
+    npc.relationship = -70
+    npc.stats = [{ key: 'combat', label: 'Боевое мастерство', value: 10, max: 10 }]
+    npc.abilities = [{
+      id: 'perfect-guard', name: 'Совершенная защита', description: 'Контролирует линию прямой атаки.', rank: 'Мастер', source: 'Школа стражей', kind: 'reaction', mastery: 96,
+      costs: [], effects: ['Перехватывает прямой рывок'], limitations: ['Требует видеть начало движения'], requirements: ['Сохранять стойку'], progression: 'Оттачивается в дуэлях.', evolutionPaths: [], history: [], tags: ['защита'],
+      category: 'defense', scale: 'Ближняя дистанция', activation: 'Реакция на прямую атаку', capabilities: ['Перехват'], synergies: [], counters: ['Смена ритма'], examples: ['Сдвиг с линии удара'], canonStatus: 'original',
+    }]
+    npc.strategy = {
+      intelligence: 95, tacticalSkill: 98, strategicSkill: 91, predictionSkill: 96, adaptability: 94, deceptionSkill: 75, riskTolerance: 40,
+      planningHorizon: 'Несколько обменов', decisionStyle: 'Отдаёт пространство ради контроля темпа.', currentPlan: 'Спровоцировать прямой рывок.',
+      observedPlayerPatterns: ['Герой начинает атаку прямым рывком.'], strengths: ['Контроль дистанции'], blindSpots: ['Не видел телепортацию героя'], contingencies: ['Отойти к колонне'],
+      learnedAdaptations: ['Распознаёт прямой рывок по переносу веса'],
+      countermeasures: [{ name: 'Встречный шаг', against: 'Прямой рывок и лобовая атака', response: 'Уходит с линии и подсекает опорную ногу.', requirements: ['Видеть начало движения'], tradeoffs: ['Открывает спину для союзника'], status: 'prepared', visibility: 'hidden' }],
+      visibility: 'hidden', lastUpdatedTurn: 0,
+    }
+    campaign.activeConflict = {
+      id: 'duel', kind: 'combat', title: 'Дуэль', round: 3, phase: 'Противник удерживает центр.', stakes: 'Проход', terrain: ['Колонны'], hazards: [], momentum: 'opposition', startedTurn: 0, lastUpdatedTurn: 2,
+      participants: [
+        { entityId: campaign.player.id, side: 'player', objective: 'Пройти.', position: 'У стены.', readiness: 60, morale: 75, intent: 'Атаковать.', lastAction: 'Отступил.', advantages: [], vulnerabilities: [], visibility: 'known' },
+        { entityId: npc.id, side: 'opposition', objective: 'Удержать.', position: 'В центре.', readiness: 95, morale: 90, intent: 'Контратаковать.', lastAction: 'Занял центр.', advantages: ['Контроль центра'], vulnerabilities: [], visibility: 'hidden' },
+      ],
+    }
+
+    const repeated = resolveActionCheck(campaign, `Атакую ${npc.name} прямым рывком`, 'do', () => 12)
+    const novel = resolveActionCheck(campaign, `Атакую ${npc.name}, телепортируясь ему за спину`, 'do', () => 12)
+
+    expect(repeated?.oppositionTier).toBe('legendary')
+    expect(repeated?.oppositionModifier).toBeGreaterThanOrEqual(8)
+    expect(repeated?.oppositionFactors).toEqual(expect.arrayContaining(['Заранее подготовлена контрмера', 'Противник владеет темпом']))
+    expect(repeated!.target).toBeGreaterThan(novel!.target)
+  })
+
+  it('reduces opposition when wounds, exhaustion and a player-held tempo actually apply', () => {
+    const campaign = createDemoCampaign()
+    const npc = campaign.npcs[0]
+    npc.relationship = -70
+    npc.strategy = {
+      intelligence: 80, tacticalSkill: 84, strategicSkill: 76, predictionSkill: 80, adaptability: 78, deceptionSkill: 55, riskTolerance: 50,
+      planningHorizon: 'Один бой', decisionStyle: 'Держит дистанцию.', currentPlan: 'Остановить героя.', observedPlayerPatterns: [], strengths: ['Опыт'], blindSpots: ['Ранен'], contingencies: [], visibility: 'known', lastUpdatedTurn: 0,
+    }
+    npc.resources = [
+      { key: 'health', label: 'Здоровье', value: 2, max: 10, kind: 'health' },
+      { key: 'stamina', label: 'Выносливость', value: 0, max: 10, kind: 'stamina', criticalBelow: 2 },
+    ]
+    campaign.activeConflict = {
+      id: 'fight', kind: 'combat', title: 'Бой', round: 4, phase: 'Противник отступает.', stakes: 'Выживание', terrain: [], hazards: [], momentum: 'player', startedTurn: 0, lastUpdatedTurn: 3,
+      participants: [
+        { entityId: campaign.player.id, side: 'player', objective: 'Победить.', position: 'В центре.', readiness: 85, morale: 90, intent: 'Давить.', lastAction: 'Прорвал защиту.', advantages: [], vulnerabilities: [], visibility: 'known' },
+        { entityId: npc.id, side: 'opposition', objective: 'Отступить.', position: 'У стены.', readiness: 20, morale: 20, intent: 'Искать выход.', lastAction: 'Потерял оружие.', advantages: [], vulnerabilities: ['Открытая стойка'], visibility: 'known' },
+      ],
+    }
+
+    const weakened = resolveActionCheck(campaign, `Атакую ${npc.name} в открытую стойку`, 'do', () => 12)
+    expect(weakened?.oppositionModifier).toBeLessThan(0)
+    expect(weakened?.oppositionFactors).toEqual(expect.arrayContaining(['Противник тяжело ранен', 'Ресурсы противника истощены', 'Герой владеет темпом']))
+  })
 })

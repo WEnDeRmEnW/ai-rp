@@ -357,6 +357,15 @@ const npcInitiativeSchema = z.object({
   lastAdvancedTurn: modelNumber(z.number().int().min(0)),
   visibility: worldVisibilitySchema,
 }).strict()
+const tacticalCountermeasureSchema = z.object({
+  name: shortText,
+  against: longText,
+  response: longText,
+  requirements: z.array(longText).max(12),
+  tradeoffs: z.array(longText).max(12),
+  status: z.enum(['available', 'prepared', 'spent', 'broken']),
+  visibility: worldVisibilitySchema,
+}).strict()
 const npcStrategySchema = z.object({
   intelligence: modelNumber(z.number().min(0).max(100)),
   tacticalSkill: modelNumber(z.number().min(0).max(100)),
@@ -372,7 +381,42 @@ const npcStrategySchema = z.object({
   blindSpots: z.array(longText).max(12),
   currentPlan: longText,
   contingencies: z.array(longText).max(12),
+  combatDoctrine: longText.optional(),
+  preferredRange: longText.optional(),
+  teamworkStyle: longText.optional(),
+  moraleProfile: longText.optional(),
+  retreatConditions: z.array(longText).max(12).optional(),
+  ethicalLimits: z.array(longText).max(12).optional(),
+  learnedAdaptations: z.array(longText).max(16).optional(),
+  countermeasures: z.array(tacticalCountermeasureSchema).max(16).optional(),
   visibility: worldVisibilitySchema,
+  lastUpdatedTurn: modelNumber(z.number().int().min(0)),
+}).strict()
+const conflictParticipantStateSchema = z.object({
+  entityId: idSchema,
+  side: z.enum(['player', 'ally', 'opposition', 'neutral']),
+  objective: longText,
+  position: longText,
+  readiness: modelNumber(z.number().min(0).max(100)),
+  morale: modelNumber(z.number().min(0).max(100)),
+  intent: longText,
+  lastAction: longText,
+  advantages: z.array(longText).max(12),
+  vulnerabilities: z.array(longText).max(12),
+  visibility: worldVisibilitySchema,
+}).strict()
+const activeConflictSchema = z.object({
+  id: idSchema,
+  kind: z.enum(['combat', 'chase', 'social', 'stealth', 'other']),
+  title: shortText,
+  round: modelNumber(z.number().int().min(1).max(100_000)),
+  phase: longText,
+  stakes: longText,
+  terrain: z.array(longText).max(16),
+  hazards: z.array(longText).max(16),
+  momentum: z.enum(['player', 'opposition', 'contested']),
+  participants: z.array(conflictParticipantStateSchema).min(2).max(24),
+  startedTurn: modelNumber(z.number().int().min(0)),
   lastUpdatedTurn: modelNumber(z.number().int().min(0)),
 }).strict()
 const npcVoiceSchema = z.object({
@@ -824,7 +868,7 @@ const turnPatchContract = z.object({
     z.object({
       operation: z.literal('add'),
       npc: z.object({
-        id: idSchema, name: shortText, role: shortText, description: longText, disposition: shortText,
+        id: idSchema, name: shortText, role: shortText, description: longText, personality: longText.optional(), disposition: shortText,
         relationship: modelNumber(z.number().min(-100).max(100)), status: npcStatusSchema, currentGoal: longText, lastSeen: shortText,
         notes: z.array(z.string().max(500)).max(8), knowledge: z.array(knowledgeFactSchema).max(30).optional(),
         stats: z.array(statStateSchema).max(24).optional(), resources: z.array(resourceStateSchema).max(24).optional(), statusEffects: z.array(statusEffectDraftSchema.extend({ id: idSchema, appliedTurn: modelNumber(z.number().int().min(0)) }).strict()).max(48).optional(),
@@ -836,7 +880,7 @@ const turnPatchContract = z.object({
       operation: z.literal('update'),
       targetId: idSchema,
       npc: z.object({
-        name: shortText.optional(), role: shortText.optional(), description: z.string().trim().max(2000).optional(),
+        name: shortText.optional(), role: shortText.optional(), description: z.string().trim().max(2000).optional(), personality: z.string().trim().max(2000).optional(),
         disposition: shortText.optional(), relationship: optionalModelNumber(z.number().min(-100).max(100)), status: npcStatusSchema.optional(),
         currentGoal: z.string().trim().max(2000).optional(), lastSeen: shortText.optional(), notes: z.array(z.string().max(500)).max(8).optional(),
         stats: z.array(statStateSchema).max(24).optional(), resources: z.array(resourceStateSchema).max(24).optional(), statusEffects: z.array(statusEffectDraftSchema).max(48).optional(),
@@ -883,6 +927,10 @@ const turnPatchContract = z.object({
     tension: optionalModelNumber(z.number().min(0).max(100)),
     presentNpcIds: z.array(idSchema).max(12).optional(),
   }).strict().optional(),
+  conflict: z.discriminatedUnion('operation', [
+    z.object({ operation: z.enum(['start', 'update']), state: activeConflictSchema }).strict(),
+    z.object({ operation: z.literal('resolve'), outcome: longText }).strict(),
+  ]).optional(),
   world: z.object({
     name: shortText.optional(), tagline: shortText.optional(), inspiration: z.string().trim().max(12_000).optional(), genre: shortText.optional(), tone: shortText.optional(), overview: z.string().trim().max(12_000).optional(), era: shortText.optional(),
     system: z.object({
@@ -993,7 +1041,7 @@ export const turnPlanSchema = z.preprocess((value) => normalizeModelOutput(value
 
 const consequenceDomainSchema = z.enum([
   'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
-  'currency', 'relationships', 'quests', 'characters', 'scene_time', 'world', 'knowledge',
+  'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'knowledge',
 ])
 
 const consequenceAuditContract = z.object({
@@ -1005,7 +1053,7 @@ const consequenceAuditContract = z.object({
     instruction: longText,
     severity: z.enum(['low', 'medium', 'high']),
   }).strict()).max(32),
-  verifiedDomains: z.array(consequenceDomainSchema).min(15).max(15),
+  verifiedDomains: z.array(consequenceDomainSchema).min(16).max(16),
   omissions: z.array(z.object({
     domain: consequenceDomainSchema,
     evidence: longText,
@@ -1015,7 +1063,7 @@ const consequenceAuditContract = z.object({
   }).strict()).max(64),
   statePatch: turnPatchSchema,
 }).strict().superRefine((audit, context) => {
-  if (new Set(audit.verifiedDomains).size !== 15) context.addIssue({
+  if (new Set(audit.verifiedDomains).size !== 16) context.addIssue({
     code: z.ZodIssueCode.custom,
     path: ['verifiedDomains'],
     message: 'Every consequence domain must be verified exactly once',
@@ -1447,7 +1495,7 @@ const generatedWorldContract = z.object({
     artifact: generatedArtifactProfileSchema.optional(),
   })).min(1).max(20),
   npcs: z.array(z.object({
-    name: shortText, role: shortText, description: longText, disposition: shortText,
+    name: shortText, role: shortText, description: longText, personality: longText, disposition: shortText,
     relationship: modelNumber(z.number().min(-100).max(100)), currentGoal: longText, lastSeen: shortText, notes: z.array(z.string().max(500)).max(8),
     stats: z.array(statStateSchema).min(3).max(24),
     resources: z.array(resourceStateSchema.extend({ kind: resourceKindSchema, max: modelNumber(z.number().positive()) }).strict()).min(1).max(24),

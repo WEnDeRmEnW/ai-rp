@@ -507,6 +507,13 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
     changes.push({ kind: 'scene', label, detail: `${oldValue} → ${newValue}${delta !== undefined ? ` (${signed(delta)})` : ''}`, tone: field === 'tension' && delta !== undefined ? positiveDeltaTone(-delta) : 'neutral', before: oldValue, after: newValue, delta, source: 'state-engine' })
   })
   if (!same(before.scene.presentNpcIds, after.scene.presentNpcIds)) changes.push({ kind: 'scene', label: 'Участники сцены', detail: 'Состав присутствующих изменился', tone: 'neutral', source: 'state-engine' })
+  if (!before.activeConflict && after.activeConflict) {
+    changes.push({ kind: 'conflict', label: after.activeConflict.title, detail: `Началось противостояние · раунд ${after.activeConflict.round}`, tone: 'warning', entityId: after.activeConflict.id, after: after.activeConflict.momentum, source: 'state-engine' })
+  } else if (before.activeConflict && !after.activeConflict) {
+    changes.push({ kind: 'conflict', label: before.activeConflict.title, detail: 'Противостояние завершено', tone: 'neutral', entityId: before.activeConflict.id, before: before.activeConflict.momentum, source: 'state-engine' })
+  } else if (before.activeConflict && after.activeConflict && !same(before.activeConflict, after.activeConflict)) {
+    changes.push({ kind: 'conflict', label: after.activeConflict.title, detail: `Раунд ${before.activeConflict.round} → ${after.activeConflict.round} · ${before.activeConflict.momentum} → ${after.activeConflict.momentum}`, tone: after.activeConflict.momentum === 'opposition' ? 'warning' : after.activeConflict.momentum === 'player' ? 'positive' : 'neutral', entityId: after.activeConflict.id, before: before.activeConflict.momentum, after: after.activeConflict.momentum, source: 'state-engine' })
+  }
 
   const worldFields: Array<[keyof Campaign['world'], string]> = [['tagline', 'Описание мира'], ['overview', 'Состояние мира'], ['era', 'Эпоха']]
   worldFields.forEach(([field, label]) => {

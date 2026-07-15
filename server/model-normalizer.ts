@@ -24,7 +24,8 @@ const ARRAY_KEYS = new Set([
   'itemEffects', 'powerChanges', 'componentChanges', 'addComponents',
   'addPassiveEffects', 'addCombinedEffects', 'addFailureModes',
   'aliases', 'statusEffects', 'upsertStatusEffects', 'removeStatusEffectIds', 'removeKnowledgeIds', 'verifiedDomains', 'omissions',
-  'observedPlayerPatterns', 'strengths', 'blindSpots', 'contingencies',
+  'observedPlayerPatterns', 'strengths', 'blindSpots', 'contingencies', 'retreatConditions', 'ethicalLimits', 'learnedAdaptations', 'countermeasures', 'tradeoffs',
+  'participants', 'terrain', 'hazards', 'advantages', 'vulnerabilities',
   'upsertFactionReputation', 'upsertLaws', 'upsertMechanics', 'territory', 'goals',
 ])
 
@@ -51,7 +52,9 @@ const ARRAY_LIMITS: Record<string, number> = {
   itemEffects: 12, powerChanges: 64, componentChanges: 32, addComponents: 32,
   addPassiveEffects: 48, addCombinedEffects: 48, addFailureModes: 48,
   aliases: 16, statusEffects: 48, upsertStatusEffects: 48, removeStatusEffectIds: 48, removeKnowledgeIds: 30,
-  verifiedDomains: 15, omissions: 64, observedPlayerPatterns: 16, strengths: 12, blindSpots: 12, contingencies: 12,
+  verifiedDomains: 16, omissions: 64, observedPlayerPatterns: 16, strengths: 12, blindSpots: 12, contingencies: 12,
+  retreatConditions: 12, ethicalLimits: 12, learnedAdaptations: 16, countermeasures: 16, tradeoffs: 12,
+  participants: 24, terrain: 16, hazards: 16, advantages: 12, vulnerabilities: 12,
   upsertFactionReputation: 16, removeLawIds: 24, removeMechanicIds: 24, removeInterfaceModuleIds: 8,
 }
 
@@ -69,14 +72,14 @@ const NUMBER_KEYS = new Set([
   'endTurn', 'turn', 'day', 'mastery', 'amount', 'attunement', 'bond', 'urgency',
   'progress', 'currentStep', 'pressure', 'acquiredTurn', 'lastAdvancedTurn', 'solvedTurn',
   'discoveredTurn', 'trust', 'respect', 'affection', 'fear', 'suspicion', 'dependence',
-  'coverage',
+  'coverage', 'round', 'readiness', 'morale', 'startedTurn', 'lastUpdatedTurn',
   'criticalBelow', 'charges', 'maxCharges', 'stacks', 'remaining', 'expiresTurn', 'appliedTurn',
   'masteryDelta', 'attunementDelta', 'bondDelta', 'powerMasteryDelta', 'power', 'lastChangedTurn', 'min',
 ])
 
 const ID_KEYS = new Set([
   'id', 'targetId', 'npcId', 'fromNpcId', 'toNpcId', 'abilityId', 'itemId', 'powerId', 'componentId', 'ownerId',
-  'culpritId', 'holderId', 'ownerNpcId',
+  'culpritId', 'holderId', 'ownerNpcId', 'entityId',
 ])
 const ID_ARRAY_KEYS = new Set([
   'presentNpcIds', 'participantIds', 'involvedIds', 'entityIds', 'removeAbilityIds',
@@ -162,6 +165,10 @@ function operationFor(value: unknown, parent: string | undefined): unknown {
   if (parent === 'worldEvents') {
     if (['resolve', 'resolved', 'решить', 'завершить'].includes(normalized)) return 'resolve'
     if (['cancel', 'cancelled', 'отменить', 'отменено'].includes(normalized)) return 'cancel'
+  }
+  if (parent === 'conflict') {
+    if (['start', 'начать', 'начало'].includes(normalized)) return 'start'
+    if (['resolve', 'resolved', 'завершить', 'завершено', 'разрешить'].includes(normalized)) return 'resolve'
   }
   return value
 }
@@ -283,6 +290,7 @@ const consequenceDomainAliases: Record<string, string> = {
   relationship: 'relationships', relationships: 'relationships', social: 'relationships', 'social links': 'relationships', отношения: 'relationships', связи: 'relationships', 'социальные связи': 'relationships',
   quest: 'quests', quests: 'quests', tasks: 'quests', квесты: 'quests', задания: 'quests', задание: 'quests',
   character: 'characters', characters: 'characters', npc: 'characters', npcs: 'characters', персонажи: 'characters', персонаж: 'characters', герои: 'characters',
+  conflict: 'conflict', confrontation: 'conflict', encounter: 'conflict', combat: 'conflict', конфликт: 'conflict', противостояние: 'conflict', бой: 'conflict',
   'scene time': 'scene_time', sceneandtime: 'scene_time', 'scene and time': 'scene_time', 'location time': 'scene_time', сцена: 'scene_time', время: 'scene_time', 'сцена и время': 'scene_time', 'место и время': 'scene_time',
   world: 'world', 'world state': 'world', мир: 'world', 'состояние мира': 'world',
   knowledge: 'knowledge', memory: 'knowledge', lore: 'knowledge', знания: 'knowledge', память: 'knowledge', 'память и знания': 'knowledge',
@@ -308,6 +316,17 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
     активная: 'active', активный: 'active', пассивная: 'passive', пассивный: 'passive',
     реакция: 'reaction', ритуал: 'ritual', трансформация: 'transformation', превращение: 'transformation',
     другое: 'other', прочее: 'other',
+  })
+  if (key === 'kind' && has('conflict')) return translate({
+    бой: 'combat', сражение: 'combat', драка: 'combat', погоня: 'chase', преследование: 'chase',
+    спор: 'social', социальное: 'social', переговоры: 'social', скрытность: 'stealth', проникновение: 'stealth',
+    другое: 'other', прочее: 'other',
+  })
+  if (key === 'side' && has('conflict')) return translate({
+    игрок: 'player', герой: 'player', союзник: 'ally', союзники: 'ally', противник: 'opposition', враг: 'opposition', оппозиция: 'opposition', нейтральный: 'neutral', нейтральная: 'neutral',
+  })
+  if (key === 'momentum' && has('conflict')) return translate({
+    игрок: 'player', герой: 'player', противник: 'opposition', враг: 'opposition', спорный: 'contested', оспаривается: 'contested', равный: 'contested',
   })
   if (key === 'kind' && (has('influenceAssets') || has('upsertInfluenceAssets'))) return translate({
     услуга: 'favor', одолжение: 'favor', долг: 'debt', компромат: 'leverage', рычаг: 'leverage',
@@ -356,6 +375,10 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'type' && has('lore')) return translate({ персонаж: 'character', герой: 'character', локация: 'location', место: 'location', фракция: 'faction', организация: 'faction', предмет: 'object', объект: 'object', правило: 'rule', закон: 'rule', история: 'history', тайна: 'secret', секрет: 'secret' })
   if (key === 'status' && has('knowledge')) return translate({ известно: 'known', знает: 'known', убеждён: 'believed', убежден: 'believed', верит: 'believed', предполагает: 'suspected', подозревает: 'suspected', ложно: 'false', ложь: 'false' })
   if (key === 'status' && (has('worldEvents') || has('event'))) return translate({ запланировано: 'scheduled', ожидается: 'scheduled', назрело: 'due', наступило: 'due', выполнено: 'resolved', решено: 'resolved', завершено: 'resolved', отменено: 'cancelled' })
+  if (key === 'status' && has('countermeasures')) return translate({
+    доступна: 'available', доступно: 'available', готова: 'available', подготовлена: 'prepared', подготовлено: 'prepared',
+    использована: 'spent', израсходована: 'spent', потрачена: 'spent', сорвана: 'broken', сломана: 'broken', разрушена: 'broken',
+  })
   if (key === 'status' && (has('npcs') || has('npc'))) return translate({ активен: 'active', активна: 'active', активно: 'active', отсутствует: 'absent', пропал: 'missing', пропала: 'missing', мёртв: 'dead', мертв: 'dead', мертва: 'dead', неизвестно: 'unknown' })
   if (key === 'status' && (has('quests') || has('quest'))) return translate({ активно: 'active', активен: 'active', выполнено: 'completed', завершено: 'completed', провалено: 'failed', скрыто: 'hidden' })
   return value

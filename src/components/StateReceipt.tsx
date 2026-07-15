@@ -1,6 +1,6 @@
 import {
   Activity, Backpack, Brain, ChevronDown, ChevronUp, CircleGauge, Coins, Gem,
-  Heart, MapPin, ShieldAlert, Sparkles, UsersRound,
+  Heart, MapPin, ShieldAlert, Sparkles, Swords, UsersRound,
 } from 'lucide-react'
 import { useState } from 'react'
 import type { Campaign, StateChange, StateChangeKind, StoryMessage } from '../../shared/types'
@@ -17,6 +17,7 @@ const iconForKind = (kind: StateChangeKind) => {
   if (kind === 'condition') return ShieldAlert
   if (kind === 'relationship' || kind === 'reputation') return UsersRound
   if (kind === 'knowledge') return Brain
+  if (kind === 'conflict') return Swords
   if (kind === 'scene' || kind === 'world') return MapPin
   return Sparkles
 }

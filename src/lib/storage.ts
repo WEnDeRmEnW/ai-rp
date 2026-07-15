@@ -219,6 +219,21 @@ export function migrateCampaign(campaign: Campaign): Campaign {
         counters: ability.counters ?? [],
         examples: ability.examples ?? [],
       })),
+      strategy: npc.strategy ? {
+        ...npc.strategy,
+        observedPlayerPatterns: npc.strategy.observedPlayerPatterns ?? [],
+        strengths: npc.strategy.strengths ?? [],
+        blindSpots: npc.strategy.blindSpots ?? [],
+        contingencies: npc.strategy.contingencies ?? [],
+        retreatConditions: npc.strategy.retreatConditions?.slice(-12),
+        ethicalLimits: npc.strategy.ethicalLimits?.slice(-12),
+        learnedAdaptations: npc.strategy.learnedAdaptations?.slice(-16),
+        countermeasures: npc.strategy.countermeasures?.slice(-16).map((countermeasure) => ({
+          ...countermeasure,
+          requirements: countermeasure.requirements ?? [],
+          tradeoffs: countermeasure.tradeoffs ?? [],
+        })),
+      } : undefined,
       recruitment: npc.recruitment ? {
         ...npc.recruitment,
         willingness: clamp(npc.recruitment.willingness, 0, 100),
@@ -237,6 +252,19 @@ export function migrateCampaign(campaign: Campaign): Campaign {
     mysteryCases: campaign.mysteryCases ?? [],
     antagonistPlans: campaign.antagonistPlans ?? [],
     influenceAssets: campaign.influenceAssets ?? [],
+    activeConflict: campaign.activeConflict ? {
+      ...campaign.activeConflict,
+      round: Math.max(1, Math.round(campaign.activeConflict.round)),
+      terrain: campaign.activeConflict.terrain ?? [],
+      hazards: campaign.activeConflict.hazards ?? [],
+      participants: (campaign.activeConflict.participants ?? []).map((participant) => ({
+        ...participant,
+        readiness: clamp(participant.readiness, 0, 100),
+        morale: clamp(participant.morale, 0, 100),
+        advantages: participant.advantages ?? [],
+        vulnerabilities: participant.vulnerabilities ?? [],
+      })),
+    } : undefined,
     settings: {
       ...campaign.settings,
       resolutionMode: campaign.settings.resolutionMode ?? 'hidden',

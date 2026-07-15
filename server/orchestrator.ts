@@ -42,6 +42,7 @@ function repairContractHints(issues: Array<{ path: PropertyKey[]; message: strin
 - inventory add требует вложенный item с name, description, category, quantity, rarity, equipped и effects; update требует targetId и вложенный item; remove имеет форму {"operation":"remove","targetId":"exactItemId","quantity"?:number,"reason"?:string} БЕЗ item. Редкость не запрещает фактическую потерю. Не возвращай плоские поля предмета.
 - quests add требует вложенный quest с title, description, status и objectives; update требует targetId и вложенный quest.
 - npcs update требует targetId и вложенный npc; урон/траты NPC записывай в npc.resourceDeltas, изменения параметров — npc.statDeltas, эффекты — npc.upsertStatusEffects, новые силы — npc.upsertAbilities, развитие сил — npc.abilityChanges, мышление и контрпланы — npc.strategy.
+- conflict start/update требует полный state с id,kind,title,round,phase,stakes,terrain[],hazards[],momentum,participants[],startedTurn,lastUpdatedTurn; participant содержит entityId,side,objective,position,readiness,morale,intent,lastAction,advantages[],vulnerabilities[],visibility. Завершение: {"operation":"resolve","outcome":"..."}.
 - duration статусного эффекта имеет форму {"unit":"turns|scenes|days|until|indefinite","remaining"?:number,"condition"?:string}; ключи amount/count/value запрещены.
 - world.upsertPlaces содержит полные места с id,name,kind,description,scale,culture[],notableFacts[],currentSituation,visibility и необязательным точным parentId; world.upsertProcesses содержит полные процессы с id,title,description,scopeIds[],involvedFactionNames[],drivers[],obstacles[],stage,momentum,direction,status,visibility,nextMilestone,consequences[].
 - cleanup — объект с массивами threads/worldEvents/quests/antagonistPlans/memories; каждый элемент имеет только targetId и reason. Активную сущность сначала переведи в терминальный статус соответствующей мутацией.
@@ -312,6 +313,23 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     plan.statePatch.scene.presentNpcIds = plan.statePatch.scene.presentNpcIds.filter((npcId) => livingIds.has(npcId))
     if (plan.statePatch.scene.presentNpcIds.length < before) notes.push('Убрано невозможное присутствие персонажа в сцене.')
   }
+  if (plan.statePatch.conflict) {
+    const mutation = plan.statePatch.conflict
+    const participantIds = mutation.operation === 'resolve' ? [] : mutation.state.participants.map((participant) => participant.entityId)
+    const validParticipantIds = new Set([campaign.player.id, ...usableNpcIds])
+    const participantsValid = participantIds.length === new Set(participantIds).size
+      && participantIds.includes(campaign.player.id)
+      && participantIds.every((entityId) => validParticipantIds.has(entityId))
+    const operationValid = mutation.operation === 'start'
+      ? !campaign.activeConflict
+      : mutation.operation === 'update'
+        ? Boolean(campaign.activeConflict && campaign.activeConflict.id === mutation.state.id)
+        : Boolean(campaign.activeConflict)
+    if ((!participantsValid && mutation.operation !== 'resolve') || !operationValid) {
+      plan.statePatch.conflict = undefined
+      notes.push('Отклонено противоречивое состояние противостояния.')
+    }
+  }
   const threadCount = plan.statePatch.threads?.length ?? 0
   plan.statePatch.threads = plan.statePatch.threads?.map((mutation) => {
     if (mutation.operation !== 'add' || !mutation.thread?.id || !campaign.threads?.some((thread) => thread.id === mutation.thread?.id)) return mutation
@@ -507,6 +525,7 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     quests: concat(background.quests, foreground.quests),
     lore: concat(background.lore, foreground.lore),
     scene,
+    conflict: foreground.conflict ?? background.conflict,
     socialLinks: concat(background.socialLinks, foreground.socialLinks),
     threads: concat(background.threads, foreground.threads),
     worldEvents: concat(background.worldEvents, foreground.worldEvents),

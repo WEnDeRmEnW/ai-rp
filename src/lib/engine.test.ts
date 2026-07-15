@@ -718,4 +718,49 @@ describe('state engine', () => {
       expect.objectContaining({ kind: 'character', label: expect.stringContaining('стратегия') }),
     ]))
   })
+
+  it('tracks a tactical conflict across exchanges and archives its actual outcome', () => {
+    const campaign = createDemoCampaign()
+    const npc = campaign.npcs[0]
+    const conflict = {
+      id: 'conflict-platform', kind: 'combat' as const, title: 'Схватка на платформе', round: 1, phase: 'Противники проверяют дистанцию.', stakes: 'Контроль над выходом.',
+      terrain: ['Узкая платформа'], hazards: ['Приближающийся поезд'], momentum: 'contested' as const,
+      participants: [
+        { entityId: campaign.player.id, side: 'player' as const, objective: 'Прорваться к выходу.', position: 'У колонны.', readiness: 68, morale: 80, intent: 'Сменить угол атаки.', lastAction: 'Занял укрытие.', advantages: ['Укрытие'], vulnerabilities: [], visibility: 'known' as const },
+        { entityId: npc.id, side: 'opposition' as const, objective: 'Задержать героя.', position: 'Между героем и выходом.', readiness: 92, morale: 74, intent: 'Вынудить героя повторить рывок.', lastAction: 'Перекрыл проход.', advantages: ['Контроль выхода'], vulnerabilities: ['Открытый левый фланг'], visibility: 'rumored' as const },
+      ],
+      startedTurn: 2, lastUpdatedTurn: 2,
+    }
+    const started = applyPatch(campaign, { conflict: { operation: 'start', state: conflict } }, 3)
+    expect(started.activeConflict).toMatchObject({ id: conflict.id, round: 1, lastUpdatedTurn: 3 })
+    expect(diffCampaignState(campaign, started)).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'conflict', tone: 'warning' })]))
+
+    const updatedState = structuredClone(started.activeConflict!)
+    updatedState.round = 2
+    updatedState.momentum = 'opposition'
+    updatedState.participants[0]!.readiness = 42
+    const updated = applyPatch(started, { conflict: { operation: 'update', state: updatedState } }, 4)
+    expect(updated.activeConflict).toMatchObject({ round: 2, momentum: 'opposition', lastUpdatedTurn: 4 })
+
+    const resolved = applyPatch(updated, { conflict: { operation: 'resolve', outcome: 'Герой оторвался от преследования, но потерял путь к главному выходу.' } }, 5)
+    expect(resolved.activeConflict).toBeUndefined()
+    expect(resolved.timeline).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Завершено: Схватка на платформе', description: expect.stringContaining('оторвался') })]))
+  })
+
+  it('rejects invalid conflict participants and a second simultaneous encounter', () => {
+    const campaign = createDemoCampaign()
+    const npc = campaign.npcs[0]
+    const diagnostics: import('../../shared/types').StateChange[] = []
+    const baseState = {
+      id: 'conflict-one', kind: 'combat' as const, title: 'Первое столкновение', round: 1, phase: 'Начало.', stakes: 'Выход.', terrain: [], hazards: [], momentum: 'contested' as const,
+      participants: [
+        { entityId: campaign.player.id, side: 'player' as const, objective: 'Уйти.', position: 'У двери.', readiness: 50, morale: 50, intent: 'Открыть дверь.', lastAction: 'Осмотрелся.', advantages: [], vulnerabilities: [], visibility: 'known' as const },
+        { entityId: npc.id, side: 'opposition' as const, objective: 'Остановить.', position: 'В проходе.', readiness: 50, morale: 50, intent: 'Перекрыть дверь.', lastAction: 'Подошёл.', advantages: [], vulnerabilities: [], visibility: 'known' as const },
+      ], startedTurn: 0, lastUpdatedTurn: 0,
+    }
+    const active = applyPatch(campaign, { conflict: { operation: 'start', state: baseState } }, 1)
+    const rejected = applyPatch(active, { conflict: { operation: 'start', state: { ...baseState, id: 'conflict-two' } } }, 2, diagnostics)
+    expect(rejected.activeConflict?.id).toBe('conflict-one')
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'system', detail: expect.stringContaining('нельзя начать новое') })]))
+  })
 })

@@ -15,6 +15,7 @@ import type {
   Ability,
   AbilityDraft,
   AbilityChangePatch,
+  ActiveConflict,
   NPCStrategy,
   StatusEffect,
   StateChange,
@@ -285,6 +286,33 @@ function normalizeNpcStrategy(incoming: Partial<NPCStrategy>, turn: number, exis
     strengths: (merged.strengths as string[]).slice(-12),
     blindSpots: (merged.blindSpots as string[]).slice(-12),
     contingencies: (merged.contingencies as string[]).slice(-12),
+    retreatConditions: merged.retreatConditions?.slice(-12),
+    ethicalLimits: merged.ethicalLimits?.slice(-12),
+    learnedAdaptations: merged.learnedAdaptations?.slice(-16),
+    countermeasures: merged.countermeasures?.slice(-16).map((countermeasure) => ({
+      ...countermeasure,
+      requirements: countermeasure.requirements.slice(-12),
+      tradeoffs: countermeasure.tradeoffs.slice(-12),
+    })),
+  }
+}
+
+function normalizeActiveConflict(incoming: ActiveConflict, turn: number, existing?: ActiveConflict): ActiveConflict {
+  return {
+    ...incoming,
+    id: existing?.id ?? incoming.id,
+    round: Math.max(1, Math.round(incoming.round)),
+    terrain: incoming.terrain.slice(-16),
+    hazards: incoming.hazards.slice(-16),
+    participants: incoming.participants.slice(0, 24).map((participant) => ({
+      ...participant,
+      readiness: clamp(participant.readiness, 0, 100),
+      morale: clamp(participant.morale, 0, 100),
+      advantages: participant.advantages.slice(-12),
+      vulnerabilities: participant.vulnerabilities.slice(-12),
+    })),
+    startedTurn: existing?.startedTurn ?? Math.max(0, Math.min(turn, Math.round(incoming.startedTurn))),
+    lastUpdatedTurn: turn,
   }
 }
 
@@ -299,6 +327,7 @@ function createSnapshot(campaign: Campaign): CampaignSnapshot {
     lore: structuredClone(campaign.lore),
     memories: structuredClone(campaign.memories),
     scene: structuredClone(campaign.scene),
+    activeConflict: structuredClone(campaign.activeConflict),
     socialLinks: structuredClone(campaign.socialLinks ?? []),
     threads: structuredClone(campaign.threads ?? []),
     worldEvents: structuredClone(campaign.worldEvents ?? []),
@@ -376,6 +405,7 @@ export function describePatch(patch: TurnPatch): string[] {
   patch.upsertMysteryCases?.forEach((mystery) => changes.push(`Расследование: ${mystery.title}`))
   patch.upsertAntagonistPlans?.forEach(() => changes.push('План противника продвинулся'))
   patch.upsertInfluenceAssets?.forEach((asset) => changes.push(`Влияние: ${asset.title}`))
+  if (patch.conflict) changes.push(patch.conflict.operation === 'start' ? 'Началось противостояние' : patch.conflict.operation === 'resolve' ? 'Противостояние завершилось' : 'Обстановка противостояния изменилась')
   return changes.slice(0, 14)
 }
 
@@ -850,6 +880,44 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
     if (npc.strategy) npc.strategy = normalizeNpcStrategy(npc.strategy, turn, npc.strategy)
   })
   applyRelationshipChanges()
+
+  if (patch.conflict) {
+    if (patch.conflict.operation === 'resolve') {
+      if (!campaign.activeConflict) {
+        rejectedReference(diagnostics, 'statePatch.conflict', undefined, 'активное противостояние не найдено')
+      } else {
+        retirementEvents.push({
+          title: `Завершено: ${campaign.activeConflict.title}`,
+          description: patch.conflict.outcome,
+          category: 'story',
+        })
+        campaign.activeConflict = undefined
+      }
+    } else {
+      const incoming = patch.conflict.state
+      const existing = campaign.activeConflict
+      const validEntityIds = new Set([campaign.player.id, ...campaign.npcs.map((npc) => npc.id)])
+      const participantIds = incoming.participants.map((participant) => participant.entityId)
+      const invalidId = participantIds.find((entityId) => !validEntityIds.has(entityId))
+      const duplicateId = participantIds.find((entityId, index) => participantIds.indexOf(entityId) !== index)
+      const hasPlayer = participantIds.includes(campaign.player.id)
+      if (patch.conflict.operation === 'start' && existing) {
+        rejectedReference(diagnostics, 'statePatch.conflict', incoming.id, 'нельзя начать новое противостояние до завершения текущего')
+      } else if (patch.conflict.operation === 'update' && !existing) {
+        rejectedReference(diagnostics, 'statePatch.conflict', incoming.id, 'нет активного противостояния для обновления')
+      } else if (patch.conflict.operation === 'update' && existing?.id !== incoming.id) {
+        rejectedReference(diagnostics, 'statePatch.conflict.state.id', incoming.id, 'id противостояния не совпадает с активным')
+      } else if (invalidId) {
+        rejectedReference(diagnostics, 'statePatch.conflict.state.participants', invalidId, 'участник противостояния не найден')
+      } else if (duplicateId) {
+        rejectedReference(diagnostics, 'statePatch.conflict.state.participants', duplicateId, 'участник указан дважды')
+      } else if (!hasPlayer) {
+        rejectedReference(diagnostics, 'statePatch.conflict.state.participants', campaign.player.id, 'герой должен присутствовать в активном противостоянии')
+      } else {
+        campaign.activeConflict = normalizeActiveConflict(incoming, turn, existing)
+      }
+    }
+  }
 
   patch.socialLinks?.slice(0, 40).forEach((link, linkIndex) => {
     const npcIds = new Set(campaign.npcs.map((npc) => npc.id))
@@ -1470,6 +1538,7 @@ export function rewindLastTurn(campaign: Campaign): Campaign {
     lore: structuredClone(snapshot.lore),
     memories: structuredClone(snapshot.memories),
     scene: structuredClone(snapshot.scene),
+    activeConflict: structuredClone(snapshot.activeConflict),
     socialLinks: structuredClone(snapshot.socialLinks ?? campaign.socialLinks ?? []),
     threads: structuredClone(snapshot.threads ?? campaign.threads ?? []),
     worldEvents: structuredClone(snapshot.worldEvents ?? campaign.worldEvents ?? []),
