@@ -178,6 +178,44 @@ export interface AbilityCost {
 
 export type PowerCategory = 'offense' | 'defense' | 'control' | 'mobility' | 'utility' | 'perception' | 'creation' | 'summoning' | 'transformation' | 'reality' | 'time' | 'space' | 'mind' | 'soul' | 'energy' | 'matter' | 'other'
 export type CanonStatus = 'canonical' | 'derived' | 'original'
+export type AbilityKind = 'active' | 'passive' | 'reaction' | 'ritual' | 'transformation' | 'other'
+
+/** A distinct named application contained inside a broader power or school. */
+export interface PowerTechnique {
+  id: ID
+  name: string
+  /** One or two concise sentences describing the concrete result. */
+  description: string
+  kind: AbilityKind
+  category: PowerCategory
+  mastery: number
+  activation: string
+  scale: string
+  costs: AbilityCost[]
+  effects: string[]
+  requirements: string[]
+  limitations: string[]
+  unlocked: boolean
+}
+
+export type PowerTechniqueDraft = Omit<PowerTechnique, 'id'> & { id?: ID }
+
+export interface PowerTechniqueChangePatch {
+  techniqueId: ID
+  name?: string
+  description?: string
+  kind?: AbilityKind
+  category?: PowerCategory
+  mastery?: number
+  masteryDelta?: number
+  activation?: string
+  scale?: string
+  costs?: AbilityCost[]
+  effects?: string[]
+  requirements?: string[]
+  limitations?: string[]
+  unlocked?: boolean
+}
 
 export interface PowerSpecification {
   category?: PowerCategory
@@ -187,6 +225,7 @@ export interface PowerSpecification {
   synergies?: string[]
   counters?: string[]
   examples?: string[]
+  techniques?: PowerTechnique[]
   canonStatus?: CanonStatus
   canonReference?: string
 }
@@ -218,7 +257,7 @@ export interface Ability extends PowerSpecification {
   rank?: string
   source?: string
   cooldown?: string
-  kind?: 'active' | 'passive' | 'reaction' | 'ritual' | 'transformation' | 'other'
+  kind?: AbilityKind
   mastery?: number
   costs?: AbilityCost[]
   effects?: string[]
@@ -230,10 +269,11 @@ export interface Ability extends PowerSpecification {
   tags?: string[]
 }
 
-export type AbilityDraft = Omit<Ability, 'id' | 'history' | 'evolutionPaths'> & {
+export type AbilityDraft = Omit<Ability, 'id' | 'history' | 'evolutionPaths' | 'techniques'> & {
   id?: ID
   history?: ProgressHistoryDraft[]
   evolutionPaths?: Array<Omit<EvolutionPath, 'id'> & { id?: ID }>
+  techniques?: PowerTechniqueDraft[]
 }
 
 export interface AbilityChangePatch {
@@ -266,6 +306,9 @@ export interface AbilityChangePatch {
   addExamples?: string[]
   addEffects?: string[]
   addLimitations?: string[]
+  addTechniques?: PowerTechniqueDraft[]
+  techniqueChanges?: PowerTechniqueChangePatch[]
+  removeTechniqueIds?: ID[]
   addEvolutionPaths?: Array<Omit<EvolutionPath, 'id'> & { id?: ID }>
   unlockEvolutionPathIds?: ID[]
   history?: { title: string; description: string }
@@ -279,6 +322,11 @@ export interface ArtifactPower extends PowerSpecification {
   costs: AbilityCost[]
   trigger?: string
   limitations: string[]
+}
+
+export type ArtifactPowerDraft = Omit<ArtifactPower, 'id' | 'techniques'> & {
+  id?: ID
+  techniques?: PowerTechniqueDraft[]
 }
 
 export interface ArtifactComponent {
@@ -314,6 +362,9 @@ export interface ArtifactPowerChangePatch {
   addCounters?: string[]
   addExamples?: string[]
   addLimitations?: string[]
+  addTechniques?: PowerTechniqueDraft[]
+  techniqueChanges?: PowerTechniqueChangePatch[]
+  removeTechniqueIds?: ID[]
 }
 
 export interface ArtifactComponentChangePatch {
@@ -354,7 +405,7 @@ export interface ArtifactChangePatch {
   addPassiveEffects?: string[]
   addCombinedEffects?: string[]
   addFailureModes?: string[]
-  addPowers?: Array<Omit<ArtifactPower, 'id'> & { id?: ID }>
+  addPowers?: ArtifactPowerDraft[]
   powerChanges?: ArtifactPowerChangePatch[]
   powerMasteryDeltas?: Record<ID, number>
   addComponents?: Array<Omit<ArtifactComponent, 'id'> & { id?: ID }>

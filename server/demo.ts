@@ -211,6 +211,7 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
           category: 'perception', scale: 'Личная сцена', activation: 'Пассивно проявляется у точки необратимого выбора.',
           capabilities: ['Замечает наблюдаемые признаки точки невозврата'], synergies: ['Проницательность усиливает точность признаков'],
           counters: ['Намеренно скрытая причинность может запутать ощущение'], examples: ['Предчувствие необратимого разрыва договора'], canonStatus: 'original',
+          techniques: [],
           evolutionPaths: [
             { name: 'Эхо выбора', description: 'Различать последствия для отношений.', requirement: 'Пережить три переломных решения.', unlocked: false },
             { name: 'Точка разлома', description: 'Чувствовать угрозу миру.', requirement: 'Стать свидетелем изменения закона мира.', unlocked: false },
@@ -224,6 +225,10 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
           category: 'perception', scale: 'Один предмет и связанное воспоминание', activation: 'Сосредоточиться на реликвии и потратить фокус.',
           capabilities: ['Считывает эмоциональный отклик', 'Позволяет задать один вопрос памяти реликвии'], synergies: ['Высокая связь делает образы яснее'],
           counters: ['Повреждение реликвии', 'Чужая защита памяти'], examples: ['Увидеть образ места, где реликвия была создана'], canonStatus: 'original',
+          techniques: [
+            { name: 'Эмоциональный отзвук', description: 'Считывает доминирующее чувство, оставленное в реликвии связанным событием.', kind: 'active', category: 'perception', mastery: 18, activation: 'Удерживать реликвию и сосредоточиться на одном воспоминании.', scale: 'Один эмоциональный след', costs: [{ resource: 'focus', amount: 1 }], effects: ['Передаёт чувство и одну сенсорную деталь'], requirements: ['Физический контакт с реликвией'], limitations: ['Не сообщает точные имена и даты'], unlocked: true },
+            { name: 'Вопрос памяти', description: 'Формулирует один вопрос и получает связанный с ним образ из памяти реликвии.', kind: 'ritual', category: 'perception', mastery: 10, activation: 'Произнести вопрос во время полной настройки.', scale: 'Один вопрос к одному доступному следу', costs: [{ resource: 'focus', amount: 2 }], effects: ['Показывает краткий образ-ответ'], requirements: ['Сначала установить эмоциональный отзвук'], limitations: ['Ответ остаётся образом и допускает неверное толкование'], unlocked: true },
+          ],
           evolutionPaths: [
             { name: 'Общий сон', description: 'Увидеть целое воспоминание реликвии.', requirement: 'Достичь связи 40.', unlocked: false },
             { name: 'Согласованный импульс', description: 'Совместно направить силу реликвии.', requirement: 'Пробудить реликвию.', unlocked: false },
@@ -251,6 +256,9 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
             name: 'Отзвук владельца', description: 'Показывает эмоциональный след прошлого владельца.', mastery: 8, costs: [{ resource: 'focus', amount: 2 }], limitations: ['Не показывает точных дат и имён'],
             category: 'perception', scale: 'Один эмоциональный след', activation: 'Коснуться медальона и связанного объекта.', capabilities: ['Передаёт образ, чувство и сенсорную деталь прошлого'],
             synergies: ['Настройка реликвии позволяет сформулировать вопрос'], counters: ['Архивная печать более высокого ранга'], examples: ['Запах дождя и звон места прежнего владельца'], canonStatus: 'original',
+            techniques: [
+              { name: 'Сенсорный след', description: 'Передаёт один запах, звук или тактильное ощущение из прошлого владельца.', kind: 'active', category: 'perception', mastery: 12, activation: 'Коснуться связанного предмета медальоном.', scale: 'Одна сенсорная деталь', costs: [{ resource: 'focus', amount: 1 }], effects: ['Воспроизводит наиболее сильную сенсорную деталь'], requirements: ['Связанный с владельцем объект'], limitations: ['Деталь приходит без объяснения контекста'], unlocked: true },
+            ],
           }],
           drawbacks: ['Сильные воспоминания вызывают краткую дезориентацию'],
           evolutionPaths: [
@@ -283,6 +291,10 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
         category: 'perception', scale: 'Одна наблюдаемая цель и ближайшая сцена', activation: 'Постоянное наблюдение и сопоставление известных фактов.',
         capabilities: ['Замечает повторяющиеся поведенческие шаблоны', 'Готовит контрмеру против наиболее вероятного действия'], synergies: ['Высокий Расчёт повышает качество альтернативных планов'],
         counters: ['Ложный шаблон поведения', 'Новая способность, которую Рин никогда не видел', 'Неполные или поддельные сведения'], examples: ['Предугадать, каким выходом воспользуется преследуемый'], canonStatus: 'original',
+        techniques: [
+          { name: 'Чтение шаблона', description: 'Выделяет повторяющийся выбор цели только из лично замеченных действий.', kind: 'passive', category: 'perception', mastery: 72, activation: 'Наблюдать минимум два сопоставимых действия.', scale: 'Одна наблюдаемая цель', costs: [], effects: ['Фиксирует один подтверждённый поведенческий шаблон'], requirements: ['Два доступных наблюдения'], limitations: ['Сознательная смена поведения обесценивает прогноз'], unlocked: true },
+          { name: 'Контрсценарий', description: 'Готовит практический ответ на наиболее вероятное следующее действие цели.', kind: 'reaction', category: 'control', mastery: 64, activation: 'Выбрать подтверждённый шаблон и подготовить позицию или ресурс.', scale: 'Один следующий обмен действий', costs: [{ resource: 'composure', amount: 1 }], effects: ['Даёт заранее подготовленную реакцию при совпадении прогноза'], requirements: ['Известный шаблон и время на подготовку'], limitations: ['Не срабатывает против нового или намеренно изменённого действия'], unlocked: true },
+        ],
       }],
       knowledge: [{ subject: input.characterName, statement: 'Имя героя было указано в запечатанном поручении.', status: 'known', confidence: 100, source: 'Личное поручение', secret: true }],
       relationshipDimensions: { trust: 5, respect: 10, affection: 0, fear: 5, suspicion: 20, dependence: 0 },

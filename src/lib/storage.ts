@@ -1,5 +1,5 @@
 import { openDB, type DBSchema } from 'idb'
-import type { Campaign, InventoryItem, Resource, ResourceKind, StatusEffect } from '../../shared/types'
+import type { Campaign, InventoryItem, PowerTechnique, Resource, ResourceKind, StatusEffect } from '../../shared/types'
 import { rarityFromKnownCopies } from '../../shared/rarity'
 import { ensureCampaignIdentity } from './campaign-identity'
 
@@ -41,6 +41,18 @@ function migrateStatusEffects(effects: StatusEffect[] | undefined): StatusEffect
       appliedTurn: Math.max(0, Math.round(Number.isFinite(effect.appliedTurn) ? effect.appliedTurn : 0)),
     }
   })
+}
+
+function migratePowerTechniques(techniques: PowerTechnique[] | undefined): PowerTechnique[] {
+  return (techniques ?? []).slice(-48).map((technique) => ({
+    ...technique,
+    id: technique.id || crypto.randomUUID(),
+    mastery: clamp(Number.isFinite(technique.mastery) ? technique.mastery : 0, 0, 100),
+    costs: technique.costs ?? [],
+    effects: technique.effects ?? [],
+    requirements: technique.requirements ?? [],
+    limitations: technique.limitations ?? [],
+  }))
 }
 
 function migrateItem(item: InventoryItem): InventoryItem {
@@ -173,6 +185,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
         synergies: ability.synergies ?? [],
         counters: ability.counters ?? [],
         examples: ability.examples ?? [],
+        techniques: migratePowerTechniques(ability.techniques),
       })),
     },
     inventory: campaign.inventory.map((rawItem) => {
@@ -193,6 +206,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
           synergies: power.synergies ?? [],
           counters: power.counters ?? [],
           examples: power.examples ?? [],
+          techniques: migratePowerTechniques(power.techniques),
         })),
         drawbacks: item.artifact.drawbacks ?? [],
         evolutionPaths: item.artifact.evolutionPaths ?? [],
@@ -218,6 +232,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
         synergies: ability.synergies ?? [],
         counters: ability.counters ?? [],
         examples: ability.examples ?? [],
+        techniques: migratePowerTechniques(ability.techniques),
       })),
       strategy: npc.strategy ? {
         ...npc.strategy,

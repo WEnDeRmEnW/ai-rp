@@ -17,6 +17,9 @@ import type {
   AbilityChangePatch,
   ActiveConflict,
   NPCStrategy,
+  PowerTechnique,
+  PowerTechniqueChangePatch,
+  PowerTechniqueDraft,
   StatusEffect,
   StateChange,
 } from '../../shared/types'
@@ -140,6 +143,76 @@ function tickStatusEffects(effects: StatusEffect[], turn: number, sceneChanges =
   })
 }
 
+function normalizePowerTechnique(draft: PowerTechniqueDraft, existing?: PowerTechnique): PowerTechnique {
+  return {
+    ...existing,
+    ...draft,
+    id: existing?.id ?? draft.id ?? id(),
+    name: draft.name.trim(),
+    description: draft.description.trim(),
+    mastery: clamp(draft.mastery, 0, 100),
+    activation: draft.activation.trim(),
+    scale: draft.scale.trim(),
+    costs: draft.costs.slice(0, 8),
+    effects: draft.effects.slice(0, 12),
+    requirements: draft.requirements.slice(0, 12),
+    limitations: draft.limitations.slice(0, 12),
+  }
+}
+
+function materializePowerTechniques(existing: PowerTechnique[] | undefined, drafts: PowerTechniqueDraft[] | undefined): PowerTechnique[] {
+  const result = (existing ?? []).map((technique) => normalizePowerTechnique(technique, technique))
+  drafts?.forEach((draft) => {
+    const current = result.find((technique) => (draft.id && technique.id === draft.id) || normalizedName(technique.name) === normalizedName(draft.name))
+    if (current) Object.assign(current, normalizePowerTechnique(draft, current))
+    else result.push(normalizePowerTechnique(draft))
+  })
+  return result.slice(-48)
+}
+
+function applyPowerTechniqueChanges(
+  techniques: PowerTechnique[],
+  changes: PowerTechniqueChangePatch[] | undefined,
+  diagnostics: StateChange[] | undefined,
+  path: string,
+) {
+  changes?.slice(0, 48).forEach((change, index) => {
+    const technique = techniques.find((candidate) => candidate.id === change.techniqueId)
+    if (!technique) {
+      rejectedReference(diagnostics, `${path}.techniqueChanges[${index}].techniqueId`, change.techniqueId, 'подспособность не найдена')
+      return
+    }
+    if (change.name?.trim()) technique.name = change.name.trim()
+    if (change.description?.trim()) technique.description = change.description.trim()
+    if (change.kind) technique.kind = change.kind
+    if (change.category) technique.category = change.category
+    if (Number.isFinite(change.mastery)) technique.mastery = clamp(change.mastery ?? 0, 0, 100)
+    if (Number.isFinite(change.masteryDelta)) technique.mastery = clamp(technique.mastery + (change.masteryDelta ?? 0), 0, 100)
+    if (change.activation?.trim()) technique.activation = change.activation.trim()
+    if (change.scale?.trim()) technique.scale = change.scale.trim()
+    if (change.costs) technique.costs = change.costs.slice(0, 8)
+    if (change.effects) technique.effects = change.effects.slice(0, 12)
+    if (change.requirements) technique.requirements = change.requirements.slice(0, 12)
+    if (change.limitations) technique.limitations = change.limitations.slice(0, 12)
+    if (change.unlocked !== undefined) technique.unlocked = change.unlocked
+  })
+}
+
+function removePowerTechniques(
+  techniques: PowerTechnique[],
+  removeIds: string[] | undefined,
+  diagnostics: StateChange[] | undefined,
+  path: string,
+): PowerTechnique[] {
+  if (!removeIds?.length) return techniques
+  const known = new Set(techniques.map((technique) => technique.id))
+  removeIds.slice(0, 48).forEach((techniqueId, index) => {
+    if (!known.has(techniqueId)) rejectedReference(diagnostics, `${path}.removeTechniqueIds[${index}]`, techniqueId, 'подспособность не найдена')
+  })
+  const removed = new Set(removeIds)
+  return techniques.filter((technique) => !removed.has(technique.id))
+}
+
 function normalizeArtifact(artifact: ArtifactProfile): ArtifactProfile {
   return {
     ...artifact,
@@ -160,6 +233,7 @@ function normalizeArtifact(artifact: ArtifactProfile): ArtifactProfile {
       synergies: power.synergies?.slice(0, 32) ?? [],
       counters: power.counters?.slice(0, 32) ?? [],
       examples: power.examples?.slice(0, 24) ?? [],
+      techniques: materializePowerTechniques([], power.techniques),
     })),
     drawbacks: artifact.drawbacks.slice(0, 48),
     evolutionPaths: artifact.evolutionPaths.slice(0, 24),
@@ -203,6 +277,7 @@ function materializeAbility(draft: AbilityDraft, turn: number, existing?: Abilit
     synergies: mergeTextDetails(existing?.synergies, draft.synergies, 32),
     counters: mergeTextDetails(existing?.counters, draft.counters, 32),
     examples: mergeTextDetails(existing?.examples, draft.examples, 24),
+    techniques: materializePowerTechniques(existing?.techniques, draft.techniques),
   }
 }
 
@@ -245,6 +320,9 @@ function applyAbilityChange(
   ability.examples = mergeTextDetails(ability.examples, change.addExamples, 24)
   ability.effects = mergeTextDetails(ability.effects, change.addEffects, 48)
   ability.limitations = mergeTextDetails(ability.limitations, change.addLimitations, 48)
+  ability.techniques = materializePowerTechniques(ability.techniques, change.addTechniques)
+  applyPowerTechniqueChanges(ability.techniques, change.techniqueChanges, diagnostics, path)
+  ability.techniques = removePowerTechniques(ability.techniques, change.removeTechniqueIds, diagnostics, path)
   ability.evolutionPaths ??= []
   change.addEvolutionPaths?.forEach((evolution) => {
     if (!ability.evolutionPaths?.some((candidate) => candidate.id === evolution.id || normalizedName(candidate.name) === normalizedName(evolution.name))) {
@@ -620,6 +698,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
           costs: power.costs.slice(0, 8), limitations: power.limitations.slice(0, 48),
           capabilities: power.capabilities?.slice(0, 64) ?? [], synergies: power.synergies?.slice(0, 32) ?? [],
           counters: power.counters?.slice(0, 32) ?? [], examples: power.examples?.slice(0, 24) ?? [],
+          techniques: materializePowerTechniques([], power.techniques),
         })
       }
     })
@@ -651,6 +730,9 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
       power.counters = mergeTextDetails(power.counters, powerChange.addCounters, 32)
       power.examples = mergeTextDetails(power.examples, powerChange.addExamples, 24)
       power.limitations = mergeTextDetails(power.limitations, powerChange.addLimitations, 48)
+      power.techniques = materializePowerTechniques(power.techniques, powerChange.addTechniques)
+      applyPowerTechniqueChanges(power.techniques, powerChange.techniqueChanges, diagnostics, `statePatch.artifactChanges[${changeIndex}].powerChanges[${powerChangeIndex}]`)
+      power.techniques = removePowerTechniques(power.techniques, powerChange.removeTechniqueIds, diagnostics, `statePatch.artifactChanges[${changeIndex}].powerChanges[${powerChangeIndex}]`)
     })
     Object.entries(change.powerMasteryDeltas ?? {}).forEach(([powerId, delta]) => {
       const power = artifact.powers.find((candidate) => candidate.id === powerId)

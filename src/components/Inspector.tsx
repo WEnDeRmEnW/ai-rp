@@ -3,7 +3,7 @@ import {
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Ability, Campaign, InventoryItem, LoreEntry, Rarity, StateChange, WorldPresentation } from '../../shared/types'
+import type { Ability, ArtifactPower, Campaign, InventoryItem, LoreEntry, PowerTechnique, Rarity, StateChange, WorldPresentation } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
 import { readCanonDocument } from '../lib/canon'
@@ -40,15 +40,79 @@ function EmptyMini({ children }: { children: React.ReactNode }) {
   return <div className="mini-empty">{children}</div>
 }
 
-function DetailList({ title, values }: { title: string; values?: string[] }) {
+function DetailList({ title, values, compact = false }: { title: string; values?: string[]; compact?: boolean }) {
   if (!values?.length) return null
-  return <div className="power-detail-list"><b>{title}</b><ul>{values.map((value) => <li key={value}>{value}</li>)}</ul></div>
+  return <div className={`power-detail-list ${compact ? 'is-compact' : ''}`}><b>{title}</b><ul>{values.map((value) => <li key={value}>{value}</li>)}</ul></div>
+}
+
+function visibleTechniqueCount(source: Ability | ArtifactPower) {
+  const structuredCount = source.techniques?.length ?? 0
+  if (structuredCount > 0) return structuredCount
+
+  const legacyCount = source.capabilities?.length ?? 0
+  return legacyCount > 1 ? legacyCount : 0
+}
+
+function russianPlural(count: number, one: string, few: string, many: string) {
+  const lastTwo = count % 100
+  if (lastTwo >= 11 && lastTwo <= 14) return many
+  const last = count % 10
+  if (last === 1) return one
+  if (last >= 2 && last <= 4) return few
+  return many
+}
+
+function techniqueCountLabel(count: number) {
+  return `${count} ${russianPlural(count, 'приём', 'приёма', 'приёмов')}`
+}
+
+function TechniqueCollection({ source, resources }: { source: Ability | ArtifactPower; resources?: Campaign['player']['resources'] }) {
+  const structured = Boolean(source.techniques?.length)
+  const inheritedEffects = 'effects' in source ? source.effects ?? [] : []
+  const inheritedRequirements = 'requirements' in source ? source.requirements ?? [] : []
+  const techniques: PowerTechnique[] = source.techniques?.length ? source.techniques : (source.capabilities ?? []).length > 1
+    ? (source.capabilities ?? []).map((capability, index) => ({
+        id: `legacy:${source.id}:${index}`,
+        name: capability,
+        description: inheritedEffects[index] ?? '',
+        kind: 'kind' in source && source.kind ? source.kind : 'active',
+        category: source.category ?? 'other',
+        mastery: source.mastery ?? 0,
+        activation: source.activation ?? '',
+        scale: source.scale ?? '',
+        costs: source.costs ?? [],
+        effects: inheritedEffects[index] ? [inheritedEffects[index]] : [],
+        requirements: inheritedRequirements,
+        limitations: source.limitations ?? [],
+        unlocked: true,
+      }))
+    : []
+  if (!techniques.length) return null
+  const available = techniques.filter((technique) => technique.unlocked).length
+  return <section className="technique-collection">
+    <header><span><Sparkles size={12} /><b>{structured ? 'Приёмы и подспособности' : 'Краткие возможности'}</b></span><small>{structured ? `${available} ${russianPlural(available, 'доступен', 'доступны', 'доступно')} · ${techniques.length} всего` : `${techniqueCountLabel(techniques.length)} в этой силе`}</small></header>
+    <div className="technique-stack">{techniques.map((technique, index) => <details className={`technique-card ${technique.unlocked ? '' : 'is-locked'}`} key={technique.id}>
+      <summary>
+        <i>{String(index + 1).padStart(2, '0')}</i>
+        <span><strong>{technique.name}</strong>{technique.description && <small>{technique.description}</small>}{structured && <em>{uiLabel(technique.kind)} · {uiLabel(technique.category)}{technique.unlocked ? '' : ' · Закрыто'}</em>}</span>
+        <b>{Math.round(technique.mastery)}%</b><ChevronDown size={13} />
+      </summary>
+      <div className="technique-body">
+        <div className="technique-mastery"><span>Освоение</span><b>{Math.round(technique.mastery)}%</b><i><span style={{ width: `${Math.max(0, Math.min(100, technique.mastery))}%` }} /></i></div>
+        {(technique.activation || technique.scale || technique.costs.length > 0) && <div className="technique-facts">{technique.activation && <p><b>Активация</b><span>{technique.activation}</span></p>}{technique.scale && <p><b>Масштаб</b><span>{technique.scale}</span></p>}{!!technique.costs.length && <p><b>Цена</b><span>{technique.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, resources)}`).join(', ')}</span></p>}</div>}
+        <DetailList title="Результат" values={technique.effects} />
+        <DetailList title="Условия" values={technique.requirements} />
+        <DetailList title="Ограничения" values={technique.limitations} />
+      </div>
+    </details>)}</div>
+  </section>
 }
 
 function AbilityCard({ ability, expanded, onToggle, resources }: { ability: Ability; expanded: boolean; onToggle: () => void; resources?: Campaign['player']['resources'] }) {
+  const techniqueCount = visibleTechniqueCount(ability)
   return <div className={`ability-card ${expanded ? 'is-expanded' : ''}`}>
     <button className="ability-main" onClick={onToggle}>
-      <span className="ability-icon"><Sparkles size={14} /></span><span className="ability-copy"><strong>{ability.name}{ability.rank ? ` · ${ability.rank}` : ''}</strong><p>{ability.description}</p><small>{uiLabel(ability.kind, 'Особенность')}{ability.source ? ` · ${ability.source}` : ''}</small></span><ChevronDown size={14} />
+      <span className="ability-icon"><Sparkles size={14} /></span><span className="ability-copy"><strong>{ability.name}{ability.rank ? ` · ${ability.rank}` : ''}</strong><p>{ability.description}</p><small>{uiLabel(ability.kind, 'Особенность')}{ability.source ? ` · ${ability.source}` : ''}{techniqueCount ? ` · ${techniqueCountLabel(techniqueCount)}` : ''}</small></span><ChevronDown size={14} />
     </button>
     {expanded && <div className="ability-details">
       <div className="mastery-line"><span>Освоение</span><strong>{Math.round(ability.mastery ?? 0)}%</strong><i><b style={{ width: `${Math.max(0, Math.min(100, ability.mastery ?? 0))}%` }} /></i></div>
@@ -56,8 +120,9 @@ function AbilityCard({ ability, expanded, onToggle, resources }: { ability: Abil
       {ability.activation && <p><b>Активация:</b> {ability.activation}</p>}
       {ability.cooldown && <p><b>Откат:</b> {ability.cooldown}</p>}
       {!!ability.costs?.length && <p><b>Цена:</b> {ability.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, resources)}`).join(', ')}</p>}
-      <DetailList title="Что умеет" values={ability.capabilities} />
-      <DetailList title="Эффекты" values={ability.effects} />
+      <TechniqueCollection source={ability} resources={resources} />
+      <DetailList title={ability.techniques?.length ? 'Общие возможности' : 'Что умеет'} values={ability.techniques?.length ? ability.capabilities : techniqueCount ? undefined : ability.capabilities} compact />
+      <DetailList title="Эффекты" values={!ability.techniques?.length && techniqueCount ? undefined : ability.effects} />
       <DetailList title="Требования" values={ability.requirements} />
       <DetailList title="Ограничения" values={ability.limitations} />
       <DetailList title="Синергии" values={ability.synergies} />
@@ -458,7 +523,7 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                     <DetailList title="Требования" values={item.artifact.requirements} />
                     <DetailList title="Пассивные эффекты" values={item.artifact.passiveEffects} />
                     {!!item.artifact.components.length && <div className="artifact-components"><b>Состав и компоненты</b>{item.artifact.components.map((component) => <div className="artifact-component" key={component.id}><header><strong>{component.name}</strong><span>{uiLabel(component.status)}{component.required ? ' · необходим' : ''}</span></header><p>{component.description}</p><em>{component.role}</em><DetailList title="Возможности компонента" values={component.capabilities} /></div>)}</div>}
-                    {!!item.artifact.powers.length && <div className="artifact-powers"><b>Полный набор сил · {item.artifact.powers.length}</b>{item.artifact.powers.map((power) => <details key={power.id}><summary><span><strong>{power.name}</strong><small>{uiLabel(power.category, 'Сила')} · {power.mastery}%{canonLabel(power.canonStatus) ? ` · ${canonLabel(power.canonStatus)}` : ''}</small></span><ChevronDown size={13} /></summary><div className="artifact-power-body"><p>{power.description}</p>{power.scale && <p><b>Масштаб:</b> {power.scale}</p>}{power.activation && <p><b>Активация:</b> {power.activation}</p>}{power.trigger && <p><b>Триггер:</b> {power.trigger}</p>}{!!power.costs.length && <p><b>Цена:</b> {power.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, campaign.player.resources)}`).join(', ')}</p>}<DetailList title="Конкретные возможности" values={power.capabilities} /><DetailList title="Синергии" values={power.synergies} /><DetailList title="Контрмеры" values={power.counters} /><DetailList title="Ограничения" values={power.limitations} /><DetailList title="Примеры" values={power.examples} />{power.canonReference && <p className="canon-note"><b>Основа:</b> {power.canonReference}</p>}</div></details>)}</div>}
+                    {!!item.artifact.powers.length && <div className="artifact-powers"><b>Полный набор сил · {item.artifact.powers.length}</b>{item.artifact.powers.map((power) => <details key={power.id}><summary><span><strong>{power.name}</strong><small>{uiLabel(power.category, 'Сила')} · {power.mastery}%{visibleTechniqueCount(power) ? ` · ${techniqueCountLabel(visibleTechniqueCount(power))}` : ''}{canonLabel(power.canonStatus) ? ` · ${canonLabel(power.canonStatus)}` : ''}</small></span><ChevronDown size={13} /></summary><div className="artifact-power-body"><p>{power.description}</p>{power.scale && <p><b>Масштаб:</b> {power.scale}</p>}{power.activation && <p><b>Активация:</b> {power.activation}</p>}{power.trigger && <p><b>Триггер:</b> {power.trigger}</p>}{!!power.costs.length && <p><b>Цена:</b> {power.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, campaign.player.resources)}`).join(', ')}</p>}<TechniqueCollection source={power} resources={campaign.player.resources} /><DetailList title={power.techniques?.length ? 'Общие возможности' : 'Конкретные возможности'} values={power.techniques?.length ? power.capabilities : visibleTechniqueCount(power) ? undefined : power.capabilities} compact /><DetailList title="Синергии" values={power.synergies} /><DetailList title="Контрмеры" values={power.counters} /><DetailList title="Ограничения" values={power.limitations} /><DetailList title="Примеры" values={power.examples} />{power.canonReference && <p className="canon-note"><b>Основа:</b> {power.canonReference}</p>}</div></details>)}</div>}
                     <DetailList title="Комбинированные эффекты" values={item.artifact.combinedEffects} />
                     {!!item.artifact.drawbacks.length && <div><b>Цена и недостатки</b><ul>{item.artifact.drawbacks.map((drawback) => <li key={drawback}>{drawback}</li>)}</ul></div>}
                     <DetailList title="Условия отказа и уязвимости" values={item.artifact.failureModes} />

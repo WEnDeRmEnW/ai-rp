@@ -16,6 +16,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
     abilities: npc.abilities.map((ability) => ({
       ...ability,
       id: id(),
+      techniques: ability.techniques.map((technique) => ({ ...technique, id: id() })),
       evolutionPaths: ability.evolutionPaths.map((path) => ({ ...path, id: id() })),
       history: ability.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
     })),
@@ -67,6 +68,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       abilities: generated.player.abilities.map((ability) => ({
         ...ability,
         id: id(),
+        techniques: ability.techniques.map((technique) => ({ ...technique, id: id() })),
         evolutionPaths: ability.evolutionPaths.map((path) => ({ ...path, id: id() })),
         history: ability.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
       })),
@@ -97,7 +99,11 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
         history: item.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
         artifact: item.artifact ? {
           ...item.artifact,
-          powers: item.artifact.powers.map((power) => ({ ...power, id: id() })),
+          powers: item.artifact.powers.map((power) => ({
+            ...power,
+            id: id(),
+            techniques: power.techniques.map((technique) => ({ ...technique, id: id() })),
+          })),
           components: item.artifact.components.map((component) => ({ ...component, id: id() })),
           evolutionPaths: item.artifact.evolutionPaths.map((path) => ({ ...path, id: id() })),
         } : undefined,

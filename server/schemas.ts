@@ -326,6 +326,38 @@ const abilityCostSchema = z.object({
   resource: shortText,
   amount: modelNumber(z.number().min(0).max(100_000)),
 }).strict()
+const powerTechniqueDraftSchema = z.object({
+  id: idSchema.optional(),
+  name: shortText,
+  description: longText,
+  kind: abilityKindSchema,
+  category: powerCategorySchema,
+  mastery: modelNumber(z.number().min(0).max(100)),
+  activation: longText,
+  scale: longText,
+  costs: z.array(abilityCostSchema).max(8),
+  effects: z.array(longText).min(1).max(12),
+  requirements: z.array(longText).max(12),
+  limitations: z.array(longText).max(12),
+  unlocked: modelBoolean,
+}).strict()
+const powerTechniqueSchema = powerTechniqueDraftSchema.extend({ id: idSchema }).strict()
+const powerTechniqueChangeSchema = z.object({
+  techniqueId: idSchema,
+  name: shortText.optional(),
+  description: longText.optional(),
+  kind: abilityKindSchema.optional(),
+  category: powerCategorySchema.optional(),
+  mastery: optionalModelNumber(z.number().min(0).max(100)),
+  masteryDelta: optionalModelNumber(z.number().min(-100).max(100)),
+  activation: longText.optional(),
+  scale: longText.optional(),
+  costs: z.array(abilityCostSchema).max(8).optional(),
+  effects: z.array(longText).max(12).optional(),
+  requirements: z.array(longText).max(12).optional(),
+  limitations: z.array(longText).max(12).optional(),
+  unlocked: modelBoolean.optional(),
+}).strict()
 const evolutionPathDraftSchema = z.object({
   id: idSchema.optional(),
   name: shortText,
@@ -439,10 +471,14 @@ const artifactPowerDraftSchema = z.object({
   synergies: z.array(longText).max(32).optional(),
   counters: z.array(longText).max(32).optional(),
   examples: z.array(longText).max(24).optional(),
+  techniques: z.array(powerTechniqueDraftSchema).max(48).optional(),
   canonStatus: canonStatusSchema.optional(),
   canonReference: longText.optional(),
 }).strict()
-const artifactPowerSchema = artifactPowerDraftSchema.extend({ id: idSchema }).strict()
+const artifactPowerSchema = artifactPowerDraftSchema.extend({
+  id: idSchema,
+  techniques: z.array(powerTechniqueSchema).max(48).optional(),
+}).strict()
 const artifactPowerChangeSchema = z.object({
   powerId: idSchema,
   name: shortText.optional(),
@@ -466,6 +502,9 @@ const artifactPowerChangeSchema = z.object({
   addCounters: z.array(longText).max(32).optional(),
   addExamples: z.array(longText).max(24).optional(),
   addLimitations: z.array(longText).max(48).optional(),
+  addTechniques: z.array(powerTechniqueDraftSchema).max(48).optional(),
+  techniqueChanges: z.array(powerTechniqueChangeSchema).max(48).optional(),
+  removeTechniqueIds: z.array(idSchema).max(48).optional(),
 }).strict()
 const artifactComponentSchema = z.object({
   id: idSchema,
@@ -547,6 +586,7 @@ const abilityDraftSchema = z.object({
   synergies: z.array(longText).max(32).optional(),
   counters: z.array(longText).max(32).optional(),
   examples: z.array(longText).max(24).optional(),
+  techniques: z.array(powerTechniqueDraftSchema).max(48).optional(),
   canonStatus: canonStatusSchema.optional(),
   canonReference: longText.optional(),
 }).strict()
@@ -579,6 +619,9 @@ const abilityChangeSchema = z.object({
   addExamples: z.array(longText).max(24).optional(),
   addEffects: z.array(longText).max(48).optional(),
   addLimitations: z.array(longText).max(48).optional(),
+  addTechniques: z.array(powerTechniqueDraftSchema).max(48).optional(),
+  techniqueChanges: z.array(powerTechniqueChangeSchema).max(48).optional(),
+  removeTechniqueIds: z.array(idSchema).max(48).optional(),
   addEvolutionPaths: z.array(evolutionPathDraftSchema).max(24).optional(),
   unlockEvolutionPathIds: z.array(idSchema).max(24).optional(),
   history: z.object({ title: shortText, description: longText }).strict().optional(),
@@ -623,6 +666,7 @@ const abilityStateSchema = abilityDraftSchema.extend({
   id: idSchema,
   evolutionPaths: z.array(evolutionPathSchema).max(24).optional(),
   history: z.array(progressHistoryDraftSchema.extend({ id: idSchema, turn: modelNumber(z.number().int().min(0)) }).strict()).max(100).optional(),
+  techniques: z.array(powerTechniqueSchema).max(48).optional(),
 }).strict()
 const characterArcSchema = z.object({
   id: idSchema,
@@ -1212,6 +1256,7 @@ export const campaignEditResponseSchema = z.object({
 }).strict()
 
 const generatedEvolutionPathSchema = evolutionPathDraftSchema.omit({ id: true })
+const generatedPowerTechniqueSchema = powerTechniqueDraftSchema.omit({ id: true })
 const generatedAbilitySchema = z.object({
   name: shortText,
   description: longText,
@@ -1235,6 +1280,7 @@ const generatedAbilitySchema = z.object({
   synergies: z.array(longText).max(32),
   counters: z.array(longText).max(32),
   examples: z.array(longText).min(1).max(24),
+  techniques: z.array(generatedPowerTechniqueSchema).max(48).default([]),
   canonStatus: canonStatusSchema,
   canonReference: longText.optional(),
 }).strict()
@@ -1246,6 +1292,7 @@ const generatedArtifactPowerSchema = artifactPowerDraftSchema.omit({ id: true })
   synergies: z.array(longText).max(32),
   counters: z.array(longText).max(32),
   examples: z.array(longText).min(1).max(24),
+  techniques: z.array(generatedPowerTechniqueSchema).max(48).default([]),
   canonStatus: canonStatusSchema,
   canonReference: longText.optional(),
 }).strict()
@@ -1613,6 +1660,9 @@ const generatedWorldContract = z.object({
   world.player.abilities.forEach((ability, abilityIndex) => ability.costs.forEach((cost, costIndex) => {
     requireKnownCost(cost.resource, ['player', 'abilities', abilityIndex, 'costs', costIndex, 'resource'])
   }))
+  world.player.abilities.forEach((ability, abilityIndex) => ability.techniques.forEach((technique, techniqueIndex) => technique.costs.forEach((cost, costIndex) => {
+    requireKnownCost(cost.resource, ['player', 'abilities', abilityIndex, 'techniques', techniqueIndex, 'costs', costIndex, 'resource'])
+  })))
   world.npcs.forEach((npc, npcIndex) => {
     const npcResourceKeys = new Set(npc.resources.map((resource) => resource.key.toLocaleLowerCase('ru-RU')))
     npc.resources.forEach((resource, resourceIndex) => {
@@ -1625,6 +1675,9 @@ const generatedWorldContract = z.object({
     npc.abilities.forEach((ability, abilityIndex) => ability.costs.forEach((cost, costIndex) => {
       requireKnownCost(cost.resource, ['npcs', npcIndex, 'abilities', abilityIndex, 'costs', costIndex, 'resource'], npcResourceKeys)
     }))
+    npc.abilities.forEach((ability, abilityIndex) => ability.techniques.forEach((technique, techniqueIndex) => technique.costs.forEach((cost, costIndex) => {
+      requireKnownCost(cost.resource, ['npcs', npcIndex, 'abilities', abilityIndex, 'techniques', techniqueIndex, 'costs', costIndex, 'resource'], npcResourceKeys)
+    })))
   })
   world.inventory.forEach((item, itemIndex) => {
     if (item.maxDurability !== undefined && item.durability !== undefined && item.durability > item.maxDurability) context.addIssue({
@@ -1640,6 +1693,9 @@ const generatedWorldContract = z.object({
     item.artifact?.powers.forEach((power, powerIndex) => power.costs.forEach((cost, costIndex) => {
       requireKnownCost(cost.resource, ['inventory', itemIndex, 'artifact', 'powers', powerIndex, 'costs', costIndex, 'resource'])
     }))
+    item.artifact?.powers.forEach((power, powerIndex) => power.techniques.forEach((technique, techniqueIndex) => technique.costs.forEach((cost, costIndex) => {
+      requireKnownCost(cost.resource, ['inventory', itemIndex, 'artifact', 'powers', powerIndex, 'techniques', techniqueIndex, 'costs', costIndex, 'resource'])
+    })))
   })
 })
 

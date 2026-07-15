@@ -146,6 +146,30 @@ async function optionalStage<T>(label: string, work: () => Promise<T>, fallback:
 
 function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema.parse>) {
   const notes: string[] = []
+  const sanitizeTechniquePatch = (
+    existingTechniqueIds: string[],
+    change: {
+      addTechniques?: Array<{ id?: string }>
+      techniqueChanges?: Array<{ techniqueId: string; mastery?: number; masteryDelta?: number }>
+      removeTechniqueIds?: string[]
+    },
+    ownerLabel: string,
+  ) => {
+    const knownTechniqueIds = new Set([
+      ...existingTechniqueIds,
+      ...(change.addTechniques ?? []).flatMap((technique) => technique.id ? [technique.id] : []),
+    ])
+    const beforeChanges = change.techniqueChanges?.length ?? 0
+    change.techniqueChanges = change.techniqueChanges?.filter((techniqueChange) => knownTechniqueIds.has(techniqueChange.techniqueId)).map((techniqueChange) => {
+      if (techniqueChange.mastery !== undefined && techniqueChange.masteryDelta !== undefined) delete techniqueChange.masteryDelta
+      return techniqueChange
+    })
+    const beforeRemovals = change.removeTechniqueIds?.length ?? 0
+    change.removeTechniqueIds = change.removeTechniqueIds?.filter((techniqueId) => knownTechniqueIds.has(techniqueId))
+    if ((change.techniqueChanges?.length ?? 0) < beforeChanges || (change.removeTechniqueIds?.length ?? 0) < beforeRemovals) {
+      notes.push(`Отклонено изменение неизвестной подспособности: ${ownerLabel}.`)
+    }
+  }
   const knownItems = new Set(campaign.inventory.map((item) => item.id))
   const knownStats = new Set([
     ...campaign.player.stats,
@@ -229,6 +253,8 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
     const rejectedRemovals = incoming.removeAbilityIds?.filter((abilityId) => !knownNpcAbilityIds.has(abilityId)).length ?? 0
     incoming.abilityChanges = incoming.abilityChanges?.filter((change) => knownNpcAbilityIds.has(change.abilityId)).map((change) => {
       if (change.mastery !== undefined && change.masteryDelta !== undefined) delete change.masteryDelta
+      const ability = (existingNpc.abilities ?? []).find((candidate) => candidate.id === change.abilityId)
+      sanitizeTechniquePatch((ability?.techniques ?? []).map((technique) => technique.id), change, `${existingNpc.name} · ${ability?.name ?? change.abilityId}`)
       return change
     })
     incoming.removeAbilityIds = incoming.removeAbilityIds?.filter((abilityId) => knownNpcAbilityIds.has(abilityId))
@@ -253,6 +279,8 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       delete change.masteryDelta
       notes.push('В развитии способности абсолютное mastery сохранено, дублирующая masteryDelta отброшена.')
     }
+    const ability = campaign.player.abilities.find((candidate) => candidate.id === change.abilityId)
+    sanitizeTechniquePatch((ability?.techniques ?? []).map((technique) => technique.id), change, ability?.name ?? change.abilityId)
     return change
   })
   if ((plan.statePatch.abilityChanges?.length ?? 0) < abilityChangeCount) notes.push('Отклонено развитие неизвестной способности.')
@@ -272,6 +300,8 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       const powerChangeCount = change.powerChanges.length
       change.powerChanges = change.powerChanges.filter((powerChange) => knownPowerIds.has(powerChange.powerId)).map((powerChange) => {
         if (powerChange.mastery !== undefined && powerChange.masteryDelta !== undefined) delete powerChange.masteryDelta
+        const power = artifact?.powers.find((candidate) => candidate.id === powerChange.powerId)
+        sanitizeTechniquePatch((power?.techniques ?? []).map((technique) => technique.id), powerChange, power?.name ?? powerChange.powerId)
         return powerChange
       })
       if (change.powerChanges.length < powerChangeCount) notes.push('Отклонено изменение неизвестной силы особого предмета.')
@@ -612,6 +642,7 @@ function filterSupplementalAbilityChanges(recorded: AbilityChange[] | undefined,
       addCapabilities: ['capabilities', 'addCapabilities'], addSynergies: ['synergies', 'addSynergies'],
       addCounters: ['counters', 'addCounters'], addExamples: ['examples', 'addExamples'],
       addEffects: ['effects', 'addEffects'], addLimitations: ['limitations', 'addLimitations'],
+      addTechniques: ['addTechniques'], techniqueChanges: ['techniqueChanges'], removeTechniqueIds: ['removeTechniqueIds'],
       addEvolutionPaths: ['addEvolutionPaths'], unlockEvolutionPathIds: ['unlockEvolutionPathIds'],
     },
   ) as AbilityChange[] | undefined
@@ -638,6 +669,7 @@ function filterSupplementalArtifactChanges(recorded: ArtifactChange[] | undefine
         addCapabilities: ['capabilities', 'addCapabilities'], addSynergies: ['synergies', 'addSynergies'],
         addCounters: ['counters', 'addCounters'], addExamples: ['examples', 'addExamples'],
         addLimitations: ['limitations', 'addLimitations'],
+        addTechniques: ['addTechniques'], techniqueChanges: ['techniqueChanges'], removeTechniqueIds: ['removeTechniqueIds'],
       },
     ) as ArtifactChange['powerChanges']
     if (!candidate.powerChanges?.length) delete candidate.powerChanges

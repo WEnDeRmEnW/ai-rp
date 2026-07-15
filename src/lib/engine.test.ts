@@ -255,6 +255,38 @@ describe('state engine', () => {
     expect(next.inventory[0].history?.at(-1)).toMatchObject({ turn: 7, title: 'Awakening' })
   })
 
+  it('adds and independently develops nested techniques for abilities and artifact powers', () => {
+    const campaign = createDemoCampaign()
+    const ability = campaign.player.abilities[0]
+    ability.techniques = []
+    const item = campaign.inventory[0]
+    item.artifact = {
+      sentient: false, awakened: true, attunement: 60, bond: 0, requirements: [], passiveEffects: [], combinedEffects: [], failureModes: [], components: [], drawbacks: [], evolutionPaths: [], secrets: [],
+      powers: [{ id: 'gravity-power', name: 'Гравитация', description: 'Управляет направлением силы притяжения.', mastery: 55, costs: [], limitations: [], techniques: [] }],
+    }
+    const technique = {
+      id: 'almighty-push', name: 'Отталкивание', description: 'Создаёт направленную волну, отбрасывающую цели от владельца.', kind: 'active' as const, category: 'control' as const,
+      mastery: 64, activation: 'Сфокусировать гравитационный импульс.', scale: 'Конус перед владельцем', costs: [{ resource: 'focus', amount: 2 }], effects: ['Отбрасывает незакреплённые цели'], requirements: ['Свободная линия воздействия'], limitations: ['Тяжёлые цели сдвигаются слабее'], unlocked: true,
+    }
+
+    const added = applyPatch(campaign, {
+      abilityChanges: [{ abilityId: ability.id, addTechniques: [technique] }],
+      artifactChanges: [{ itemId: item.id, powerChanges: [{ powerId: 'gravity-power', addTechniques: [{ ...technique, id: 'artifact-push' }] }] }],
+    }, 4)
+    expect(added.player.abilities[0].techniques?.[0]).toMatchObject({ id: 'almighty-push', mastery: 64 })
+    expect(added.inventory[0].artifact?.powers[0].techniques?.[0]).toMatchObject({ id: 'artifact-push', mastery: 64 })
+
+    const evolved = applyPatch(added, {
+      abilityChanges: [{ abilityId: ability.id, techniqueChanges: [{ techniqueId: 'almighty-push', masteryDelta: 8, scale: 'Круговая волна' }] }],
+      artifactChanges: [{ itemId: item.id, powerChanges: [{ powerId: 'gravity-power', techniqueChanges: [{ techniqueId: 'artifact-push', mastery: 80, unlocked: false }] }] }],
+    }, 5)
+    expect(evolved.player.abilities[0].techniques?.[0]).toMatchObject({ mastery: 72, scale: 'Круговая волна' })
+    expect(evolved.inventory[0].artifact?.powers[0].techniques?.[0]).toMatchObject({ mastery: 80, unlocked: false })
+
+    const removed = applyPatch(evolved, { abilityChanges: [{ abilityId: ability.id, removeTechniqueIds: ['almighty-push'] }] }, 6)
+    expect(removed.player.abilities[0].techniques).toEqual([])
+  })
+
   it('commits a material Sandevistan upgrade to both the technique and its inventory dossier', () => {
     const campaign = createDemoCampaign()
     const ability = campaign.player.abilities[0]

@@ -26,6 +26,7 @@ const ARRAY_KEYS = new Set([
   'aliases', 'statusEffects', 'upsertStatusEffects', 'removeStatusEffectIds', 'removeKnowledgeIds', 'verifiedDomains', 'omissions',
   'observedPlayerPatterns', 'strengths', 'blindSpots', 'contingencies', 'retreatConditions', 'ethicalLimits', 'learnedAdaptations', 'countermeasures', 'tradeoffs',
   'participants', 'terrain', 'hazards', 'advantages', 'vulnerabilities',
+  'techniques', 'addTechniques', 'techniqueChanges', 'removeTechniqueIds',
   'upsertFactionReputation', 'upsertLaws', 'upsertMechanics', 'territory', 'goals',
 ])
 
@@ -55,6 +56,7 @@ const ARRAY_LIMITS: Record<string, number> = {
   verifiedDomains: 16, omissions: 64, observedPlayerPatterns: 16, strengths: 12, blindSpots: 12, contingencies: 12,
   retreatConditions: 12, ethicalLimits: 12, learnedAdaptations: 16, countermeasures: 16, tradeoffs: 12,
   participants: 24, terrain: 16, hazards: 16, advantages: 12, vulnerabilities: 12,
+  techniques: 48, addTechniques: 48, techniqueChanges: 48, removeTechniqueIds: 48,
   upsertFactionReputation: 16, removeLawIds: 24, removeMechanicIds: 24, removeInterfaceModuleIds: 8,
 }
 
@@ -79,12 +81,12 @@ const NUMBER_KEYS = new Set([
 
 const ID_KEYS = new Set([
   'id', 'targetId', 'npcId', 'fromNpcId', 'toNpcId', 'abilityId', 'itemId', 'powerId', 'componentId', 'ownerId',
-  'culpritId', 'holderId', 'ownerNpcId', 'entityId',
+  'culpritId', 'holderId', 'ownerNpcId', 'entityId', 'techniqueId',
 ])
 const ID_ARRAY_KEYS = new Set([
   'presentNpcIds', 'participantIds', 'involvedIds', 'entityIds', 'removeAbilityIds',
   'removeRouteIds', 'addNpcIds', 'removeNpcIds', 'unlockEvolutionPathIds',
-  'removeInfluenceAssetIds',
+  'removeInfluenceAssetIds', 'removeTechniqueIds',
   'removeStatusEffectIds', 'removeKnowledgeIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds', 'links',
 ])
 
@@ -100,6 +102,7 @@ const ARRAY_IDENTITY: Record<string, string> = {
   upsertStats: 'key', upsertResources: 'key', abilityChanges: 'abilityId', artifactChanges: 'itemId',
   powerChanges: 'powerId', componentChanges: 'componentId', addComponents: 'name',
   upsertFactions: 'name', upsertLocations: 'name', addEvolutionPaths: 'name',
+  techniques: 'name', addTechniques: 'name', techniqueChanges: 'techniqueId',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -312,7 +315,7 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'category' && (has('statusEffects') || has('upsertStatusEffects'))) return translate(statusEffectCategoryAliases)
   if (key === 'kind' && (has('resources') || has('upsertResources'))) return translate(resourceKindAliases)
 
-  if (key === 'kind' && (has('abilities') || has('addAbilities') || has('abilityChanges'))) return translate({
+  if (key === 'kind' && (has('abilities') || has('addAbilities') || has('abilityChanges') || has('techniques') || has('addTechniques') || has('techniqueChanges'))) return translate({
     активная: 'active', активный: 'active', пассивная: 'passive', пассивный: 'passive',
     реакция: 'reaction', ритуал: 'ritual', трансформация: 'transformation', превращение: 'transformation',
     другое: 'other', прочее: 'other',
@@ -360,7 +363,7 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'surface') return translate({ бумага: 'paper', бумажный: 'paper', магия: 'arcane', магический: 'arcane', технология: 'tech', технологичный: 'tech', органика: 'organic', органический: 'organic', нуар: 'noir', минимализм: 'minimal' })
   if (key === 'visibility') return translate({ известно: 'known', открыто: 'known', слух: 'rumored', слухи: 'rumored', предположение: 'rumored', скрыто: 'hidden', тайно: 'hidden', секретно: 'hidden' })
   if (key === 'rarity') return translate({ обычный: 'common', обычное: 'common', необычный: 'uncommon', необычное: 'uncommon', редкий: 'rare', редкое: 'rare', эпический: 'epic', эпическое: 'epic', легендарный: 'legendary', легендарное: 'legendary' })
-  if (key === 'category' && (has('abilities') || has('addAbilities') || has('abilityChanges') || has('powers') || has('addPowers') || has('capabilityChecklist'))) return translate({
+  if (key === 'category' && (has('abilities') || has('addAbilities') || has('abilityChanges') || has('powers') || has('addPowers') || has('techniques') || has('addTechniques') || has('techniqueChanges') || has('capabilityChecklist'))) return translate({
     атака: 'offense', нападение: 'offense', защита: 'defense', контроль: 'control', мобильность: 'mobility', перемещение: 'mobility',
     утилита: 'utility', применение: 'utility', восприятие: 'perception', создание: 'creation', призыв: 'summoning',
     трансформация: 'transformation', реальность: 'reality', время: 'time', пространство: 'space', разум: 'mind', душа: 'soul',

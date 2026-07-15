@@ -177,19 +177,22 @@ describe('DeepSeek-compatible nested mutations', () => {
         abilityId: 'ability-sandevistan', rank: 'Mk II', description: 'Два окна ускорения.',
         costs: [{ resource: 'energy', amount: 6 }], capabilities: ['Два последовательных рывка'],
         effects: ['Ускорение восприятия и моторики'], limitations: ['Полное охлаждение после второго окна'],
+        addTechniques: [{ id: 'technique-double-burst', name: 'Двойной импульс', description: 'Два связанных окна ускорения.', kind: 'активная', category: 'mobility', mastery: '48%', activation: 'Двойная команда нейроинтерфейса', scale: 'Два коротких рывка', costs: [{ resource: 'energy', amount: 6 }], effects: ['Два последовательных ускорения'], requirements: ['Исправный теплоотвод'], limitations: ['Затем требуется полный цикл охлаждения'], unlocked: 'да' }],
       }],
       artifactChanges: [{
         itemId: 'item-sandevistan', itemDescription: 'Militech Falcon Mk II после аппаратной модернизации.',
         itemEffects: ['Два окна ускорения'], operatingPrinciple: 'Двухфазное ускорение нейросигналов',
-        powerChanges: [{ powerId: 'power-time-dilation', masteryDelta: 4, description: 'Два последовательных окна.', costs: [{ resource: 'energy', amount: 6 }], capabilities: ['Двойной рывок'], limitations: ['Цикл охлаждения'] }],
+        powerChanges: [{ powerId: 'power-time-dilation', masteryDelta: 4, description: 'Два последовательных окна.', costs: [{ resource: 'energy', amount: 6 }], capabilities: ['Двойной рывок'], limitations: ['Цикл охлаждения'], addTechniques: [{ name: 'Фазовый разрыв', description: 'Меняет направление между двумя окнами.', kind: 'reaction', category: 'mobility', mastery: 35, activation: 'Смена вектора между импульсами', scale: 'Личная скорость', costs: [{ resource: 'energy', amount: 2 }], effects: ['Резко меняет направление'], requirements: ['Активный первый импульс'], limitations: ['Только один раз за цикл'], unlocked: true }] }],
         componentChanges: [{ componentId: 'component-cooling', name: 'Двухступенчатое охлаждение', status: 'active', addCapabilities: ['Промежуточный сброс тепла'] }],
         history: { title: 'Модернизация Mk II', description: 'Обновлены контроллер и теплоотвод.' },
       }],
     })
 
     expect(parsed.abilityChanges?.[0]).toMatchObject({ abilityId: 'ability-sandevistan', rank: 'Mk II', capabilities: ['Два последовательных рывка'] })
+    expect(parsed.abilityChanges?.[0].addTechniques?.[0]).toMatchObject({ id: 'technique-double-burst', kind: 'active', mastery: 48, unlocked: true })
     expect(parsed.artifactChanges?.[0]).toMatchObject({ itemId: 'item-sandevistan', itemEffects: ['Два окна ускорения'], operatingPrinciple: 'Двухфазное ускорение нейросигналов' })
     expect(parsed.artifactChanges?.[0].powerChanges?.[0]).toMatchObject({ powerId: 'power-time-dilation', masteryDelta: 4, costs: [{ resource: 'energy', amount: 6 }] })
+    expect(parsed.artifactChanges?.[0].powerChanges?.[0].addTechniques?.[0]).toMatchObject({ name: 'Фазовый разрыв', kind: 'reaction', unlocked: true })
     expect(parsed.artifactChanges?.[0].componentChanges?.[0]).toMatchObject({ componentId: 'component-cooling', status: 'active' })
   })
 })

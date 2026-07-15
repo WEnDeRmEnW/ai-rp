@@ -38,7 +38,13 @@ function relevantAbilityMastery(npc: Campaign['npcs'][number], input: string): n
       const requirements = ability.requirements ?? []
       return requirements.length === 0 || !requirements.some((requirement) => /недоступ|отсутств|невозмож/iu.test(requirement))
     })
-    .map((ability) => ability.mastery)
+    .flatMap((ability) => {
+      const relevantTechniques = (ability.techniques ?? [])
+        .filter((technique) => technique.unlocked && (technique.kind === 'passive' || relevantCategories.has(technique.category)))
+        .filter((technique) => technique.kind === 'passive' || textMatchesAction(input, `${technique.name} ${technique.description}`))
+        .map((technique) => technique.mastery)
+      return relevantTechniques.length ? relevantTechniques : [ability.mastery]
+    })
     .filter((mastery): mastery is number => Number.isFinite(mastery))
     .sort((left, right) => right - left)
     .slice(0, 3)
@@ -201,6 +207,9 @@ export function resolveActionCheck(
       ...(item.artifact?.awakened ? item.artifact.passiveEffects : []),
     ]),
     ...campaign.player.abilities.filter((ability) => ability.kind === 'passive').flatMap((ability) => ability.effects ?? []),
+    ...campaign.player.abilities.flatMap((ability) => (ability.techniques ?? [])
+      .filter((technique) => technique.unlocked && technique.kind === 'passive')
+      .flatMap((technique) => technique.effects)),
   ]
   const explicitEffectModifier = mechanicalEffectTexts.reduce((sum, effectText) => {
     const text = effectText.toLocaleLowerCase('ru-RU')

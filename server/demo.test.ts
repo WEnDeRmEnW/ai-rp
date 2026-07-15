@@ -30,6 +30,8 @@ describe('demo storyteller contract', () => {
     expect(parsed.world.processes.length).toBeGreaterThanOrEqual(3)
     expect(parsed.world.factions.every((faction) => Boolean(faction.kind && faction.headquarters && faction.reach))).toBe(true)
     const campaign = normalizeWorld(parsed, request)
+    expect(campaign.player.abilities.flatMap((ability) => ability.techniques ?? [])).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Вопрос памяти', id: expect.any(String) })]))
+    expect(campaign.npcs.flatMap((npc) => npc.abilities ?? []).flatMap((ability) => ability.techniques ?? [])).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Контрсценарий', id: expect.any(String) })]))
     const child = campaign.world.places?.find((place) => place.name === 'Пограничный квартал')
     expect(campaign.world.places?.find((place) => place.id === child?.parentId)?.name).toBe('Столица Семи')
     expect(campaign.world.processes?.every((process) => process.scopeIds.every((scopeId) => campaign.world.places?.some((place) => place.id === scopeId)))).toBe(true)
