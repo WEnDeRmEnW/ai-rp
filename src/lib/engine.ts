@@ -27,6 +27,7 @@ import type {
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
+import { isMutationOperationName } from '../../shared/mutation-operations'
 import { diffCampaignState, summarizeStateChanges } from './state-changes'
 
 const id = () => crypto.randomUUID()
@@ -914,6 +915,10 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
 
   patch.npcs?.slice(0, 20).forEach((mutation, mutationIndex) => {
     if (mutation.operation === 'add') {
+      if (isMutationOperationName(mutation.npc.name)) {
+        rejectedReference(diagnostics, `statePatch.npcs[${mutationIndex}].npc.name`, mutation.npc.name, 'служебное значение операции не может быть именем персонажа')
+        return
+      }
       if (!campaign.npcs.some((npc) => npc.id === mutation.npc.id || npc.name.toLocaleLowerCase('ru-RU') === mutation.npc.name.toLocaleLowerCase('ru-RU'))) {
         const addedNpc: Campaign['npcs'][number] = {
           ...mutation.npc,
@@ -947,6 +952,10 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
       upsertStatusEffects, removeStatusEffectIds, removeKnowledgeIds,
       ...profile
     } = mutation.npc
+    if (isMutationOperationName(profile.name)) {
+      rejectedReference(diagnostics, `statePatch.npcs[${mutationIndex}].npc.name`, profile.name, 'служебное значение операции не может быть именем персонажа')
+      delete profile.name
+    }
     Object.assign(npc, profile, { id: npc.id })
     if (notes) npc.notes = [...new Set([...npc.notes, ...notes.map((note) => note.trim()).filter(Boolean)])].slice(-8)
     npc.stats ??= []

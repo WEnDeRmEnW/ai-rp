@@ -604,7 +604,7 @@ function blockingRejectionMessages(
     .map((rejection) => rejection.message))]
 }
 
-function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundInput: TurnPatch | null | undefined): TurnPatch {
+export function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundInput: TurnPatch | null | undefined): TurnPatch {
   const background = backgroundInput ?? {}
   const foreground = foregroundInput ?? {}
   const sumRecords = (left?: Record<string, number>, right?: Record<string, number>) => {
@@ -628,6 +628,26 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
   } : undefined
   const scene = background.scene || foreground.scene ? { ...background.scene, ...foreground.scene } : undefined
   const hasCalendarDayDelta = background.world?.calendarDayDelta !== undefined || foreground.world?.calendarDayDelta !== undefined
+  const worldSystem = background.world?.system || foreground.world?.system ? {
+    ...background.world?.system,
+    ...foreground.world?.system,
+  } : undefined
+  const worldPresentation = background.world?.presentation || foreground.world?.presentation ? {
+    ...background.world?.presentation,
+    ...foreground.world?.presentation,
+    labels: background.world?.presentation?.labels || foreground.world?.presentation?.labels ? {
+      ...background.world?.presentation?.labels,
+      ...foreground.world?.presentation?.labels,
+    } : undefined,
+    categoryLabels: background.world?.presentation?.categoryLabels || foreground.world?.presentation?.categoryLabels ? {
+      ...background.world?.presentation?.categoryLabels,
+      ...foreground.world?.presentation?.categoryLabels,
+    } : undefined,
+    rarityLabels: background.world?.presentation?.rarityLabels || foreground.world?.presentation?.rarityLabels ? {
+      ...background.world?.presentation?.rarityLabels,
+      ...foreground.world?.presentation?.rarityLabels,
+    } : undefined,
+  } : undefined
   const world = background.world || foreground.world ? {
     ...background.world,
     ...foreground.world,
@@ -645,6 +665,14 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     removePlaceIds: unique(background.world?.removePlaceIds, foreground.world?.removePlaceIds),
     upsertProcesses: concat(background.world?.upsertProcesses, foreground.world?.upsertProcesses),
     retireProcessIds: unique(background.world?.retireProcessIds, foreground.world?.retireProcessIds),
+    upsertLaws: concat(background.world?.upsertLaws, foreground.world?.upsertLaws),
+    removeLawIds: unique(background.world?.removeLawIds, foreground.world?.removeLawIds),
+    upsertMechanics: concat(background.world?.upsertMechanics, foreground.world?.upsertMechanics),
+    removeMechanicIds: unique(background.world?.removeMechanicIds, foreground.world?.removeMechanicIds),
+    upsertInterfaceModules: concat(background.world?.upsertInterfaceModules, foreground.world?.upsertInterfaceModules),
+    removeInterfaceModuleIds: unique(background.world?.removeInterfaceModuleIds, foreground.world?.removeInterfaceModuleIds),
+    system: worldSystem,
+    presentation: worldPresentation,
     ...(hasCalendarDayDelta ? { calendarDayDelta: (background.world?.calendarDayDelta ?? 0) + (foreground.world?.calendarDayDelta ?? 0) } : {}),
   } : undefined
   const party = background.party || foreground.party ? {

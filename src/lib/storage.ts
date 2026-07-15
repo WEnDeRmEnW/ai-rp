@@ -1,9 +1,19 @@
 import { openDB, type DBSchema } from 'idb'
 import type { Campaign, InventoryItem, PowerTechnique, Resource, ResourceKind, StatusEffect } from '../../shared/types'
 import { rarityFromKnownCopies } from '../../shared/rarity'
+import { isMutationOperationName } from '../../shared/mutation-operations'
 import { ensureCampaignIdentity } from './campaign-identity'
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+function recoverNpcName(campaign: Campaign, npcId: string, currentName: string): string {
+  if (!isMutationOperationName(currentName)) return currentName
+  for (let index = (campaign.snapshots ?? []).length - 1; index >= 0; index -= 1) {
+    const previous = campaign.snapshots[index]?.npcs?.find((npc) => npc.id === npcId)
+    if (previous?.name?.trim() && !isMutationOperationName(previous.name)) return previous.name.trim()
+  }
+  return currentName
+}
 
 function inferResourceKind(resource: Pick<Resource, 'key' | 'label' | 'aliases'>): ResourceKind {
   const value = [resource.key, resource.label, ...(resource.aliases ?? [])].join(' ').toLocaleLowerCase('ru-RU')
@@ -215,6 +225,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
     }}),
     npcs: campaign.npcs.map((npc) => ({
       ...npc,
+      name: recoverNpcName(campaign, npc.id, npc.name),
       stats: (npc.stats ?? []).map((stat) => ({ ...stat, aliases: stat.aliases ?? [] })),
       resources: (npc.resources ?? []).map((resource) => ({ ...resource, aliases: resource.aliases ?? [], kind: resource.kind ?? inferResourceKind(resource) })),
       statusEffects: migrateStatusEffects(npc.statusEffects),

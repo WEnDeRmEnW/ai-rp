@@ -605,6 +605,35 @@ describe('state engine', () => {
     ]))
   })
 
+  it('rejects a service operation used as an NPC name but applies the rest of the plot update', () => {
+    const campaign = createDemoCampaign()
+    const npc = campaign.npcs[0]
+    const originalName = npc.name
+    const diagnostics: StateChange[] = []
+
+    const updated = applyPatch(campaign, {
+      npcs: [{
+        operation: 'update',
+        targetId: npc.id,
+        npc: {
+          name: 'update',
+          currentGoal: 'Найти источник нейронной нестабильности',
+          lastSeen: 'Клиника кибернетика',
+        },
+      }],
+    }, 1, diagnostics)
+
+    expect(updated.npcs[0].name).toBe(originalName)
+    expect(updated.npcs[0]).toMatchObject({
+      currentGoal: 'Найти источник нейронной нестабильности',
+      lastSeen: 'Клиника кибернетика',
+    })
+    expect(diagnostics).toEqual([expect.objectContaining({
+      kind: 'system',
+      detail: expect.stringContaining('npc.name'),
+    })])
+  })
+
   it('diffs persistent knowledge, social graph, mysteries, plans and timeline domains', () => {
     const campaign = createDemoCampaign()
     const npc = campaign.npcs[0]

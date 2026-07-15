@@ -433,6 +433,68 @@ function normalizeRelationships(value: Record<string, unknown>) {
   })
 }
 
+type GroupedMutationCollection = {
+  nestedKey: 'item' | 'npc' | 'quest' | 'thread' | 'event'
+  operations: ReadonlySet<string>
+}
+
+const GROUPED_MUTATION_COLLECTIONS: Partial<Record<string, GroupedMutationCollection>> = {
+  inventory: { nestedKey: 'item', operations: new Set(['add', 'update', 'remove']) },
+  npcs: { nestedKey: 'npc', operations: new Set(['add', 'update']) },
+  quests: { nestedKey: 'quest', operations: new Set(['add', 'update', 'complete', 'fail']) },
+  threads: { nestedKey: 'thread', operations: new Set(['add', 'update', 'resolve', 'break']) },
+  worldEvents: { nestedKey: 'event', operations: new Set(['add', 'update', 'resolve', 'cancel']) },
+}
+
+const MUTATION_PAYLOAD_KEYS = new Set([
+  'id', 'targetId', 'operation', 'item', 'npc', 'quest', 'thread', 'event',
+  'name', 'title', 'role', 'description', 'status', 'state', 'quantity', 'reason',
+  'currentGoal', 'lastSeen', 'notes', 'objectives', 'detail', 'dueTurn', 'dueDay',
+  'resourceDeltas', 'statDeltas', 'relationship', 'disposition', 'abilities',
+])
+
+function groupedMutationEntry(entry: unknown, operation: string, sourceId?: string): unknown[] {
+  if (Array.isArray(entry)) return entry.flatMap((item) => groupedMutationEntry(item, operation))
+  if (isRecord(entry)) {
+    const hasOwnIdentity = typeof entry.targetId === 'string' || typeof entry.id === 'string' || typeof entry.id === 'number'
+    return [{
+      ...entry,
+      operation,
+      ...(!hasOwnIdentity && sourceId
+        ? operation === 'add' ? { id: sourceId } : { targetId: sourceId }
+        : {}),
+    }]
+  }
+  if (operation !== 'add' && sourceId) return [{ operation, targetId: sourceId }]
+  if (operation !== 'add' && (typeof entry === 'string' || typeof entry === 'number')) {
+    return [{ operation, targetId: String(entry) }]
+  }
+  return []
+}
+
+/**
+ * DeepSeek sometimes emits `npcs: { update: {...} }`. Generic object-to-array
+ * conversion used to treat `update` as the NPC name. Flatten the operation
+ * groups first, while preserving both single payloads and ID-keyed payload maps.
+ */
+function normalizeGroupedMutationCollection(key: string, value: Record<string, unknown>): unknown[] | undefined {
+  const config = GROUPED_MUTATION_COLLECTIONS[key]
+  if (!config) return undefined
+  const groups = Object.entries(value).map(([sourceOperation, entries]) => ({
+    operation: operationFor(sourceOperation, key),
+    entries,
+  }))
+  if (!groups.length || groups.some(({ operation }) => typeof operation !== 'string' || !config.operations.has(operation))) return undefined
+
+  return groups.flatMap(({ operation, entries }) => {
+    const canonicalOperation = operation as string
+    if (!isRecord(entries) || Object.keys(entries).some((field) => MUTATION_PAYLOAD_KEYS.has(field))) {
+      return groupedMutationEntry(entries, canonicalOperation)
+    }
+    return Object.entries(entries).flatMap(([sourceId, entry]) => groupedMutationEntry(entry, canonicalOperation, sourceId))
+  })
+}
+
 function normalizeRecordAsArray(key: string, value: Record<string, unknown>): unknown[] {
   if (key === 'relationships') {
     if (typeof value.npcId === 'string' || Object.hasOwn(value, 'delta')) return [value]
@@ -827,7 +889,10 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
   const isPresentationLabel = path.includes('presentation') && path.some((segment) => ['labels', 'categoryLabels', 'rarityLabels'].includes(segment))
   const isSingularProgressionHistory = key === 'history' && (path.includes('abilityChanges') || path.includes('artifactChanges'))
   if (key && ARRAY_KEYS.has(key) && !isPresentationLabel && !isSingularProgressionHistory && !Array.isArray(value)) {
-    if (isRecord(value)) value = normalizeRecordAsArray(key, value)
+    if (isRecord(value)) {
+      const groupedMutations = path.includes('statePatch') ? normalizeGroupedMutationCollection(key, value) : undefined
+      value = groupedMutations ?? normalizeRecordAsArray(key, value)
+    }
     else if (value !== null && value !== undefined) value = [value]
   }
 

@@ -34,4 +34,32 @@ describe('campaign IndexedDB storage', () => {
     expect(await upgradedDb.count('campaigns')).toBe(0)
     upgradedDb.close()
   })
+
+  it('restores an NPC name corrupted by an operation token from the newest real snapshot', async () => {
+    const storage = await import('./storage')
+    const campaign = createDemoCampaign()
+    const npcId = campaign.npcs[0].id
+    const realName = campaign.npcs[0].name
+    campaign.snapshots = [{
+      turn: campaign.turn,
+      messageCount: campaign.messages.length,
+      eventCount: campaign.timeline.length,
+      world: campaign.world,
+      player: campaign.player,
+      inventory: campaign.inventory,
+      npcs: campaign.npcs.map((npc) => ({ ...npc })),
+      quests: campaign.quests,
+      lore: campaign.lore,
+      memories: campaign.memories,
+      scene: campaign.scene,
+    }]
+    campaign.npcs[0] = { ...campaign.npcs[0], name: 'update', currentGoal: 'Осмотреть имплант героя' }
+
+    const migrated = storage.migrateCampaign(campaign)
+
+    expect(migrated.npcs.find((npc) => npc.id === npcId)).toMatchObject({
+      name: realName,
+      currentGoal: 'Осмотреть имплант героя',
+    })
+  })
 })

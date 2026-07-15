@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { demoWorld } from './demo'
 import { normalizeModelOutput, normalizeTurnPatch } from './model-normalizer'
-import { continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, turnPlanSchema } from './schemas'
+import { continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, turnPatchSchema, turnPlanSchema } from './schemas'
 
 const worldRequest = {
   inspiration: 'Архипелаг разумных штормов', genre: 'Политическое фэнтези', tone: 'Напряжённый', characterName: 'Лиор',
@@ -10,6 +10,52 @@ const worldRequest = {
 }
 
 describe('global DeepSeek output normalization', () => {
+  it('flattens DeepSeek grouped mutations without turning update into an NPC name', () => {
+    const parsed = turnPatchSchema.parse({
+      npcs: {
+        update: {
+          id: 'npc-cybernetic',
+          currentGoal: 'Проверить нейронный резонанс героя',
+          disposition: 'Сосредоточен',
+          resourceDeltas: { health: '-3' },
+        },
+      },
+      inventory: {
+        update: {
+          implant: { state: 'damaged', quantity: '1' },
+        },
+      },
+      quests: { complete: { 'quest-resonance': true } },
+      threads: {
+        update: {
+          'thread-neural': { detail: 'Кибернетик заметил новую нестабильность.' },
+          'thread-corp': { detail: 'Корпорация начала готовить ответ.' },
+        },
+      },
+      worldEvents: {
+        update: [{ id: 'event-scan', description: 'Сканирование перешло в активную фазу.' }],
+      },
+    })
+
+    expect(parsed.npcs).toEqual([{
+      operation: 'update',
+      targetId: 'npc-cybernetic',
+      npc: {
+        currentGoal: 'Проверить нейронный резонанс героя',
+        disposition: 'Сосредоточен',
+        resourceDeltas: { health: -3 },
+      },
+    }])
+    expect(parsed.npcs?.[0]?.npc).not.toHaveProperty('name')
+    expect(parsed.inventory).toEqual([{ operation: 'update', targetId: 'implant', item: { state: 'damaged', quantity: 1 } }])
+    expect(parsed.quests).toEqual([{ operation: 'complete', targetId: 'quest-resonance' }])
+    expect(parsed.threads).toHaveLength(2)
+    expect(parsed.threads?.map((entry) => entry.targetId)).toEqual(['thread-neural', 'thread-corp'])
+    expect(parsed.worldEvents).toEqual([{
+      operation: 'update', targetId: 'event-scan', event: { description: 'Сканирование перешло в активную фазу.' },
+    }])
+  })
+
   it('canonicalizes patch scene and preserves absolute faction reputation entries', () => {
     const normalized = normalizeModelOutput({
       statePatch: {
