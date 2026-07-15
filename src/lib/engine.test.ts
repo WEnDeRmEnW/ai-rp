@@ -795,4 +795,37 @@ describe('state engine', () => {
     expect(rejected.activeConflict?.id).toBe('conflict-one')
     expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'system', detail: expect.stringContaining('нельзя начать новое') })]))
   })
+
+  it('tracks story pacing and causal world pressure through escalation and resolution', () => {
+    const campaign = createDemoCampaign()
+    const pressure = {
+      id: 'pressure-corporate-hunt', sourceKind: 'corporation' as const, sourceName: 'Латунный хор', targetIds: [campaign.player.id],
+      cause: 'Свидетель передал запись нападения службе безопасности.', objective: 'Установить личность героя и вернуть похищенный прототип.',
+      tier: 'serious' as const, stage: 'investigating' as const, reach: 'Городские камеры, информаторы и контракты охраны.',
+      knowledge: ['На записи виден силуэт героя.'], signs: ['На месте происшествия опрашивают свидетелей.'],
+      measures: [{ id: 'measure-camera-trace', name: 'Сверка камер', trigger: 'Следователь получает записи соседних кварталов.', method: 'Аналитики сопоставляют маршрут по времени.', effects: ['Сужается район поиска.'], counterplay: ['Сменить маршрут или уничтожить связующую запись.'], tradeoffs: ['Требует времени и доступа к частным камерам.'], status: 'preparing' as const }],
+      counterplay: ['Подбросить правдоподобный ложный след.'], escalationTrigger: 'Личность героя подтверждена двумя независимыми источниками.',
+      deescalationConditions: ['Прототип возвращён.', 'Ответственный следователь убеждён в невиновности героя.'], visibility: 'rumored' as const, createdTurn: 1, lastAdvancedTurn: 1,
+    }
+
+    const pressured = applyPatch(campaign, {
+      pacing: { beat: 'rising', intensity: 74, challengeTier: 'hard', reason: 'Расследование начинает приближаться к герою.' },
+      upsertWorldPressures: [pressure],
+    }, 1)
+    expect(pressured.pacing).toMatchObject({ beat: 'rising', intensity: 74, challengeTier: 'hard', consecutivePressureTurns: 1, updatedTurn: 1 })
+    expect(pressured.worldPressures).toEqual([expect.objectContaining({ id: pressure.id, stage: 'investigating', createdTurn: 1 })])
+
+    const respite = applyPatch(pressured, {
+      pacing: { beat: 'respite', intensity: 20, challengeTier: 'light', reason: 'Герой получил короткую безопасную паузу.' },
+      upsertWorldPressures: [{ ...pressure, stage: 'resolved', lastAdvancedTurn: 2 }],
+      cleanup: { worldPressures: [{ targetId: pressure.id, reason: 'Ложный след подтвердился, расследование закрыто.' }] },
+    }, 2)
+    expect(respite.pacing).toMatchObject({ beat: 'respite', consecutivePressureTurns: 0, lastRespiteTurn: 2 })
+    expect(respite.worldPressures).toEqual([])
+    expect(respite.timeline).toEqual(expect.arrayContaining([expect.objectContaining({ title: expect.stringContaining('Латунный хор') })]))
+    expect(diffCampaignState(pressured, respite)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'scene', label: 'Ритм истории' }),
+      expect.objectContaining({ kind: 'world', label: expect.stringContaining('Давление') }),
+    ]))
+  })
 })

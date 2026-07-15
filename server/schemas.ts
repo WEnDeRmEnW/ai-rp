@@ -72,6 +72,13 @@ const knowledgeStatusSchema = z.preprocess(alias({ известно: 'known', з
 const loreTypeSchema = z.preprocess(alias({ персонаж: 'character', герой: 'character', локация: 'location', место: 'location', фракция: 'faction', организация: 'faction', предмет: 'object', объект: 'object', правило: 'rule', закон: 'rule', история: 'history', тайна: 'secret', секрет: 'secret' }), z.enum(['character', 'location', 'faction', 'object', 'rule', 'history', 'secret']))
 const memoryKindSchema = z.preprocess(alias({ сводка: 'summary', итог: 'summary', факт: 'fact', обещание: 'promise', отношение: 'relationship', отношения: 'relationship', тайна: 'mystery', загадка: 'mystery' }), z.enum(['summary', 'fact', 'promise', 'relationship', 'mystery']))
 const worldEventStatusSchema = z.preprocess(alias({ запланировано: 'scheduled', ожидается: 'scheduled', назрело: 'due', наступило: 'due', выполнено: 'resolved', решено: 'resolved', завершено: 'resolved', отменено: 'cancelled' }), z.enum(['scheduled', 'due', 'resolved', 'cancelled']))
+const threatTierSchema = z.preprocess(alias({ незначительный: 'minor', обычный: 'capable', подготовленный: 'capable', опасный: 'dangerous', элитный: 'elite', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['minor', 'capable', 'dangerous', 'elite', 'legendary', 'mythic']))
+const challengeTierSchema = z.preprocess(alias({ нет: 'none', отсутствует: 'none', лёгкий: 'light', легкий: 'light', обычный: 'standard', средний: 'standard', сложный: 'hard', тяжёлый: 'severe', тяжелый: 'severe', экстремальный: 'severe', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['none', 'light', 'standard', 'hard', 'severe', 'legendary', 'mythic']))
+const storyBeatSchema = z.preprocess(alias({ передышка: 'respite', подготовка: 'setup', завязка: 'setup', исследование: 'exploration', нарастание: 'rising', испытание: 'challenge', последствия: 'aftermath', развязка: 'aftermath', кульминация: 'climax' }), z.enum(['respite', 'setup', 'exploration', 'rising', 'challenge', 'aftermath', 'climax']))
+const worldPressureSourceKindSchema = z.preprocess(alias({ персонаж: 'npc', нпс: 'npc', npc: 'npc', фракция: 'faction', власть: 'authority', корпорация: 'corporation', бог: 'deity', божество: 'deity', космос: 'cosmic', космическая: 'cosmic', среда: 'environment', окружение: 'environment', другое: 'other' }), z.enum(['npc', 'faction', 'authority', 'corporation', 'deity', 'cosmic', 'environment', 'other']))
+const worldPressureTierSchema = z.preprocess(alias({ след: 'trace', слабый: 'trace', локальный: 'local', местный: 'local', серьёзный: 'serious', серьезный: 'serious', критический: 'critical', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['trace', 'local', 'serious', 'critical', 'legendary', 'mythic']))
+const worldPressureStageSchema = z.preprocess(alias({ наблюдает: 'watching', наблюдение: 'watching', расследует: 'investigating', расследование: 'investigating', готовится: 'preparing', подготовка: 'preparing', действует: 'acting', действие: 'acting', затихает: 'cooling', ослабевает: 'cooling', завершено: 'resolved', разрешено: 'resolved' }), z.enum(['watching', 'investigating', 'preparing', 'acting', 'cooling', 'resolved']))
+const worldPressureMeasureStatusSchema = z.preprocess(alias({ рассматривается: 'considered', задумано: 'considered', готовится: 'preparing', подготовка: 'preparing', активно: 'active', действует: 'active', использовано: 'spent', израсходовано: 'spent', сорвано: 'foiled', провалено: 'foiled' }), z.enum(['considered', 'preparing', 'active', 'spent', 'foiled']))
 const surfaceSchema = z.preprocess(alias({ бумага: 'paper', бумажный: 'paper', магический: 'arcane', мистический: 'arcane', технологичный: 'tech', технический: 'tech', органический: 'organic', живой: 'organic', нуар: 'noir', минимализм: 'minimal', минималистичный: 'minimal' }), z.enum(['paper', 'arcane', 'tech', 'organic', 'noir', 'minimal']))
 const knowledgeFactSchema = z.object({
   id: idSchema,
@@ -424,6 +431,23 @@ const npcStrategySchema = z.object({
   visibility: worldVisibilitySchema,
   lastUpdatedTurn: modelNumber(z.number().int().min(0)),
 }).strict()
+const threatProfileSchema = z.object({
+  tier: threatTierSchema,
+  scope: longText,
+  reputation: longText,
+  whyDangerous: z.array(longText).min(1).max(12),
+  knownFeats: z.array(longText).max(12),
+  constraints: z.array(longText).max(12),
+  defeatRequirements: z.array(longText).max(12),
+  escalationTriggers: z.array(longText).max(12),
+  visibility: worldVisibilitySchema,
+}).strict()
+const storyPacingUpdateSchema = z.object({
+  beat: storyBeatSchema,
+  intensity: modelNumber(z.number().min(0).max(100)),
+  challengeTier: challengeTierSchema,
+  reason: longText,
+}).strict()
 const conflictParticipantStateSchema = z.object({
   entityId: idSchema,
   side: z.enum(['player', 'ally', 'opposition', 'neutral']),
@@ -446,6 +470,11 @@ const activeConflictSchema = z.object({
   stakes: longText,
   terrain: z.array(longText).max(16),
   hazards: z.array(longText).max(16),
+  tier: challengeTierSchema.optional(),
+  victoryConditions: z.array(longText).max(12).optional(),
+  failureConsequences: z.array(longText).max(12).optional(),
+  escapeRoutes: z.array(longText).max(12).optional(),
+  telegraphs: z.array(longText).max(12).optional(),
   momentum: z.enum(['player', 'opposition', 'contested']),
   participants: z.array(conflictParticipantStateSchema).min(2).max(24),
   startedTurn: modelNumber(z.number().int().min(0)),
@@ -727,6 +756,37 @@ const antagonistPlanSchema = z.object({
   secret: modelBoolean,
   lastAdvancedTurn: modelNumber(z.number().int().min(0)),
 }).strict()
+const worldPressureMeasureSchema = z.object({
+  id: idSchema,
+  name: shortText,
+  trigger: longText,
+  method: longText,
+  effects: z.array(longText).max(12),
+  counterplay: z.array(longText).max(12),
+  tradeoffs: z.array(longText).max(12),
+  status: worldPressureMeasureStatusSchema,
+}).strict()
+const worldPressureSchema = z.object({
+  id: idSchema,
+  sourceKind: worldPressureSourceKindSchema,
+  sourceName: shortText,
+  sourceNpcId: idSchema.optional(),
+  targetIds: z.array(idSchema).min(1).max(20),
+  cause: longText,
+  objective: longText,
+  tier: worldPressureTierSchema,
+  stage: worldPressureStageSchema,
+  reach: longText,
+  knowledge: z.array(longText).max(20),
+  signs: z.array(longText).max(16),
+  measures: z.array(worldPressureMeasureSchema).max(16),
+  counterplay: z.array(longText).max(16),
+  escalationTrigger: longText,
+  deescalationConditions: z.array(longText).max(12),
+  visibility: worldVisibilitySchema,
+  createdTurn: modelNumber(z.number().int().min(0)),
+  lastAdvancedTurn: modelNumber(z.number().int().min(0)),
+}).strict()
 const influenceAssetSchema = z.object({
   id: idSchema,
   kind: influenceKindSchema,
@@ -917,7 +977,7 @@ const turnPatchContract = z.object({
         notes: z.array(z.string().max(500)).max(8), knowledge: z.array(knowledgeFactSchema).max(30).optional(),
         stats: z.array(statStateSchema).max(24).optional(), resources: z.array(resourceStateSchema).max(24).optional(), statusEffects: z.array(statusEffectDraftSchema.extend({ id: idSchema, appliedTurn: modelNumber(z.number().int().min(0)) }).strict()).max(48).optional(),
         abilities: z.array(abilityStateSchema).max(40).optional(),
-        relationshipDimensions: relationshipDimensionsSchema.optional(), initiative: npcInitiativeSchema.optional(), strategy: npcStrategySchema.optional(), recruitment: npcRecruitmentSchema.optional(), voice: npcVoiceSchema.optional(),
+        relationshipDimensions: relationshipDimensionsSchema.optional(), initiative: npcInitiativeSchema.optional(), strategy: npcStrategySchema.optional(), threatProfile: threatProfileSchema.optional(), recruitment: npcRecruitmentSchema.optional(), voice: npcVoiceSchema.optional(),
       }).strict(),
     }).strict(),
     z.object({
@@ -931,7 +991,7 @@ const turnPatchContract = z.object({
         abilities: z.array(abilityDraftSchema).max(40).optional(), upsertAbilities: z.array(abilityDraftSchema).max(40).optional(),
         removeAbilityIds: z.array(idSchema).max(40).optional(), abilityChanges: z.array(abilityChangeSchema).max(24).optional(),
         knowledge: z.array(knowledgeFactDraftSchema).max(30).optional(), relationshipDimensions: relationshipDimensionsSchema.partial().optional(),
-        initiative: npcInitiativeSchema.partial().optional(), strategy: npcStrategySchema.partial().optional(), recruitment: npcRecruitmentSchema.optional(), voice: npcVoiceSchema.partial().optional(),
+        initiative: npcInitiativeSchema.partial().optional(), strategy: npcStrategySchema.partial().optional(), threatProfile: threatProfileSchema.optional(), recruitment: npcRecruitmentSchema.optional(), voice: npcVoiceSchema.partial().optional(),
         upsertStats: z.array(statStateSchema).max(24).optional(), removeStatKeys: z.array(shortText).max(24).optional(),
         upsertResources: z.array(resourceStateSchema).max(24).optional(), removeResourceKeys: z.array(shortText).max(24).optional(),
         statDeltas: z.preprocess(normalizeNumberRecord, z.record(z.string().max(100), z.number().min(-1_000_000).max(1_000_000))).optional(),
@@ -971,6 +1031,7 @@ const turnPatchContract = z.object({
     tension: optionalModelNumber(z.number().min(0).max(100)),
     presentNpcIds: z.array(idSchema).max(12).optional(),
   }).strict().optional(),
+  pacing: storyPacingUpdateSchema.optional(),
   conflict: z.discriminatedUnion('operation', [
     z.object({ operation: z.enum(['start', 'update']), state: activeConflictSchema }).strict(),
     z.object({ operation: z.literal('resolve'), outcome: longText }).strict(),
@@ -1039,6 +1100,7 @@ const turnPatchContract = z.object({
   upsertCharacterArcs: z.array(characterArcSchema).max(20).optional(),
   upsertMysteryCases: z.array(mysteryCaseSchema).max(12).optional(),
   upsertAntagonistPlans: z.array(antagonistPlanSchema).max(12).optional(),
+  upsertWorldPressures: z.array(worldPressureSchema).max(16).optional(),
   upsertInfluenceAssets: z.array(influenceAssetSchema).max(30).optional(),
   removeInfluenceAssetIds: z.array(idSchema).max(30).optional(),
   cleanup: z.object({
@@ -1046,6 +1108,7 @@ const turnPatchContract = z.object({
     worldEvents: z.array(z.object({ targetId: idSchema, reason: longText }).strict()).max(20).optional(),
     quests: z.array(z.object({ targetId: idSchema, reason: longText }).strict()).max(20).optional(),
     antagonistPlans: z.array(z.object({ targetId: idSchema, reason: longText }).strict()).max(20).optional(),
+    worldPressures: z.array(z.object({ targetId: idSchema, reason: longText }).strict()).max(20).optional(),
     memories: z.array(z.object({ targetId: idSchema, reason: longText }).strict()).max(40).optional(),
   }).strict().optional(),
   memories: z.array(z.object({
@@ -1085,7 +1148,7 @@ export const turnPlanSchema = z.preprocess((value) => normalizeModelOutput(value
 
 const consequenceDomainSchema = z.enum([
   'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
-  'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'knowledge',
+  'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'world_pressure', 'knowledge',
 ])
 
 const consequenceAuditContract = z.object({
@@ -1097,7 +1160,7 @@ const consequenceAuditContract = z.object({
     instruction: longText,
     severity: z.enum(['low', 'medium', 'high']),
   }).strict()).max(32),
-  verifiedDomains: z.array(consequenceDomainSchema).min(16).max(16),
+  verifiedDomains: z.array(consequenceDomainSchema).min(17).max(17),
   omissions: z.array(z.object({
     domain: consequenceDomainSchema,
     evidence: longText,
@@ -1107,7 +1170,7 @@ const consequenceAuditContract = z.object({
   }).strict()).max(64),
   statePatch: turnPatchSchema,
 }).strict().superRefine((audit, context) => {
-  if (new Set(audit.verifiedDomains).size !== 16) context.addIssue({
+  if (new Set(audit.verifiedDomains).size !== 17) context.addIssue({
     code: z.ZodIssueCode.custom,
     path: ['verifiedDomains'],
     message: 'Every consequence domain must be verified exactly once',
@@ -1465,6 +1528,19 @@ const generatedAntagonistPlanSchema = z.object({
   status: z.enum(['active', 'completed', 'failed', 'abandoned']),
   secret: modelBoolean,
 }).strict()
+const generatedWorldPressureMeasureSchema = worldPressureMeasureSchema.omit({ id: true })
+const generatedWorldPressureSchema = worldPressureSchema.omit({
+  id: true,
+  sourceNpcId: true,
+  targetIds: true,
+  measures: true,
+  createdTurn: true,
+  lastAdvancedTurn: true,
+}).extend({
+  sourceNpcName: shortText.optional(),
+  targetNames: z.array(shortText).min(1).max(20),
+  measures: z.array(generatedWorldPressureMeasureSchema).max(16),
+}).strict()
 const generatedInfluenceAssetSchema = z.object({
   kind: influenceKindSchema,
   title: shortText,
@@ -1551,6 +1627,7 @@ const generatedWorldContract = z.object({
     relationshipDimensions: relationshipDimensionsSchema,
     initiative: npcInitiativeSchema.omit({ lastAdvancedTurn: true }),
     strategy: npcStrategySchema.omit({ lastUpdatedTurn: true }),
+    threatProfile: threatProfileSchema.optional(),
     recruitment: npcRecruitmentSchema,
     voice: npcVoiceSchema,
   })).min(1).max(12),
@@ -1572,6 +1649,7 @@ const generatedWorldContract = z.object({
   characterArcs: z.array(generatedCharacterArcSchema).min(2).max(12),
   mysteryCases: z.array(generatedMysteryCaseSchema).min(1).max(6),
   antagonistPlans: z.array(generatedAntagonistPlanSchema).min(1).max(6),
+  worldPressures: z.array(generatedWorldPressureSchema).max(6).default([]),
   influenceAssets: z.array(generatedInfluenceAssetSchema).min(2).max(16),
   quests: z.array(z.object({
     title: shortText, description: longText, objectives: z.array(shortText).min(1).max(8), reward: z.string().max(500).optional(), giver: z.string().max(300).optional(),
@@ -1582,6 +1660,7 @@ const generatedWorldContract = z.object({
   })).min(1).max(30),
   opening: z.object({
     scene: z.object({ title: shortText, location: shortText, time: shortText, weather: shortText, tension: modelNumber(z.number().min(0).max(100)), presentNpcNames: z.array(shortText).max(8) }),
+    pacing: storyPacingUpdateSchema,
     narrative: longText,
     suggestions: z.array(shortText).min(2).max(4),
   }),
@@ -1606,6 +1685,34 @@ const generatedWorldContract = z.object({
       code: z.ZodIssueCode.custom,
       path: ['antagonistPlans', index, 'ownerName'],
       message: `Antagonist owner must exactly match an NPC name: ${plan.ownerName}`,
+    })
+  })
+  world.worldPressures.forEach((pressure, index) => {
+    pressure.targetNames.forEach((name, targetIndex) => requireEntity(name, ['worldPressures', index, 'targetNames', targetIndex]))
+    if (pressure.sourceNpcName && !npcNames.has(pressure.sourceNpcName.toLocaleLowerCase('ru-RU'))) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['worldPressures', index, 'sourceNpcName'],
+      message: `Pressure source must exactly match an NPC name: ${pressure.sourceNpcName}`,
+    })
+    if (['faction', 'corporation'].includes(pressure.sourceKind) && !factionNames.has(pressure.sourceName.toLocaleLowerCase('ru-RU'))) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['worldPressures', index, 'sourceName'],
+      message: `Pressure source must exactly match a faction name: ${pressure.sourceName}`,
+    })
+  })
+  world.npcs.forEach((npc, index) => {
+    if (!npc.threatProfile || !['legendary', 'mythic'].includes(npc.threatProfile.tier)) return
+    const minimumMastery = npc.threatProfile.tier === 'mythic' ? 90 : 75
+    const demonstratedMastery = Math.max(...npc.abilities.map((ability) => ability.mastery), 0)
+    if (demonstratedMastery < minimumMastery) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['npcs', index, 'threatProfile', 'tier'],
+      message: `${npc.threatProfile.tier} threat tier must be supported by actual ability mastery`,
+    })
+    if (!npc.threatProfile.constraints.length || !npc.threatProfile.defeatRequirements.length) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['npcs', index, 'threatProfile'],
+      message: 'Legendary and mythic threats require factual constraints and possible defeat conditions',
     })
   })
   world.influenceAssets.forEach((asset, index) => {

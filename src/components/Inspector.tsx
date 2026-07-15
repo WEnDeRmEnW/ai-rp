@@ -160,6 +160,26 @@ const factionKindLabels = {
   criminal: 'Преступная организация', clan: 'Клан', movement: 'Движение', institution: 'Институт', other: 'Организация',
 } as const
 
+const storyBeatLabels = {
+  respite: 'Передышка', setup: 'Завязка', exploration: 'Исследование', rising: 'Нарастание', challenge: 'Испытание', aftermath: 'Последствия', climax: 'Кульминация',
+} as const
+
+const challengeTierLabels = {
+  none: 'Без испытания', light: 'Лёгкая сцена', standard: 'Обычное испытание', hard: 'Сложное испытание', severe: 'Крайне опасно', legendary: 'Легендарное испытание', mythic: 'Мифический масштаб',
+} as const
+
+const threatTierLabels = {
+  minor: 'Незначительная угроза', capable: 'Опытный противник', dangerous: 'Опасный противник', elite: 'Элитный противник', legendary: 'Легендарная угроза', mythic: 'Мифическая угроза',
+} as const
+
+const pressureTierLabels = {
+  trace: 'Слабый след', local: 'Местное давление', serious: 'Серьёзное давление', critical: 'Критическое давление', legendary: 'Легендарный масштаб', mythic: 'Мифический масштаб',
+} as const
+
+const pressureStageLabels = {
+  watching: 'Наблюдает', investigating: 'Расследует', preparing: 'Готовится', acting: 'Действует', cooling: 'Ослабевает', resolved: 'Завершено',
+} as const
+
 const changeMatchesFilter = (change: StateChange, filter: ChangeFilter) => {
   if (filter === 'all') return true
   if (filter === 'character') return ['health', 'resource', 'stat', 'condition', 'ability', 'character'].includes(change.kind)
@@ -260,6 +280,7 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
   const visibleLore = campaign.lore.filter((entry) => !entry.secret || entry.discovered)
   const visibleInitiatives = campaign.npcs.filter((npc) => npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
   const visibleWorldEvents = (campaign.worldEvents ?? []).filter((event) => event.visibility !== 'hidden' && ['scheduled', 'due'].includes(event.status))
+  const visibleWorldPressures = (campaign.worldPressures ?? []).filter((pressure) => pressure.visibility !== 'hidden' && pressure.stage !== 'resolved')
   const visiblePlaces = useMemo(() => {
     const places = campaign.world.places ?? []
     const byId = new Map(places.map((place) => [place.id, place]))
@@ -323,8 +344,13 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
               <p>{campaign.scene.weather}</p>
               <div className="scene-meta"><span>{campaign.scene.time}</span><span>Напряжение {campaign.scene.tension}%</span></div>
             </div>
+            {campaign.pacing && <section className={`pacing-card beat-${campaign.pacing.beat} tier-${campaign.pacing.challengeTier}`} aria-label="Ритм текущей сцены">
+              <header><div><span>Ритм истории</span><strong>{storyBeatLabels[campaign.pacing.beat]}</strong></div><b>{challengeTierLabels[campaign.pacing.challengeTier]}</b></header>
+              <div className="pacing-meter" role="progressbar" aria-label={`Интенсивность ${Math.round(campaign.pacing.intensity)} из 100`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(campaign.pacing.intensity)}><i style={{ width: `${campaign.pacing.intensity}%` }} /></div>
+              <p>{campaign.pacing.reason}</p>
+            </section>}
             {campaign.activeConflict && <section className={`conflict-card momentum-${campaign.activeConflict.momentum}`} aria-label="Активное противостояние">
-              <header><span><Swords size={15} /> {campaign.activeConflict.kind === 'combat' ? 'Бой' : campaign.activeConflict.kind === 'chase' ? 'Погоня' : campaign.activeConflict.kind === 'social' ? 'Противостояние' : campaign.activeConflict.kind === 'stealth' ? 'Скрытное столкновение' : 'Конфликт'}</span><b>Раунд {campaign.activeConflict.round}</b></header>
+              <header><span><Swords size={15} /> {campaign.activeConflict.kind === 'combat' ? 'Бой' : campaign.activeConflict.kind === 'chase' ? 'Погоня' : campaign.activeConflict.kind === 'social' ? 'Противостояние' : campaign.activeConflict.kind === 'stealth' ? 'Скрытное столкновение' : 'Конфликт'}</span><b>{campaign.activeConflict.tier ? `${challengeTierLabels[campaign.activeConflict.tier]} · ` : ''}Раунд {campaign.activeConflict.round}</b></header>
               <h3>{campaign.activeConflict.title}</h3>
               <p>{campaign.activeConflict.phase}</p>
               <small><strong>Ставки:</strong> {campaign.activeConflict.stakes}</small>
@@ -335,6 +361,7 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                 <div className="conflict-meters"><span>Готовность <b>{Math.round(participant.readiness)}%</b></span><i><em style={{ width: `${participant.readiness}%` }} /></i><span>Мораль <b>{Math.round(participant.morale)}%</b></span><i><em style={{ width: `${participant.morale}%` }} /></i></div>
                 <small>{participant.visibility === 'known' ? participant.intent : 'Точное намерение пока неясно'}</small>
               </article>)}</div>
+              {Boolean(campaign.activeConflict.victoryConditions?.length || campaign.activeConflict.failureConsequences?.length || campaign.activeConflict.escapeRoutes?.length || campaign.activeConflict.telegraphs?.length) && <details className="conflict-possibilities"><summary>Условия и возможности</summary><DetailList title="Как можно добиться цели" values={campaign.activeConflict.victoryConditions} /><DetailList title="Цена провала" values={campaign.activeConflict.failureConsequences} /><DetailList title="Пути отступления" values={campaign.activeConflict.escapeRoutes} /><DetailList title="Замеченные признаки опасности" values={campaign.activeConflict.telegraphs} /></details>}
               {(campaign.activeConflict.terrain.length > 0 || campaign.activeConflict.hazards.length > 0) && <details><summary>Поле боя и угрозы</summary><DetailList title="Особенности местности" values={campaign.activeConflict.terrain} /><DetailList title="Опасности" values={campaign.activeConflict.hazards} /></details>}
             </section>}
             <AdaptiveWorldModules campaign={campaign} placement="scene" />
@@ -357,6 +384,14 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                       {npc.personality && <p className="npc-personality"><b>Характер:</b> {npc.personality}</p>}
                       {!!npc.stats?.length && <div className="npc-stat-grid">{npc.stats.map((stat) => <div key={stat.key}><span>{stat.label}</span><strong>{stat.value}{stat.max !== undefined ? ` / ${stat.max}` : ''}</strong>{stat.description && <small>{stat.description}</small>}</div>)}</div>}
                       {!!npc.resources?.length && <div className="npc-resource-list">{npc.resources.map((resource) => <div className={resource.criticalBelow !== undefined && resource.value <= resource.criticalBelow ? 'is-critical' : ''} key={resource.key}><span>{resource.label}</span><b>{resource.value} / {resource.max ?? '∞'}</b><i><em style={{ width: `${Math.max(0, Math.min(100, resource.max ? resource.value / resource.max * 100 : resource.value))}%`, background: resource.color }} /></i></div>)}</div>}
+                      {npc.threatProfile && npc.threatProfile.visibility !== 'hidden' && <div className={`npc-threat-profile threat-${npc.threatProfile.tier}`}>
+                        <header><div><span>Оценка угрозы</span><strong>{threatTierLabels[npc.threatProfile.tier]}</strong></div><ShieldAlert size={16} /></header>
+                        <p>{npc.threatProfile.reputation}</p>
+                        <small>{npc.threatProfile.scope}</small>
+                        <DetailList title="Известные свершения" values={npc.threatProfile.knownFeats} />
+                        {npc.threatProfile.visibility === 'known' && <><DetailList title="Чем опасен" values={npc.threatProfile.whyDangerous} /><DetailList title="Пределы силы" values={npc.threatProfile.constraints} /><DetailList title="Что даёт шанс победить" values={npc.threatProfile.defeatRequirements} /><DetailList title="Что заставит усилиться" values={npc.threatProfile.escalationTriggers} /></>}
+                        {npc.threatProfile.visibility === 'rumored' && <em>Точная природа силы пока известна только по слухам.</em>}
+                      </div>}
                       {npc.strategy && npc.strategy.visibility !== 'hidden' && <div className="npc-strategy">
                         <div className="npc-detail-heading"><strong><Brain size={13} /> Стратегический профиль</strong><span>{npc.strategy.visibility === 'rumored' ? 'Приблизительная оценка' : npc.strategy.planningHorizon}</span></div>
                         <div className="strategy-metrics">{([
@@ -599,6 +634,23 @@ export function Inspector({ campaign, open, activeTab: tab, onTabChange: setTab,
                 {visibleInitiatives.slice(0, 8).map((npc) => <div className="world-pulse-card" key={npc.id}><header><strong>{npc.name}</strong><span>импульс {npc.initiative!.urgency}%</span></header><p>{npc.initiative!.intent}</p><small>{npc.initiative!.visibility === 'rumored' ? 'Слух: ' : 'Следующий шаг: '}{npc.initiative!.nextMove}</small></div>)}
                 {visibleWorldEvents.slice(0, 8).map((event) => <div className={`world-pulse-card event-${event.status}`} key={event.id}><header><strong>{event.title}</strong><span>{event.status === 'due' ? 'созрело' : event.dueTurn ? `к ходу ${event.dueTurn}` : event.dueDay ? `ко дню ${event.dueDay}` : 'развивается'}</span></header><p>{event.description}</p><small>{event.visibility === 'rumored' ? 'Ходят слухи' : 'Известно герою'}</small></div>)}
                 {!visibleInitiatives.length && !visibleWorldEvents.length && <EmptyMini>Внешние процессы пока не дали заметных сигналов.</EmptyMini>}
+              </div>
+            </Section>
+            <Section title="Давление мира" action={<ShieldAlert size={15} />}>
+              <div className="world-pressure-list">
+                {visibleWorldPressures.map((pressure) => <article className={`world-pressure-card pressure-${pressure.tier} stage-${pressure.stage}`} key={pressure.id}>
+                  <header><div><span>{pressureStageLabels[pressure.stage]}</span><strong>{pressure.sourceName}</strong></div><b>{pressureTierLabels[pressure.tier]}</b></header>
+                  {pressure.visibility === 'known' ? <><p>{pressure.objective}</p><small><b>Причина:</b> {pressure.cause}</small></> : <p>Намерения источника ещё неясны; доступны только отдельные признаки.</p>}
+                  {!!pressure.signs.length && <div className="pressure-signs"><b>Что уже заметно</b>{pressure.signs.map((sign) => <span key={sign}>{sign}</span>)}</div>}
+                  {pressure.visibility === 'known' && <>
+                    {!!pressure.measures.length && <div className="pressure-measures"><b>Ответные меры</b>{pressure.measures.map((measure) => <details key={measure.id} className={`measure-${measure.status}`}><summary><span>{measure.name}</span><em>{measure.status === 'active' ? 'действует' : measure.status === 'preparing' ? 'готовится' : measure.status === 'spent' ? 'исчерпана' : measure.status === 'foiled' ? 'сорвана' : 'рассматривается'}</em></summary><p>{measure.method}</p><DetailList title="Условие запуска" values={[measure.trigger]} /><DetailList title="Последствия" values={measure.effects} /><DetailList title="Как противодействовать" values={measure.counterplay} /><DetailList title="Цена для источника" values={measure.tradeoffs} /></details>)}</div>}
+                    <DetailList title="Общие возможности противодействия" values={pressure.counterplay} />
+                    <DetailList title="Что усилит давление" values={[pressure.escalationTrigger]} />
+                    <DetailList title="Что его ослабит" values={pressure.deescalationConditions} />
+                  </>}
+                  <footer><span>Цели: {pressure.targetIds.map((id) => entityName(id)).join(', ')}</span><span>{pressure.visibility === 'rumored' ? 'Сведения по слухам' : `Последнее изменение: ход ${pressure.lastAdvancedTurn}`}</span></footer>
+                </article>)}
+                {!visibleWorldPressures.length && <EmptyMini>Сейчас герой не замечает устойчивой слежки, охоты или давления извне.</EmptyMini>}
               </div>
             </Section>
             <Section title="Что происходит вдали" action={<Globe2 size={15} />}>

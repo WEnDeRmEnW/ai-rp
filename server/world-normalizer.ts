@@ -160,6 +160,18 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
         steps: plan.steps.map((step) => ({ ...step, id: id() })), lastAdvancedTurn: 0,
       }
     }),
+    worldPressures: generated.worldPressures.map((pressure) => {
+      const { sourceNpcName, targetNames, ...rest } = pressure
+      return {
+        ...rest,
+        id: id(),
+        sourceNpcId: sourceNpcName ? npcIds.get(sourceNpcName.toLocaleLowerCase('ru-RU')) : undefined,
+        targetIds: targetNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+        measures: pressure.measures.map((measure) => ({ ...measure, id: id() })),
+        createdTurn: 0,
+        lastAdvancedTurn: 0,
+      }
+    }),
     influenceAssets: generated.influenceAssets.map((asset) => {
       const { holderName, targetName, ...rest } = asset
       return {
@@ -195,6 +207,13 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       weather: generated.opening.scene.weather,
       tension: generated.opening.scene.tension,
       presentNpcIds,
+    },
+    pacing: {
+      ...generated.opening.pacing,
+      consecutivePressureTurns: ['rising', 'challenge', 'climax'].includes(generated.opening.pacing.beat) ? 1 : 0,
+      lastRespiteTurn: generated.opening.pacing.beat === 'respite' ? 0 : undefined,
+      lastPeakTurn: ['severe', 'legendary', 'mythic'].includes(generated.opening.pacing.challengeTier) ? 0 : undefined,
+      updatedTurn: 0,
     },
     settings: {
       responseLength: 'balanced',

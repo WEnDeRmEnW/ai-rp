@@ -555,6 +555,21 @@ export interface TacticalCountermeasure {
   visibility: 'known' | 'rumored' | 'hidden'
 }
 
+export type ThreatTier = 'minor' | 'capable' | 'dangerous' | 'elite' | 'legendary' | 'mythic'
+
+/** A factual dossier for an exceptional opponent. The tier must be supported by actual abilities, resources and feats. */
+export interface ThreatProfile {
+  tier: ThreatTier
+  scope: string
+  reputation: string
+  whyDangerous: string[]
+  knownFeats: string[]
+  constraints: string[]
+  defeatRequirements: string[]
+  escalationTriggers: string[]
+  visibility: 'known' | 'rumored' | 'hidden'
+}
+
 export interface NPCRecruitment {
   status: 'unavailable' | 'possible' | 'invited' | 'member' | 'left'
   willingness: number
@@ -582,6 +597,7 @@ export interface NPC {
   relationshipDimensions?: RelationshipDimensions
   initiative?: NPCInitiative
   strategy?: NPCStrategy
+  threatProfile?: ThreatProfile
   recruitment?: NPCRecruitment
   voice?: {
     style: string
@@ -848,6 +864,44 @@ export interface WorldProcess {
   lastAdvancedTurn: number
 }
 
+export type WorldPressureSourceKind = 'npc' | 'faction' | 'authority' | 'corporation' | 'deity' | 'cosmic' | 'environment' | 'other'
+export type WorldPressureTier = 'trace' | 'local' | 'serious' | 'critical' | 'legendary' | 'mythic'
+export type WorldPressureStage = 'watching' | 'investigating' | 'preparing' | 'acting' | 'cooling' | 'resolved'
+
+export interface WorldPressureMeasure {
+  id: ID
+  name: string
+  trigger: string
+  method: string
+  effects: string[]
+  counterplay: string[]
+  tradeoffs: string[]
+  status: 'considered' | 'preparing' | 'active' | 'spent' | 'foiled'
+}
+
+/** A causal response by an organization, entity or force that can develop off-screen. */
+export interface WorldPressure {
+  id: ID
+  sourceKind: WorldPressureSourceKind
+  sourceName: string
+  sourceNpcId?: ID
+  targetIds: ID[]
+  cause: string
+  objective: string
+  tier: WorldPressureTier
+  stage: WorldPressureStage
+  reach: string
+  knowledge: string[]
+  signs: string[]
+  measures: WorldPressureMeasure[]
+  counterplay: string[]
+  escalationTrigger: string
+  deescalationConditions: string[]
+  visibility: WorldVisibility
+  createdTurn: number
+  lastAdvancedTurn: number
+}
+
 export interface Quest {
   id: ID
   title: string
@@ -908,6 +962,23 @@ export interface SceneState {
   presentNpcIds: ID[]
 }
 
+export type StoryBeat = 'respite' | 'setup' | 'exploration' | 'rising' | 'challenge' | 'aftermath' | 'climax'
+export type ChallengeTier = 'none' | 'light' | 'standard' | 'hard' | 'severe' | 'legendary' | 'mythic'
+
+export interface StoryPacingState {
+  beat: StoryBeat
+  intensity: number
+  challengeTier: ChallengeTier
+  /** A spoiler-safe explanation based only on facts available in the current scene. */
+  reason: string
+  consecutivePressureTurns: number
+  lastRespiteTurn?: number
+  lastPeakTurn?: number
+  updatedTurn: number
+}
+
+export type StoryPacingUpdate = Pick<StoryPacingState, 'beat' | 'intensity' | 'challengeTier' | 'reason'>
+
 export interface ConflictParticipantState {
   entityId: ID
   side: 'player' | 'ally' | 'opposition' | 'neutral'
@@ -931,6 +1002,11 @@ export interface ActiveConflict {
   stakes: string
   terrain: string[]
   hazards: string[]
+  tier?: ChallengeTier
+  victoryConditions?: string[]
+  failureConsequences?: string[]
+  escapeRoutes?: string[]
+  telegraphs?: string[]
   momentum: 'player' | 'opposition' | 'contested'
   participants: ConflictParticipantState[]
   startedTurn: number
@@ -985,7 +1061,7 @@ export interface ActionCheck {
   oppositionNpcId?: ID
   oppositionLabel?: string
   oppositionModifier?: number
-  oppositionTier?: 'minor' | 'capable' | 'dangerous' | 'elite' | 'legendary'
+  oppositionTier?: ThreatTier
   oppositionFactors?: string[]
 }
 
@@ -1040,6 +1116,7 @@ export interface CampaignSnapshot {
   lore: LoreEntry[]
   memories: MemoryEntry[]
   scene: SceneState
+  pacing?: StoryPacingState
   activeConflict?: ActiveConflict
   socialLinks?: SocialLink[]
   threads?: StoryThread[]
@@ -1051,6 +1128,7 @@ export interface CampaignSnapshot {
   characterArcs?: CharacterArc[]
   mysteryCases?: MysteryCase[]
   antagonistPlans?: AntagonistPlan[]
+  worldPressures?: WorldPressure[]
   influenceAssets?: InfluenceAsset[]
   messageCount: number
   eventCount: number
@@ -1072,6 +1150,7 @@ export interface Campaign {
   timeline: GameEvent[]
   messages: StoryMessage[]
   scene: SceneState
+  pacing?: StoryPacingState
   activeConflict?: ActiveConflict
   socialLinks?: SocialLink[]
   threads?: StoryThread[]
@@ -1084,6 +1163,7 @@ export interface Campaign {
   characterArcs?: CharacterArc[]
   mysteryCases?: MysteryCase[]
   antagonistPlans?: AntagonistPlan[]
+  worldPressures?: WorldPressure[]
   influenceAssets?: InfluenceAsset[]
   settings: CampaignSettings
   snapshots: CampaignSnapshot[]
@@ -1220,6 +1300,7 @@ export interface TurnPatch {
   quests?: QuestMutation[]
   lore?: Array<Omit<LoreEntry, 'id'> & { id?: ID }>
   scene?: Partial<SceneState>
+  pacing?: StoryPacingUpdate
   conflict?: ConflictMutation
   world?: WorldPatch
   socialLinks?: SocialLink[]
@@ -1236,6 +1317,7 @@ export interface TurnPatch {
   upsertCharacterArcs?: CharacterArc[]
   upsertMysteryCases?: MysteryCase[]
   upsertAntagonistPlans?: AntagonistPlan[]
+  upsertWorldPressures?: WorldPressure[]
   upsertInfluenceAssets?: InfluenceAsset[]
   removeInfluenceAssetIds?: ID[]
   cleanup?: {
@@ -1243,6 +1325,7 @@ export interface TurnPatch {
     worldEvents?: Array<{ targetId: ID; reason: string }>
     quests?: Array<{ targetId: ID; reason: string }>
     antagonistPlans?: Array<{ targetId: ID; reason: string }>
+    worldPressures?: Array<{ targetId: ID; reason: string }>
     memories?: Array<{ targetId: ID; reason: string }>
   }
   memories?: Array<Omit<MemoryEntry, 'id' | 'turn' | 'createdAt'>>

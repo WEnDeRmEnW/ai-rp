@@ -5,7 +5,7 @@ import { runTurn } from './orchestrator'
 
 const consequenceDomains = [
   'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
-  'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'knowledge',
+  'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'world_pressure', 'knowledge',
 ] as const
 
 const provider = {

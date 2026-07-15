@@ -144,4 +144,45 @@ describe('token-efficient action checks', () => {
     expect(weakened?.oppositionModifier).toBeLessThan(0)
     expect(weakened?.oppositionFactors).toEqual(expect.arrayContaining(['Противник тяжело ранен', 'Ресурсы противника истощены', 'Герой владеет темпом']))
   })
+
+  it('makes an authored severe challenge harder while keeping a respite mechanically light', () => {
+    const respiteCampaign = createDemoCampaign()
+    respiteCampaign.pacing = { beat: 'respite', intensity: 18, challengeTier: 'light', reason: 'Безопасная тренировка.', consecutivePressureTurns: 0, lastRespiteTurn: 3, updatedTurn: 3 }
+    const severeCampaign = structuredClone(respiteCampaign)
+    severeCampaign.pacing = { beat: 'challenge', intensity: 82, challengeTier: 'severe', reason: 'Система безопасности перешла в боевой режим.', consecutivePressureTurns: 1, lastPeakTurn: 3, updatedTurn: 3 }
+
+    const light = resolveActionCheck(respiteCampaign, 'Пытаюсь взломать учебный замок', 'do', () => 12)
+    const severe = resolveActionCheck(severeCampaign, 'Пытаюсь взломать учебный замок', 'do', () => 12)
+
+    expect(severe!.target - light!.target).toBe(5)
+    expect(severe?.oppositionFactors).toContain('Сюжетное испытание: +4')
+  })
+
+  it('respects mythic threat mechanics and materially rewards an established defeat condition', () => {
+    const campaign = createDemoCampaign()
+    const npc = campaign.npcs[0]
+    npc.relationship = -80
+    npc.stats = [{ key: 'combat', label: 'Бой', value: 10, max: 10 }]
+    npc.abilities = [{
+      id: 'mythic-domain', name: 'Власть над порогом', description: 'Замыкает пространство вокруг охраняемого города.', rank: 'Мифический', source: 'Древняя клятва', kind: 'passive', mastery: 98,
+      costs: [], effects: ['Меняет пути внутри области клятвы.'], limitations: ['Связан с якорем клятвы.'], requirements: [], progression: 'Завершена.', evolutionPaths: [], history: [], tags: ['пространство'],
+      category: 'space', scale: 'Город', activation: 'Пока цел якорь клятвы.', capabilities: ['Замыкать путь.'], synergies: [], counters: ['Разрушение якоря клятвы.'], examples: ['Возвращает беглеца к тем же воротам.'], canonStatus: 'original',
+    }]
+    npc.strategy = {
+      intelligence: 98, tacticalSkill: 96, strategicSkill: 98, predictionSkill: 94, adaptability: 90, deceptionSkill: 85, riskTolerance: 20,
+      planningHorizon: 'Века', decisionStyle: 'Удерживает клятву, не преследуя вне её границ.', currentPlan: 'Не дать герою пройти врата.', observedPlayerPatterns: [], strengths: ['Полный контроль области'], blindSpots: ['Зависимость от якоря'], contingencies: [], visibility: 'known', lastUpdatedTurn: 0,
+    }
+    npc.threatProfile = {
+      tier: 'mythic', scope: 'Один город и его врата.', reputation: 'Не проигрывал внутри области клятвы.', whyDangerous: ['Контролирует само пространство пути.'], knownFeats: ['Остановил исход целого народа.'],
+      constraints: ['Не действует вне города.'], defeatRequirements: ['Разрушить якорь клятвы.'], escalationTriggers: ['Нападение на город.'], visibility: 'known',
+    }
+
+    const direct = resolveActionCheck(campaign, `Атакую ${npc.name} прямым ударом`, 'do', () => 12)
+    const counterplay = resolveActionCheck(campaign, `Разрушаю якорь клятвы и атакую ${npc.name}`, 'do', () => 12)
+
+    expect(direct?.oppositionTier).toBe('mythic')
+    expect(direct?.oppositionFactors).toContain('Противостоит сила мифического масштаба')
+    expect(counterplay?.oppositionFactors).toContain('Герой использует установленное условие победы')
+    expect(counterplay!.target).toBeLessThan(direct!.target)
+  })
 })

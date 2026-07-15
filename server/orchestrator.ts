@@ -42,10 +42,12 @@ function repairContractHints(issues: Array<{ path: PropertyKey[]; message: strin
 - inventory add требует вложенный item с name, description, category, quantity, rarity, equipped и effects; update требует targetId и вложенный item; remove имеет форму {"operation":"remove","targetId":"exactItemId","quantity"?:number,"reason"?:string} БЕЗ item. Редкость не запрещает фактическую потерю. Не возвращай плоские поля предмета.
 - quests add требует вложенный quest с title, description, status и objectives; update требует targetId и вложенный quest.
 - npcs update требует targetId и вложенный npc; урон/траты NPC записывай в npc.resourceDeltas, изменения параметров — npc.statDeltas, эффекты — npc.upsertStatusEffects, новые силы — npc.upsertAbilities, развитие сил — npc.abilityChanges, мышление и контрпланы — npc.strategy.
-- conflict start/update требует полный state с id,kind,title,round,phase,stakes,terrain[],hazards[],momentum,participants[],startedTurn,lastUpdatedTurn; participant содержит entityId,side,objective,position,readiness,morale,intent,lastAction,advantages[],vulnerabilities[],visibility. Завершение: {"operation":"resolve","outcome":"..."}.
+- pacing: {"beat":"respite|setup|exploration|rising|challenge|aftermath|climax","intensity":number,"challengeTier":"none|light|standard|hard|severe|legendary|mythic","reason":string}.
+- conflict start/update требует полный state с id,kind,title,round,phase,stakes,terrain[],hazards[],tier?,victoryConditions?,failureConsequences?,escapeRoutes?,telegraphs?,momentum,participants[],startedTurn,lastUpdatedTurn; participant содержит entityId,side,objective,position,readiness,morale,intent,lastAction,advantages[],vulnerabilities[],visibility. Завершение: {"operation":"resolve","outcome":"..."}.
+- upsertWorldPressures содержит полные причинные реакции мира с id,sourceKind,sourceName,sourceNpcId?,targetIds[],cause,objective,tier,stage,reach,knowledge[],signs[],measures[],counterplay[],escalationTrigger,deescalationConditions[],visibility,createdTurn,lastAdvancedTurn.
 - duration статусного эффекта имеет форму {"unit":"turns|scenes|days|until|indefinite","remaining"?:number,"condition"?:string}; ключи amount/count/value запрещены.
 - world.upsertPlaces содержит полные места с id,name,kind,description,scale,culture[],notableFacts[],currentSituation,visibility и необязательным точным parentId; world.upsertProcesses содержит полные процессы с id,title,description,scopeIds[],involvedFactionNames[],drivers[],obstacles[],stage,momentum,direction,status,visibility,nextMilestone,consequences[].
-- cleanup — объект с массивами threads/worldEvents/quests/antagonistPlans/memories; каждый элемент имеет только targetId и reason. Активную сущность сначала переведи в терминальный статус соответствующей мутацией.
+- cleanup — объект с массивами threads/worldEvents/quests/antagonistPlans/worldPressures/memories; каждый элемент имеет только targetId и reason. Активную сущность сначала переведи в терминальный статус соответствующей мутацией.
 Любой ключ, названный валидатором Unrecognized, УДАЛИ из прежнего места после переноса его содержимого в каноническое поле. Не возвращай одновременно старый alias и новый ключ.`
 }
 
@@ -239,6 +241,27 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
   const npcMutationCount = plan.statePatch.npcs?.length ?? 0
   plan.statePatch.npcs = plan.statePatch.npcs?.filter((mutation) => mutation.operation === 'add' ? !knownNpcs.has(mutation.npc.id) : knownNpcs.has(mutation.targetId))
   if ((plan.statePatch.npcs?.length ?? 0) < npcMutationCount) notes.push('Отклонено противоречивое изменение персонажа.')
+  plan.statePatch.npcs = plan.statePatch.npcs?.map((mutation) => {
+    const threatProfile = mutation.npc.threatProfile
+    if (!threatProfile || !['legendary', 'mythic'].includes(threatProfile.tier)) return mutation
+    const existingAbilities = mutation.operation === 'update' ? campaign.npcs.find((npc) => npc.id === mutation.targetId)?.abilities ?? [] : []
+    const authoredAbilities = mutation.operation === 'add'
+      ? mutation.npc.abilities ?? []
+      : [...(mutation.npc.abilities ?? []), ...(mutation.npc.upsertAbilities ?? [])]
+    const masteryChanges = new Map((mutation.operation === 'update' ? mutation.npc.abilityChanges ?? [] : []).map((change) => [change.abilityId, change]))
+    const effectiveExistingAbilities = existingAbilities.map((ability) => {
+      const change = masteryChanges.get(ability.id)
+      if (!change) return ability.mastery ?? 0
+      if (change.mastery !== undefined) return change.mastery
+      return Math.max(0, Math.min(100, (ability.mastery ?? 0) + (change.masteryDelta ?? 0)))
+    })
+    const demonstratedMastery = Math.max(...effectiveExistingAbilities, ...authoredAbilities.map((ability) => ability.mastery ?? 0), 0)
+    const minimumMastery = threatProfile.tier === 'mythic' ? 90 : 75
+    if (demonstratedMastery >= minimumMastery && threatProfile.constraints.length && threatProfile.defeatRequirements.length) return mutation
+    delete mutation.npc.threatProfile
+    notes.push('Отклонён высокий ранг угрозы, не подкреплённый реальными способностями, ограничениями и условиями победы.')
+    return mutation
+  })
   plan.statePatch.npcs = plan.statePatch.npcs?.map((mutation) => {
     if (mutation.operation !== 'update') return mutation
     const existingNpc = campaign.npcs.find((npc) => npc.id === mutation.targetId)
@@ -457,6 +480,29 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       steps: existing.steps.map((step) => ({ ...step, status: incomingSteps.get(step.id)?.status ?? step.status })),
     }
   })
+  plan.statePatch.upsertWorldPressures = plan.statePatch.upsertWorldPressures?.filter((incoming) => (
+    incoming.targetIds.length > 0
+    && incoming.targetIds.every((targetId) => campaignEntityIds.has(targetId))
+    && (!incoming.sourceNpcId || campaignEntityIds.has(incoming.sourceNpcId))
+    && (!['faction', 'corporation'].includes(incoming.sourceKind) || knownFactions.has(incoming.sourceName.toLocaleLowerCase('ru-RU')))
+  )).map((incoming) => {
+    const existing = campaign.worldPressures?.find((pressure) => pressure.id === incoming.id)
+    const measures = incoming.measures.filter((measure, index, all) => all.findIndex((candidate) => candidate.id === measure.id) === index)
+    if (!existing) return { ...incoming, measures, createdTurn: campaign.turn + 1, lastAdvancedTurn: campaign.turn + 1 }
+    const existingMeasureIds = new Set(existing.measures.map((measure) => measure.id))
+    const normalizedMeasures = measures.map((measure) => existingMeasureIds.has(measure.id) ? measure : { ...measure, status: measure.status === 'active' ? 'preparing' as const : measure.status })
+    return {
+      ...incoming,
+      id: existing.id,
+      sourceKind: existing.sourceKind,
+      sourceName: existing.sourceName,
+      sourceNpcId: existing.sourceNpcId,
+      cause: existing.cause,
+      measures: normalizedMeasures,
+      createdTurn: existing.createdTurn,
+      lastAdvancedTurn: campaign.turn + 1,
+    }
+  })
   plan.statePatch.upsertInfluenceAssets = plan.statePatch.upsertInfluenceAssets?.filter((asset) => campaignEntityIds.has(asset.holderId) && (!asset.targetId || campaignEntityIds.has(asset.targetId)))
   plan.statePatch.removeInfluenceAssetIds = plan.statePatch.removeInfluenceAssetIds?.filter((assetId) => campaign.influenceAssets?.some((asset) => asset.id === assetId))
   if (plan.statePatch.cleanup) {
@@ -465,6 +511,7 @@ function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema
       worldEvents: new Set((campaign.worldEvents ?? []).map((entry) => entry.id)),
       quests: new Set(campaign.quests.map((entry) => entry.id)),
       antagonistPlans: new Set((campaign.antagonistPlans ?? []).map((entry) => entry.id)),
+      worldPressures: new Set((campaign.worldPressures ?? []).map((entry) => entry.id)),
       memories: new Set(campaign.memories.map((entry) => entry.id)),
     }
     ;(Object.keys(validTargets) as Array<keyof typeof validTargets>).forEach((key) => {
@@ -524,7 +571,7 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     removeNpcIds: unique(background.party?.removeNpcIds, foreground.party?.removeNpcIds),
     roles: { ...(background.party?.roles ?? {}), ...(foreground.party?.roles ?? {}) },
   } : undefined
-  const cleanupKeys = ['threads', 'worldEvents', 'quests', 'antagonistPlans', 'memories'] as const
+  const cleanupKeys = ['threads', 'worldEvents', 'quests', 'antagonistPlans', 'worldPressures', 'memories'] as const
   const cleanup = background.cleanup || foreground.cleanup ? Object.fromEntries(cleanupKeys.flatMap((key) => {
     const entries = [...(background.cleanup?.[key] ?? []), ...(foreground.cleanup?.[key] ?? [])]
     const uniqueEntries = entries.filter((entry, index, all) => all.findIndex((candidate) => candidate.targetId === entry.targetId) === index)
@@ -555,6 +602,7 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     quests: concat(background.quests, foreground.quests),
     lore: concat(background.lore, foreground.lore),
     scene,
+    pacing: foreground.pacing ?? background.pacing,
     conflict: foreground.conflict ?? background.conflict,
     socialLinks: concat(background.socialLinks, foreground.socialLinks),
     threads: concat(background.threads, foreground.threads),
@@ -565,6 +613,7 @@ function mergePatches(backgroundInput: TurnPatch | null | undefined, foregroundI
     upsertCharacterArcs: concat(background.upsertCharacterArcs, foreground.upsertCharacterArcs),
     upsertMysteryCases: concat(background.upsertMysteryCases, foreground.upsertMysteryCases),
     upsertAntagonistPlans: concat(background.upsertAntagonistPlans, foreground.upsertAntagonistPlans),
+    upsertWorldPressures: concat(background.upsertWorldPressures, foreground.upsertWorldPressures),
     upsertInfluenceAssets: concat(background.upsertInfluenceAssets, foreground.upsertInfluenceAssets),
     removeInfluenceAssetIds: unique(background.removeInfluenceAssetIds, foreground.removeInfluenceAssetIds),
     cleanup,
@@ -786,6 +835,7 @@ function restrictBackgroundPatch(patchInput: TurnPatch | null | undefined): Turn
     world: patch.world,
     upsertCharacterArcs: patch.upsertCharacterArcs,
     upsertAntagonistPlans: patch.upsertAntagonistPlans,
+    upsertWorldPressures: patch.upsertWorldPressures,
     upsertInfluenceAssets: patch.upsertInfluenceAssets,
     cleanup: patch.cleanup,
   }

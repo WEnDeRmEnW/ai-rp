@@ -4,6 +4,10 @@ const labels: Record<string, string> = {
   cancelled: 'Отменено', pending: 'Ожидает', abandoned: 'Оставлено', dormant: 'Неактивно', destroyed: 'Уничтожено', damaged: 'Повреждено', missing: 'Отсутствует',
   proposed: 'Предложено', contested: 'Оспаривается', repealed: 'Отменено', emerging: 'Формируется', obsolete: 'Утратило силу',
   spent: 'Использовано', repaid: 'Погашено', lost: 'Утрачено', possible: 'Возможно', invited: 'Приглашён', member: 'В отряде', left: 'Ушёл', unavailable: 'Недоступно',
+  respite: 'Передышка', setup: 'Завязка', exploration: 'Исследование', rising: 'Нарастание', challenge: 'Испытание', aftermath: 'Последствия', climax: 'Кульминация',
+  none: 'Нет', light: 'Лёгкое', hard: 'Сложное', severe: 'Крайне опасное', legendary: 'Легендарное', mythic: 'Мифическое',
+  minor: 'Незначительное', capable: 'Опытное', dangerous: 'Опасное', elite: 'Элитное', trace: 'Слабый след', local: 'Местное', serious: 'Серьёзное', critical: 'Критическое',
+  npc: 'Персонаж', authority: 'Власть', corporation: 'Корпорация', deity: 'Божество', cosmic: 'Космическая сила', watching: 'Наблюдает', investigating: 'Расследует', preparing: 'Готовится', acting: 'Действует', cooling: 'Ослабевает', considered: 'Рассматривается', foiled: 'Сорвано',
 
   mystery: 'Тайна', rumor: 'Слух', promise: 'Обещание', debt: 'Долг', witness: 'Свидетельство', quest: 'Задание', personal: 'Личная линия',
   summary: 'Сводка', fact: 'Факт', relationship: 'Отношения', scene: 'Сцена', chapter: 'Глава', era: 'Эпоха',
@@ -40,7 +44,7 @@ export function uiLabel(value: string | undefined, fallback = 'Другое') {
 
 /** Localizes previously stored technical receipts without mutating campaign data. */
 export function localizeTechnicalText(value: string) {
-  return value.replace(technicalPattern, (match) => labels[match.toLocaleLowerCase('ru-RU')] ?? match).replace(/\bNPC\b/g, 'персонаж')
+  return value.replace(/\bNPC\b/g, 'персонаж').replace(technicalPattern, (match) => labels[match.toLocaleLowerCase('ru-RU')] ?? match)
 }
 
 export function resourceUiLabel(key: string, available?: Array<{ key: string; label: string; aliases?: string[] }>) {

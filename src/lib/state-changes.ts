@@ -16,6 +16,11 @@ const normalized = (value: string) => value.trim().toLocaleLowerCase('ru-RU')
 const signed = (value: number) => `${value >= 0 ? '+' : '−'}${Math.abs(value)}`
 const short = (value: string, limit = 96) => value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
+const threatTierLabels = { minor: 'незначительная', capable: 'опытная', dangerous: 'опасная', elite: 'элитная', legendary: 'легендарная', mythic: 'мифическая' } as const
+const storyBeatLabels = { respite: 'передышка', setup: 'завязка', exploration: 'исследование', rising: 'нарастание', challenge: 'испытание', aftermath: 'последствия', climax: 'кульминация' } as const
+const challengeTierLabels = { none: 'без испытания', light: 'лёгкая', standard: 'обычная', hard: 'сложная', severe: 'крайне опасная', legendary: 'легендарная', mythic: 'мифическая' } as const
+const pressureTierLabels = { trace: 'слабый след', local: 'местное', serious: 'серьёзное', critical: 'критическое', legendary: 'легендарное', mythic: 'мифическое' } as const
+const pressureStageLabels = { watching: 'наблюдение', investigating: 'расследование', preparing: 'подготовка', acting: 'действие', cooling: 'ослабление', resolved: 'завершено' } as const
 
 function byId<T extends { id: string }>(values: T[] | undefined): Map<string, T> {
   return new Map((values ?? []).map((value) => [value.id, value]))
@@ -466,6 +471,19 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
         source: visible ? 'state-engine' : 'hidden-state',
       })
     }
+    if (!same(oldNpc.threatProfile, newNpc.threatProfile)) {
+      const visible = newNpc.threatProfile?.visibility !== 'hidden'
+      changes.push({
+        kind: 'character',
+        label: visible && newNpc.threatProfile ? `${newNpc.name}: оценка угрозы` : `${newNpc.name}: скрытый масштаб угрозы`,
+        detail: visible && newNpc.threatProfile ? `${threatTierLabels[newNpc.threatProfile.tier]} · ${short(newNpc.threatProfile.reputation)}` : 'Скрытые сведения об угрозе обновлены',
+        tone: newNpc.threatProfile && ['legendary', 'mythic'].includes(newNpc.threatProfile.tier) ? 'warning' : 'neutral',
+        entityId: npcId,
+        before: oldNpc.threatProfile?.tier,
+        after: newNpc.threatProfile?.tier,
+        source: visible ? 'state-engine' : 'hidden-state',
+      })
+    }
     const dimensions = new Set([...Object.keys(oldNpc.relationshipDimensions ?? {}), ...Object.keys(newNpc.relationshipDimensions ?? {})])
     dimensions.forEach((dimension) => {
       const oldValue = oldNpc.relationshipDimensions?.[dimension as keyof typeof oldNpc.relationshipDimensions] ?? 0
@@ -507,12 +525,24 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
     changes.push({ kind: 'scene', label, detail: `${oldValue} → ${newValue}${delta !== undefined ? ` (${signed(delta)})` : ''}`, tone: field === 'tension' && delta !== undefined ? positiveDeltaTone(-delta) : 'neutral', before: oldValue, after: newValue, delta, source: 'state-engine' })
   })
   if (!same(before.scene.presentNpcIds, after.scene.presentNpcIds)) changes.push({ kind: 'scene', label: 'Участники сцены', detail: 'Состав присутствующих изменился', tone: 'neutral', source: 'state-engine' })
+  if (!same(before.pacing, after.pacing) && after.pacing) {
+    changes.push({
+      kind: 'scene',
+      label: 'Ритм истории',
+      detail: `${storyBeatLabels[after.pacing.beat]} · ${challengeTierLabels[after.pacing.challengeTier]} · интенсивность ${Math.round(after.pacing.intensity)}%`,
+      tone: ['severe', 'legendary', 'mythic'].includes(after.pacing.challengeTier) ? 'warning' : after.pacing.beat === 'respite' ? 'positive' : 'neutral',
+      before: before.pacing?.intensity,
+      after: after.pacing.intensity,
+      delta: before.pacing ? after.pacing.intensity - before.pacing.intensity : undefined,
+      source: 'state-engine',
+    })
+  }
   if (!before.activeConflict && after.activeConflict) {
-    changes.push({ kind: 'conflict', label: after.activeConflict.title, detail: `Началось противостояние · раунд ${after.activeConflict.round}`, tone: 'warning', entityId: after.activeConflict.id, after: after.activeConflict.momentum, source: 'state-engine' })
+    changes.push({ kind: 'conflict', label: after.activeConflict.title, detail: `Началось противостояние${after.activeConflict.tier ? ` · ${challengeTierLabels[after.activeConflict.tier]}` : ''} · раунд ${after.activeConflict.round}`, tone: 'warning', entityId: after.activeConflict.id, after: after.activeConflict.momentum, source: 'state-engine' })
   } else if (before.activeConflict && !after.activeConflict) {
     changes.push({ kind: 'conflict', label: before.activeConflict.title, detail: 'Противостояние завершено', tone: 'neutral', entityId: before.activeConflict.id, before: before.activeConflict.momentum, source: 'state-engine' })
   } else if (before.activeConflict && after.activeConflict && !same(before.activeConflict, after.activeConflict)) {
-    changes.push({ kind: 'conflict', label: after.activeConflict.title, detail: `Раунд ${before.activeConflict.round} → ${after.activeConflict.round} · ${before.activeConflict.momentum} → ${after.activeConflict.momentum}`, tone: after.activeConflict.momentum === 'opposition' ? 'warning' : after.activeConflict.momentum === 'player' ? 'positive' : 'neutral', entityId: after.activeConflict.id, before: before.activeConflict.momentum, after: after.activeConflict.momentum, source: 'state-engine' })
+    changes.push({ kind: 'conflict', label: after.activeConflict.title, detail: `Раунд ${before.activeConflict.round} → ${after.activeConflict.round} · темп: ${before.activeConflict.momentum} → ${after.activeConflict.momentum}${after.activeConflict.tier ? ` · ${challengeTierLabels[after.activeConflict.tier]}` : ''}`, tone: after.activeConflict.momentum === 'opposition' ? 'warning' : after.activeConflict.momentum === 'player' ? 'positive' : 'neutral', entityId: after.activeConflict.id, before: before.activeConflict.momentum, after: after.activeConflict.momentum, source: 'state-engine' })
   }
 
   const worldFields: Array<[keyof Campaign['world'], string]> = [['tagline', 'Описание мира'], ['overview', 'Состояние мира'], ['era', 'Эпоха']]
@@ -654,6 +684,7 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
 
   collectionChanges(changes, before.threads, after.threads, 'world', (thread) => thread.secret ? 'Скрытая сюжетная линия' : `Линия: ${thread.title}`, (thread) => thread.status)
   collectionChanges(changes, before.worldEvents, after.worldEvents, 'world', (event) => event.visibility === 'hidden' ? 'Скрытое мировое событие' : `Событие: ${event.title}`, (event) => event.status)
+  collectionChanges(changes, before.worldPressures, after.worldPressures, 'world', (pressure) => pressure.visibility === 'hidden' ? 'Скрытая реакция мира' : `Давление: ${pressure.sourceName}`, (pressure) => pressure.visibility === 'hidden' ? 'Скрытое состояние изменилось' : `${pressureTierLabels[pressure.tier]} · ${pressureStageLabels[pressure.stage]}`)
   collectionChanges(changes, before.characterArcs, after.characterArcs, 'character', (arc) => arc.secret ? 'Скрытая арка персонажа' : `Арка: ${arc.title}`, (arc) => arc.progress)
   collectionChanges(changes, before.influenceAssets, after.influenceAssets, 'relationship', (asset) => asset.secret ? 'Скрытый ресурс влияния' : `Влияние: ${asset.title}`, (asset) => asset.value)
 

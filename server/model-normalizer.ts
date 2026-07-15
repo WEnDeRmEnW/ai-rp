@@ -27,6 +27,9 @@ const ARRAY_KEYS = new Set([
   'observedPlayerPatterns', 'strengths', 'blindSpots', 'contingencies', 'retreatConditions', 'ethicalLimits', 'learnedAdaptations', 'countermeasures', 'tradeoffs',
   'participants', 'terrain', 'hazards', 'advantages', 'vulnerabilities',
   'techniques', 'addTechniques', 'techniqueChanges', 'removeTechniqueIds',
+  'worldPressures', 'upsertWorldPressures', 'measures', 'counterplay', 'deescalationConditions',
+  'whyDangerous', 'knownFeats', 'constraints', 'defeatRequirements', 'escalationTriggers',
+  'victoryConditions', 'failureConsequences', 'escapeRoutes', 'telegraphs', 'targetNames', 'targetIds',
   'upsertFactionReputation', 'upsertLaws', 'upsertMechanics', 'territory', 'goals',
 ])
 
@@ -53,10 +56,13 @@ const ARRAY_LIMITS: Record<string, number> = {
   itemEffects: 12, powerChanges: 64, componentChanges: 32, addComponents: 32,
   addPassiveEffects: 48, addCombinedEffects: 48, addFailureModes: 48,
   aliases: 16, statusEffects: 48, upsertStatusEffects: 48, removeStatusEffectIds: 48, removeKnowledgeIds: 30,
-  verifiedDomains: 16, omissions: 64, observedPlayerPatterns: 16, strengths: 12, blindSpots: 12, contingencies: 12,
+  verifiedDomains: 17, omissions: 64, observedPlayerPatterns: 16, strengths: 12, blindSpots: 12, contingencies: 12,
   retreatConditions: 12, ethicalLimits: 12, learnedAdaptations: 16, countermeasures: 16, tradeoffs: 12,
   participants: 24, terrain: 16, hazards: 16, advantages: 12, vulnerabilities: 12,
   techniques: 48, addTechniques: 48, techniqueChanges: 48, removeTechniqueIds: 48,
+  worldPressures: 16, upsertWorldPressures: 16, measures: 16, counterplay: 16, deescalationConditions: 12,
+  whyDangerous: 12, knownFeats: 12, constraints: 12, defeatRequirements: 12, escalationTriggers: 12,
+  victoryConditions: 12, failureConsequences: 12, escapeRoutes: 12, telegraphs: 12, targetNames: 20, targetIds: 20,
   upsertFactionReputation: 16, removeLawIds: 24, removeMechanicIds: 24, removeInterfaceModuleIds: 8,
 }
 
@@ -76,18 +82,18 @@ const NUMBER_KEYS = new Set([
   'discoveredTurn', 'trust', 'respect', 'affection', 'fear', 'suspicion', 'dependence',
   'coverage', 'round', 'readiness', 'morale', 'startedTurn', 'lastUpdatedTurn',
   'criticalBelow', 'charges', 'maxCharges', 'stacks', 'remaining', 'expiresTurn', 'appliedTurn',
-  'masteryDelta', 'attunementDelta', 'bondDelta', 'powerMasteryDelta', 'power', 'lastChangedTurn', 'min',
+  'masteryDelta', 'attunementDelta', 'bondDelta', 'powerMasteryDelta', 'power', 'lastChangedTurn', 'min', 'intensity',
 ])
 
 const ID_KEYS = new Set([
   'id', 'targetId', 'npcId', 'fromNpcId', 'toNpcId', 'abilityId', 'itemId', 'powerId', 'componentId', 'ownerId',
-  'culpritId', 'holderId', 'ownerNpcId', 'entityId', 'techniqueId',
+  'culpritId', 'holderId', 'ownerNpcId', 'entityId', 'techniqueId', 'sourceNpcId',
 ])
 const ID_ARRAY_KEYS = new Set([
   'presentNpcIds', 'participantIds', 'involvedIds', 'entityIds', 'removeAbilityIds',
   'removeRouteIds', 'addNpcIds', 'removeNpcIds', 'unlockEvolutionPathIds',
   'removeInfluenceAssetIds', 'removeTechniqueIds',
-  'removeStatusEffectIds', 'removeKnowledgeIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds', 'links',
+  'removeStatusEffectIds', 'removeKnowledgeIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds', 'links', 'targetIds',
 ])
 
 const ARRAY_IDENTITY: Record<string, string> = {
@@ -103,6 +109,7 @@ const ARRAY_IDENTITY: Record<string, string> = {
   powerChanges: 'powerId', componentChanges: 'componentId', addComponents: 'name',
   upsertFactions: 'name', upsertLocations: 'name', addEvolutionPaths: 'name',
   techniques: 'name', addTechniques: 'name', techniqueChanges: 'techniqueId',
+  worldPressures: 'id', upsertWorldPressures: 'id', measures: 'id',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -296,6 +303,7 @@ const consequenceDomainAliases: Record<string, string> = {
   conflict: 'conflict', confrontation: 'conflict', encounter: 'conflict', combat: 'conflict', конфликт: 'conflict', противостояние: 'conflict', бой: 'conflict',
   'scene time': 'scene_time', sceneandtime: 'scene_time', 'scene and time': 'scene_time', 'location time': 'scene_time', сцена: 'scene_time', время: 'scene_time', 'сцена и время': 'scene_time', 'место и время': 'scene_time',
   world: 'world', 'world state': 'world', мир: 'world', 'состояние мира': 'world',
+  world_pressure: 'world_pressure', 'world pressure': 'world_pressure', pressure: 'world_pressure', 'давление мира': 'world_pressure', 'реакция мира': 'world_pressure',
   knowledge: 'knowledge', memory: 'knowledge', lore: 'knowledge', знания: 'knowledge', память: 'knowledge', 'память и знания': 'knowledge',
 }
 
@@ -356,6 +364,35 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'status' && (has('influenceAssets') || has('upsertInfluenceAssets'))) return translate({
     активно: 'active', доступно: 'active', потрачено: 'spent', использовано: 'spent',
     возвращено: 'repaid', погашено: 'repaid', потеряно: 'lost', утрачено: 'lost',
+  })
+  if (key === 'beat') return translate({
+    передышка: 'respite', отдых: 'respite', подготовка: 'setup', завязка: 'setup', исследование: 'exploration',
+    нарастание: 'rising', напряжение: 'rising', испытание: 'challenge', последствия: 'aftermath', развязка: 'aftermath', кульминация: 'climax',
+  })
+  if (key === 'challengeTier' || (key === 'tier' && has('conflict'))) return translate({
+    нет: 'none', отсутствует: 'none', лёгкий: 'light', легкий: 'light', простой: 'light', обычный: 'standard', средний: 'standard',
+    сложный: 'hard', тяжёлый: 'severe', тяжелый: 'severe', экстремальный: 'severe', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic',
+  })
+  if (key === 'tier' && has('threatProfile')) return translate({
+    незначительный: 'minor', обычный: 'capable', подготовленный: 'capable', опасный: 'dangerous', элитный: 'elite',
+    легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic',
+  })
+  if (key === 'tier' && (has('worldPressures') || has('upsertWorldPressures'))) return translate({
+    след: 'trace', слабый: 'trace', локальный: 'local', местный: 'local', серьёзный: 'serious', серьезный: 'serious',
+    критический: 'critical', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic',
+  })
+  if (key === 'sourceKind' && (has('worldPressures') || has('upsertWorldPressures'))) return translate({
+    персонаж: 'npc', нпс: 'npc', фракция: 'faction', власть: 'authority', корпорация: 'corporation', бог: 'deity', божество: 'deity',
+    космос: 'cosmic', космическая: 'cosmic', среда: 'environment', окружение: 'environment', другое: 'other',
+  })
+  if (key === 'stage' && (has('worldPressures') || has('upsertWorldPressures'))) return translate({
+    наблюдает: 'watching', наблюдение: 'watching', расследует: 'investigating', расследование: 'investigating',
+    готовится: 'preparing', подготовка: 'preparing', действует: 'acting', действие: 'acting', затихает: 'cooling', ослабевает: 'cooling',
+    завершено: 'resolved', разрешено: 'resolved',
+  })
+  if (key === 'status' && has('measures') && (has('worldPressures') || has('upsertWorldPressures'))) return translate({
+    рассматривается: 'considered', задумано: 'considered', готовится: 'preparing', подготовка: 'preparing', активно: 'active', действует: 'active',
+    использовано: 'spent', израсходовано: 'spent', сорвано: 'foiled', провалено: 'foiled',
   })
 
   if (key === 'chosen') return translate({ а: 'a', '1': 'a', первый: 'a', б: 'b', '2': 'b', второй: 'b' })

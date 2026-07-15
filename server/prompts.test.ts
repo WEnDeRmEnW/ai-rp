@@ -46,6 +46,10 @@ describe('world architect prompt', () => {
     expect(system.content).toContain('Это не жанровые пресеты')
     expect(system.content).toContain('interfaceModules[{id,title,subtitle?')
     expect(system.content).toContain('binding.domain: custom, player.resource')
+    expect(system.content).toContain('worldPressures[{sourceKind,sourceName,sourceNpcName?')
+    expect(system.content).toContain('opening{scene{title,location,time,weather,tension,presentNpcNames[]},pacing{beat,intensity,challengeTier,reason}')
+    expect(system.content).toContain('threatProfile?{tier,scope,reputation')
+    expect(system.content).toContain('Не создавай легендарного врага или бога по квоте')
   })
 
   it('separates canon analysis from generation and requires checklist coverage', () => {
@@ -79,6 +83,8 @@ describe('world architect prompt', () => {
     expect(critic).toContain('подменена одноимённым аналогом')
     expect(critic).toContain('Живой мир готов к самостоятельному развитию')
     expect(critic).toContain('interfaceModules спроектированы из фактической структуры именно этого мира')
+    expect(critic).toContain('Каждое worldPressure причинно')
+    expect(critic).toContain('opening.pacing совпадает с реальной первой сценой')
   })
 })
 
@@ -192,6 +198,10 @@ describe('turn patch prompt contracts', () => {
     expect(system).toContain('world.upsertPlaces')
     expect(system).toContain('world.upsertProcesses')
     expect(system).toContain('{"cleanup":{"threads"')
+    expect(system).toContain('pacing обязателен на каждом ходе')
+    expect(system).toContain('upsertWorldPressures')
+    expect(system).toContain('Лёгкая сцена не является филлером')
+    expect(system).toContain('Реакция не возникает из телепатии')
   })
 
   it('keeps the progression auditor on canonical deltas, absolutes and singular history objects', () => {
@@ -219,6 +229,8 @@ describe('turn patch prompt contracts', () => {
     expect(system).toContain('world.upsertMechanics=[')
     expect(system).toContain('world.places — не список декораций')
     expect(system).toContain('world.processes — долгие войны')
+    expect(system).toContain('Отдельно проверяй worldPressures')
+    expect(system).toContain('Без канала знания реакции нет')
     expect(system).toContain('и cleanup')
     expect(system).toContain('Новая фракция возникает лишь когда')
     expect(system).not.toContain(oldAmbiguousArtifactWording)

@@ -23,6 +23,29 @@ describe('campaign editor contract', () => {
 })
 
 describe('persistent living-world patches', () => {
+  it('accepts Russian DeepSeek aliases for pacing, exceptional threats and causal world pressure', () => {
+    const parsed = turnPatchSchema.parse({
+      pacing: { beat: 'передышка', intensity: '24%', challengeTier: 'лёгкий', reason: 'После погони наступила короткая безопасная пауза.' },
+      npcs: [{ operation: 'update', targetId: 'npc-legend', npc: { threatProfile: {
+        tier: 'легендарный', scope: 'Способен изменить исход войны в одном регионе.', reputation: 'Пережил падение крепости.',
+        whyDangerous: ['Владеет пространством боя.'], knownFeats: ['Остановил армию у перевала.'], constraints: ['Не может покинуть границы клятвы.'],
+        defeatRequirements: ['Разрушить якорь клятвы.'], escalationTriggers: ['Угроза охраняемому городу.'], visibility: 'слухи',
+      } } }],
+      upsertWorldPressures: [{
+        id: 'pressure-corp', sourceKind: 'корпорация', sourceName: 'Орден Меди', targetIds: ['player-1'],
+        cause: 'Свидетель передал запись нападения.', objective: 'Установить личность нападавшего.', tier: 'серьёзный', stage: 'расследует',
+        reach: 'Городская сеть наблюдения.', knowledge: ['Есть неполная запись.'], signs: ['Следователи опрашивают свидетелей.'],
+        measures: [{ id: 'measure-cameras', name: 'Сверка камер', trigger: 'Получены записи соседнего квартала.', method: 'Сопоставить время и маршрут.', effects: ['Сузить район поиска.'], counterplay: ['Создать ложный маршрут.'], tradeoffs: ['Нужен ордер и время.'], status: 'готовится' }],
+        counterplay: ['Найти свидетеля раньше следователей.'], escalationTrigger: 'Личность подтверждена двумя источниками.', deescalationConditions: ['Виновник опровергнут.'],
+        visibility: 'известно', createdTurn: '3', lastAdvancedTurn: '3',
+      }],
+    })
+
+    expect(parsed.pacing).toMatchObject({ beat: 'respite', intensity: 24, challengeTier: 'light' })
+    expect(parsed.npcs?.[0]).toMatchObject({ npc: { threatProfile: { tier: 'legendary', visibility: 'rumored' } } })
+    expect(parsed.upsertWorldPressures?.[0]).toMatchObject({ sourceKind: 'corporation', tier: 'serious', stage: 'investigating', measures: [{ status: 'preparing' }] })
+  })
+
   it('accepts causal laws, mechanics and enriched factions from DeepSeek without placeholder fields', () => {
     const parsed = turnPatchSchema.parse({
       world: {
@@ -223,7 +246,7 @@ describe('canon quality gate', () => {
 describe('consequence completeness audit', () => {
   const allDomains = [
     'HP', 'ресурсы', 'attributes', 'эффекты', 'рюкзак', 'снаряжение', 'навыки', 'реликвии',
-    'деньги', 'социальные связи', 'задания', 'NPC', 'противостояние', 'scene/time', 'состояние мира', 'память и знания',
+    'деньги', 'социальные связи', 'задания', 'NPC', 'противостояние', 'scene/time', 'состояние мира', 'давление мира', 'память и знания',
   ]
 
   it('normalizes every audit domain and its supplemental state patch without dropping values', () => {
@@ -254,7 +277,7 @@ describe('consequence completeness audit', () => {
 
     expect(parsed.verifiedDomains).toEqual([
       'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
-      'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'knowledge',
+      'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'world_pressure', 'knowledge',
     ])
     expect(parsed.omissions[0].domain).toBe('health')
     expect(parsed.statePatch.playerProfile?.lifeState).toBe('unconscious')
@@ -263,7 +286,7 @@ describe('consequence completeness audit', () => {
     expect(parsed.statePatch.inventory?.[0].item).toMatchObject({ state: 'damaged', charges: 0, maxCharges: 3 })
   })
 
-  it('rejects an audit that repeats a domain instead of checking all sixteen', () => {
+  it('rejects an audit that repeats a domain instead of checking all seventeen', () => {
     const duplicated = [...allDomains.slice(0, -1), 'мир']
     const result = consequenceAuditSchema.safeParse({ pass: true, narrativePass: true, narrativeIssues: [], verifiedDomains: duplicated, omissions: [], statePatch: {} })
 

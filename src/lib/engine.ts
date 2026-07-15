@@ -22,6 +22,7 @@ import type {
   PowerTechniqueDraft,
   StatusEffect,
   StateChange,
+  WorldPressure,
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
@@ -382,6 +383,10 @@ function normalizeActiveConflict(incoming: ActiveConflict, turn: number, existin
     round: Math.max(1, Math.round(incoming.round)),
     terrain: incoming.terrain.slice(-16),
     hazards: incoming.hazards.slice(-16),
+    victoryConditions: incoming.victoryConditions?.slice(-12),
+    failureConsequences: incoming.failureConsequences?.slice(-12),
+    escapeRoutes: incoming.escapeRoutes?.slice(-12),
+    telegraphs: incoming.telegraphs?.slice(-12),
     participants: incoming.participants.slice(0, 24).map((participant) => ({
       ...participant,
       readiness: clamp(participant.readiness, 0, 100),
@@ -391,6 +396,38 @@ function normalizeActiveConflict(incoming: ActiveConflict, turn: number, existin
     })),
     startedTurn: existing?.startedTurn ?? Math.max(0, Math.min(turn, Math.round(incoming.startedTurn))),
     lastUpdatedTurn: turn,
+  }
+}
+
+function normalizeWorldPressure(incoming: WorldPressure, turn: number, existing?: WorldPressure): WorldPressure {
+  return {
+    ...incoming,
+    id: existing?.id ?? incoming.id,
+    sourceNpcId: existing?.sourceNpcId ?? incoming.sourceNpcId,
+    targetIds: [...new Set(incoming.targetIds)].slice(0, 20),
+    knowledge: incoming.knowledge.slice(-20),
+    signs: incoming.signs.slice(-16),
+    measures: incoming.measures.slice(-16).map((measure) => ({
+      ...measure,
+      effects: measure.effects.slice(-12),
+      counterplay: measure.counterplay.slice(-12),
+      tradeoffs: measure.tradeoffs.slice(-12),
+    })),
+    counterplay: incoming.counterplay.slice(-16),
+    deescalationConditions: incoming.deescalationConditions.slice(-12),
+    createdTurn: existing?.createdTurn ?? Math.max(0, Math.min(turn, Math.round(incoming.createdTurn))),
+    lastAdvancedTurn: Math.max(0, Math.min(turn, Math.round(incoming.lastAdvancedTurn))),
+  }
+}
+
+function normalizeThreatProfile(profile: NonNullable<Campaign['npcs'][number]['threatProfile']>) {
+  return {
+    ...profile,
+    whyDangerous: profile.whyDangerous.slice(-12),
+    knownFeats: profile.knownFeats.slice(-12),
+    constraints: profile.constraints.slice(-12),
+    defeatRequirements: profile.defeatRequirements.slice(-12),
+    escalationTriggers: profile.escalationTriggers.slice(-12),
   }
 }
 
@@ -405,6 +442,7 @@ function createSnapshot(campaign: Campaign): CampaignSnapshot {
     lore: structuredClone(campaign.lore),
     memories: structuredClone(campaign.memories),
     scene: structuredClone(campaign.scene),
+    pacing: structuredClone(campaign.pacing),
     activeConflict: structuredClone(campaign.activeConflict),
     socialLinks: structuredClone(campaign.socialLinks ?? []),
     threads: structuredClone(campaign.threads ?? []),
@@ -416,6 +454,7 @@ function createSnapshot(campaign: Campaign): CampaignSnapshot {
     characterArcs: structuredClone(campaign.characterArcs ?? []),
     mysteryCases: structuredClone(campaign.mysteryCases ?? []),
     antagonistPlans: structuredClone(campaign.antagonistPlans ?? []),
+    worldPressures: structuredClone(campaign.worldPressures ?? []),
     influenceAssets: structuredClone(campaign.influenceAssets ?? []),
     messageCount: campaign.messages.length,
     eventCount: campaign.timeline.length,
@@ -482,6 +521,8 @@ export function describePatch(patch: TurnPatch): string[] {
   patch.upsertCharacterArcs?.forEach((arc) => changes.push(`Арка: ${arc.title}`))
   patch.upsertMysteryCases?.forEach((mystery) => changes.push(`Расследование: ${mystery.title}`))
   patch.upsertAntagonistPlans?.forEach(() => changes.push('План противника продвинулся'))
+  patch.upsertWorldPressures?.forEach((pressure) => changes.push(`Ответ мира: ${pressure.sourceName}`))
+  if (patch.pacing) changes.push(`Ритм сцены: ${patch.pacing.beat} · ${patch.pacing.challengeTier}`)
   patch.upsertInfluenceAssets?.forEach((asset) => changes.push(`Влияние: ${asset.title}`))
   if (patch.conflict) changes.push(patch.conflict.operation === 'start' ? 'Началось противостояние' : patch.conflict.operation === 'resolve' ? 'Противостояние завершилось' : 'Обстановка противостояния изменилась')
   return changes.slice(0, 14)
@@ -521,6 +562,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
   campaign.characterArcs ??= []
   campaign.mysteryCases ??= []
   campaign.antagonistPlans ??= []
+  campaign.worldPressures ??= []
   campaign.influenceAssets ??= []
   campaign.world.places ??= []
   campaign.world.processes ??= []
@@ -842,6 +884,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
           statusEffects: mutation.npc.statusEffects?.slice(0, 48).map((effect) => normalizeStatusEffect(effect, turn)) ?? [],
           abilities: mutation.npc.abilities?.slice(0, 40).map((ability) => materializeAbility(ability, turn)) ?? [],
           strategy: mutation.npc.strategy ? normalizeNpcStrategy(mutation.npc.strategy, turn) : undefined,
+          threatProfile: mutation.npc.threatProfile ? normalizeThreatProfile(mutation.npc.threatProfile) : undefined,
           recruitment: mutation.npc.recruitment ? {
             ...mutation.npc.recruitment,
             willingness: clamp(mutation.npc.recruitment.willingness, 0, 100),
@@ -857,7 +900,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
       return
     }
     const {
-      notes, stats, resources, statusEffects, abilities, upsertAbilities, removeAbilityIds, abilityChanges, knowledge, relationshipDimensions, initiative, strategy, recruitment, voice,
+      notes, stats, resources, statusEffects, abilities, upsertAbilities, removeAbilityIds, abilityChanges, knowledge, relationshipDimensions, initiative, strategy, threatProfile, recruitment, voice,
       upsertStats, removeStatKeys, upsertResources, removeResourceKeys, statDeltas, resourceDeltas,
       upsertStatusEffects, removeStatusEffectIds, removeKnowledgeIds,
       ...profile
@@ -945,6 +988,7 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
       if (normalized) npc.strategy = normalized
       else rejectedReference(diagnostics, `statePatch.npcs[${mutationIndex}].npc.strategy`, npc.id, 'неполный стратегический профиль нельзя создать без существующей основы')
     }
+    if (threatProfile) npc.threatProfile = normalizeThreatProfile(threatProfile)
     if (recruitment) npc.recruitment = {
       ...recruitment,
       willingness: clamp(recruitment.willingness, 0, 100),
@@ -1186,6 +1230,27 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
     else campaign.antagonistPlans?.push(normalized)
   })
 
+  patch.upsertWorldPressures?.slice(0, 16).forEach((incoming, pressureIndex) => {
+    const invalidTarget = incoming.targetIds.find((targetId) => !campaignEntityIds.has(targetId))
+    if (invalidTarget) {
+      rejectedReference(diagnostics, `statePatch.upsertWorldPressures[${pressureIndex}].targetIds`, invalidTarget, 'цель давления мира не найдена')
+      return
+    }
+    if (incoming.sourceNpcId && !campaignEntityIds.has(incoming.sourceNpcId)) {
+      rejectedReference(diagnostics, `statePatch.upsertWorldPressures[${pressureIndex}].sourceNpcId`, incoming.sourceNpcId, 'источник давления мира не найден')
+      return
+    }
+    const measureIds = incoming.measures.map((measure) => measure.id)
+    if (measureIds.length !== new Set(measureIds).size) {
+      rejectedReference(diagnostics, `statePatch.upsertWorldPressures[${pressureIndex}].measures`, incoming.id, 'контрмеры имеют повторяющиеся id')
+      return
+    }
+    const existing = campaign.worldPressures?.find((pressure) => pressure.id === incoming.id)
+    const normalized = normalizeWorldPressure(incoming, turn, existing)
+    if (existing) Object.assign(existing, normalized, { id: existing.id, createdTurn: existing.createdTurn })
+    else campaign.worldPressures?.push(normalized)
+  })
+
   if (patch.removeInfluenceAssetIds?.length) {
     const removed = new Set(patch.removeInfluenceAssetIds)
     patch.removeInfluenceAssetIds.forEach((assetId, index) => {
@@ -1255,6 +1320,29 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
       ...patch.scene,
       tension: clamp(patch.scene.tension ?? campaign.scene.tension, 0, 100),
       presentNpcIds: Array.isArray(patch.scene.presentNpcIds) ? patch.scene.presentNpcIds.slice(0, 12) : campaign.scene.presentNpcIds,
+    }
+  }
+
+  if (patch.pacing || campaign.pacing) {
+    const previous = campaign.pacing
+    const authored = patch.pacing ?? previous
+    if (authored) {
+      const advancesTurn = !previous || turn > previous.updatedTurn
+      const pressureBeat = ['rising', 'challenge', 'climax'].includes(authored.beat) || authored.intensity >= 70
+      const previousPressureBeat = previous && (['rising', 'challenge', 'climax'].includes(previous.beat) || previous.intensity >= 70)
+      const consecutivePressureTurns = !advancesTurn
+        ? previous?.consecutivePressureTurns ?? 0
+        : pressureBeat
+          ? previousPressureBeat ? (previous?.consecutivePressureTurns ?? 0) + 1 : 1
+          : 0
+      campaign.pacing = {
+        ...authored,
+        intensity: clamp(authored.intensity, 0, 100),
+        consecutivePressureTurns,
+        lastRespiteTurn: authored.beat === 'respite' && advancesTurn ? turn : previous?.lastRespiteTurn,
+        lastPeakTurn: ['severe', 'legendary', 'mythic'].includes(authored.challengeTier) && advancesTurn ? turn : previous?.lastPeakTurn,
+        updatedTurn: advancesTurn ? turn : previous?.updatedTurn ?? turn,
+      }
     }
   }
 
@@ -1495,6 +1583,15 @@ export function applyPatch(base: Campaign, patch: TurnPatch, turn: number, diagn
     (plan, reason) => `${plan.objective} Итог: ${reason}`,
     'world',
   )
+  campaign.worldPressures = retire(
+    campaign.worldPressures,
+    cleanup?.worldPressures,
+    (pressure) => pressure.stage === 'resolved',
+    'worldPressures',
+    (pressure) => `${pressure.sourceName}: ${pressure.objective}`,
+    (pressure, reason) => `${pressure.cause} Итог: ${reason}`,
+    'world',
+  )
   const removedMemoryIds = new Set<string>()
   ;(cleanup?.memories ?? []).forEach((request, index) => {
     const memory = campaign.memories.find((entry) => entry.id === request.targetId)
@@ -1620,6 +1717,7 @@ export function rewindLastTurn(campaign: Campaign): Campaign {
     lore: structuredClone(snapshot.lore),
     memories: structuredClone(snapshot.memories),
     scene: structuredClone(snapshot.scene),
+    pacing: structuredClone(snapshot.pacing ?? campaign.pacing),
     activeConflict: structuredClone(snapshot.activeConflict),
     socialLinks: structuredClone(snapshot.socialLinks ?? campaign.socialLinks ?? []),
     threads: structuredClone(snapshot.threads ?? campaign.threads ?? []),
@@ -1631,6 +1729,7 @@ export function rewindLastTurn(campaign: Campaign): Campaign {
     characterArcs: structuredClone(snapshot.characterArcs ?? campaign.characterArcs ?? []),
     mysteryCases: structuredClone(snapshot.mysteryCases ?? campaign.mysteryCases ?? []),
     antagonistPlans: structuredClone(snapshot.antagonistPlans ?? campaign.antagonistPlans ?? []),
+    worldPressures: structuredClone(snapshot.worldPressures ?? campaign.worldPressures ?? []),
     influenceAssets: structuredClone(snapshot.influenceAssets ?? campaign.influenceAssets ?? []),
     messages: campaign.messages.slice(0, snapshot.messageCount),
     timeline: campaign.timeline.slice(0, snapshot.eventCount),

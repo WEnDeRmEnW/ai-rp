@@ -263,6 +263,17 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .scene-card::after, .world-card::after { content: ""; position: absolute; right: -28px; top: -37px; width: 100px; height: 100px; border: 1px solid color-mix(in srgb, var(--accent) 13%, transparent); border-radius: 50%; box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 7%, transparent); }
 .scene-card h2, .world-card h2 { margin: 7px 0 5px; font-family: ui-serif, Georgia, serif; font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
 .scene-card p, .world-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.pacing-card { display: grid; gap: 8px; padding: 12px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border-soft)); border-radius: 12px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 4%, var(--surface-1)), var(--surface-2)); }
+.pacing-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.pacing-card > header > div { display: grid; gap: 2px; }
+.pacing-card > header span { color: var(--faint); font-size: 7.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.pacing-card > header strong { color: var(--text-soft); font: 500 13px/1.25 ui-serif, Georgia, serif; }
+.pacing-card > header b { max-width: 48%; padding: 4px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 9%, var(--surface-3)); color: var(--accent); font-size: 7.5px; font-weight: 650; text-align: right; }
+.pacing-card.tier-severe, .pacing-card.tier-legendary, .pacing-card.tier-mythic { border-color: color-mix(in srgb, var(--danger) 28%, var(--border-soft)); }
+.pacing-card.tier-severe > header b, .pacing-card.tier-legendary > header b, .pacing-card.tier-mythic > header b { background: color-mix(in srgb, var(--danger) 9%, var(--surface-3)); color: var(--danger); }
+.pacing-meter { height: 4px; overflow: hidden; border-radius: 999px; background: var(--surface-3); }
+.pacing-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--gold), var(--danger)); }
+.pacing-card > p { margin: 0; color: var(--muted); font-size: 8.5px; line-height: 1.5; }
 .conflict-card { display: grid; gap: 10px; padding: 13px; border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border-soft)); border-radius: var(--radius-l); background: linear-gradient(145deg, color-mix(in srgb, var(--danger) 6%, var(--surface-2)), var(--surface-1)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--danger) 70%, var(--accent)); }
 .conflict-card.momentum-player { border-color: color-mix(in srgb, var(--accent) 32%, var(--border-soft)); box-shadow: inset 3px 0 0 var(--accent); }
 .conflict-card.momentum-contested { border-color: color-mix(in srgb, var(--warning) 30%, var(--border-soft)); box-shadow: inset 3px 0 0 var(--warning); }
@@ -288,6 +299,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .conflict-meters > i:last-child em { background: var(--warning); }
 .conflict-card details { padding-top: 3px; border-top: 1px solid var(--border-soft); }
 .conflict-card summary { color: var(--faint); font-size: 8px; cursor: pointer; }
+.conflict-possibilities[open] { display: grid; gap: 7px; }
 .scene-meta { display: flex; justify-content: space-between; margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border-soft); color: var(--faint); font-size: 9.5px; }
 .inspector-section { margin-top: 25px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; min-height: 26px; margin-bottom: 8px; color: var(--faint); }
@@ -331,6 +343,15 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .strategy-metrics em { background: var(--info); }
 .npc-strategy p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .npc-strategy p b { display: inline; font-size: inherit; }
+.npc-threat-profile { display: grid; gap: 7px; padding: 10px; border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--border-soft)); border-radius: 10px; background: color-mix(in srgb, var(--warning) 4%, var(--surface-1)); }
+.npc-threat-profile.threat-legendary, .npc-threat-profile.threat-mythic { border-color: color-mix(in srgb, var(--danger) 30%, var(--border-soft)); background: linear-gradient(145deg, color-mix(in srgb, var(--danger) 5%, var(--surface-1)), color-mix(in srgb, var(--gold) 3%, var(--surface-2))); }
+.npc-threat-profile > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--warning); }
+.npc-threat-profile.threat-legendary > header, .npc-threat-profile.threat-mythic > header { color: var(--danger); }
+.npc-threat-profile > header > div { display: grid; gap: 2px; }
+.npc-threat-profile > header span { color: var(--faint); font-size: 7px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.npc-threat-profile > header strong { color: currentColor; font-size: 9.5px; }
+.npc-threat-profile > p, .npc-threat-profile > small, .npc-threat-profile > em { margin: 0; color: var(--muted); font-size: 8.5px; line-height: 1.5; }
+.npc-threat-profile > em { color: var(--faint); font-style: normal; }
 .npc-personality { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.55; }
 .countermeasure-list { display: grid; gap: 6px; padding-top: 7px; border-top: 1px solid var(--border-soft); }
 .countermeasure-list > b { color: var(--text-soft); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
@@ -576,6 +597,29 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .world-pulse-card.event-due header span { color: var(--gold); }
 .world-pulse-card p { margin: 5px 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .world-pulse-card small { color: var(--faint); font-size: 8px; line-height: 1.4; }
+.world-pressure-list { display: grid; gap: 9px; }
+.world-pressure-card { display: grid; gap: 9px; overflow: hidden; padding: 12px; border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--border-soft)); border-left: 3px solid var(--warning); border-radius: 3px 12px 12px 3px; background: linear-gradient(145deg, color-mix(in srgb, var(--warning) 4%, var(--surface-1)), var(--surface-2)); }
+.world-pressure-card.pressure-critical, .world-pressure-card.pressure-legendary, .world-pressure-card.pressure-mythic { border-color: color-mix(in srgb, var(--danger) 27%, var(--border-soft)); border-left-color: var(--danger); background: linear-gradient(145deg, color-mix(in srgb, var(--danger) 5%, var(--surface-1)), var(--surface-2)); }
+.world-pressure-card.stage-cooling { border-left-color: var(--faint); filter: saturate(.7); }
+.world-pressure-card > header, .world-pressure-card > footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.world-pressure-card > header > div { display: grid; gap: 2px; }
+.world-pressure-card > header span { color: var(--warning); font-size: 7.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.world-pressure-card.pressure-critical > header span, .world-pressure-card.pressure-legendary > header span, .world-pressure-card.pressure-mythic > header span { color: var(--danger); }
+.world-pressure-card > header strong { color: var(--text-soft); font-size: 10px; line-height: 1.35; }
+.world-pressure-card > header b { padding: 4px 6px; border-radius: 999px; background: var(--surface-3); color: var(--muted); font-size: 7px; font-weight: 650; text-align: right; }
+.world-pressure-card > p, .world-pressure-card > small { margin: 0; color: var(--muted); font-size: 8.5px; line-height: 1.5; }
+.world-pressure-card > small b { color: var(--text-soft); }
+.pressure-signs, .pressure-measures { display: grid; gap: 5px; padding-top: 7px; border-top: 1px solid var(--border-soft); }
+.pressure-signs > b, .pressure-measures > b { color: var(--faint); font-size: 7.5px; letter-spacing: .07em; text-transform: uppercase; }
+.pressure-signs > span { position: relative; padding-left: 10px; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.pressure-signs > span::before { content: ""; position: absolute; left: 0; top: .55em; width: 4px; height: 4px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 8px color-mix(in srgb, var(--warning) 55%, transparent); }
+.pressure-measures details { overflow: hidden; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--surface-3) 45%, transparent); }
+.pressure-measures summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; color: var(--text-soft); font-size: 8.5px; cursor: pointer; }
+.pressure-measures summary em { color: var(--faint); font-size: 7px; font-style: normal; }
+.pressure-measures details.measure-active summary em { color: var(--danger); }
+.pressure-measures details.measure-foiled summary em { color: var(--accent); }
+.pressure-measures details > p, .pressure-measures details > .power-detail-list { margin: 0 8px 7px; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.world-pressure-card > footer { padding-top: 7px; border-top: 1px solid var(--border-soft); color: var(--faint); font-size: 7.3px; line-height: 1.4; }
 .world-process-list, .world-atlas-list { display: grid; gap: 8px; }
 .world-process-card, .world-place-card { overflow: hidden; padding: 11px; border: 1px solid var(--border-soft); border-radius: 12px; background: linear-gradient(145deg, var(--surface-1), color-mix(in srgb, var(--surface-2) 91%, var(--accent) 3%)); }
 .world-process-card { border-left: 2px solid var(--accent); border-radius: 3px 12px 12px 3px; }

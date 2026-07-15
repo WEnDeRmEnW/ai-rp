@@ -4,6 +4,18 @@ import { tokenize } from '../shared/context.js'
 
 const riskyAction = /(атак|удар|стрел|уклон|взлом|крад|пробир|прыж|лез|убежд|обман|запуг|скрыт|подкрад|колдов|техник|ритуал|fight|attack|steal|climb|persuad|deceiv)/iu
 
+const challengeTierModifiers: Record<NonNullable<Campaign['pacing']>['challengeTier'], number> = {
+  none: -2,
+  light: -1,
+  standard: 0,
+  hard: 2,
+  severe: 4,
+  legendary: 6,
+  mythic: 8,
+}
+
+const threatTierRanks = { minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 } as const
+
 function metricMatchesForCheck(metric: { key: string; label: string; aliases?: string[] }, candidate: string): boolean {
   const normalized = candidate.trim().toLocaleLowerCase('ru-RU')
   return [metric.key, metric.label, ...(metric.aliases ?? [])].some((value) => value.trim().toLocaleLowerCase('ru-RU') === normalized)
@@ -170,7 +182,24 @@ function strategicOppositionModifier(campaign: Campaign, input: string) {
     factors.push('Состояния мешают противнику')
   }
 
-  const tier: NonNullable<ActionCheck['oppositionTier']> = competence >= 90 ? 'legendary' : competence >= 78 ? 'elite' : competence >= 64 ? 'dangerous' : competence >= 45 ? 'capable' : 'minor'
+  // Raw competence can establish legendary mastery, but mythic scale must be
+  // authored explicitly and backed by a validated threat profile.
+  let tier: NonNullable<ActionCheck['oppositionTier']> = competence >= 90 ? 'legendary' : competence >= 78 ? 'elite' : competence >= 64 ? 'dangerous' : competence >= 45 ? 'capable' : 'minor'
+  const profile = npc.threatProfile
+  if (profile && threatTierRanks[profile.tier] > threatTierRanks[tier]) tier = profile.tier
+  if (profile && ['legendary', 'mythic'].includes(profile.tier)) {
+    const requirementUsed = profile.defeatRequirements.some((requirement) => textMatchesAction(input, requirement))
+    if (requirementUsed) {
+      modifier -= 2
+      factors.push('Герой использует установленное условие победы')
+    } else {
+      modifier += profile.tier === 'mythic' ? 3 : 2
+      factors.push(profile.tier === 'mythic' ? 'Противостоит сила мифического масштаба' : 'Противостоит легендарная угроза')
+    }
+  } else if (profile?.tier === 'elite') {
+    modifier += 1
+    factors.push('Подтверждённый элитный противник')
+  }
   return { npc, modifier: Math.max(-4, Math.min(12, modifier)), tier, factors: [...new Set(factors)].slice(0, 8) }
 }
 
@@ -235,7 +264,8 @@ export function resolveActionCheck(
   const modifier = Math.max(-12, Math.min(12, baseModifier + structuredEffectModifier + explicitEffectModifier - Math.min(3, criticalResourcePenalty) + lifeStatePenalty))
   const difficultyBase = campaign.settings.difficulty === 'story' ? 8 : campaign.settings.difficulty === 'harsh' ? 13 : 10
   const opposition = strategicOppositionModifier(campaign, input)
-  const target = Math.max(4, Math.min(30, difficultyBase + Math.floor(campaign.scene.tension / 30) + (opposition?.modifier ?? 0)))
+  const challengeModifier = campaign.pacing ? challengeTierModifiers[campaign.pacing.challengeTier] : 0
+  const target = Math.max(4, Math.min(30, difficultyBase + Math.floor(campaign.scene.tension / 30) + challengeModifier + (opposition?.modifier ?? 0)))
   const total = roll + modifier
   const outcome = roll === 1 ? 'failure' : roll === 20 && total >= target - 2 ? 'critical' : total >= target ? 'success' : total >= target - 3 ? 'mixed' : 'failure'
   return {
@@ -251,6 +281,9 @@ export function resolveActionCheck(
     oppositionLabel: opposition?.npc.name,
     oppositionModifier: opposition?.modifier,
     oppositionTier: opposition?.tier,
-    oppositionFactors: opposition?.factors,
+    oppositionFactors: [
+      ...(opposition?.factors ?? []),
+      ...(challengeModifier > 0 ? [`Сюжетное испытание: +${challengeModifier}`] : challengeModifier < 0 ? [`Щадящий эпизод: ${challengeModifier}`] : []),
+    ].slice(0, 8),
   }
 }
