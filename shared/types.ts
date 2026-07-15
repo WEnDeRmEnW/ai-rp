@@ -1,0 +1,1145 @@
+export type ID = string
+
+export type ActionType = 'do' | 'say' | 'story' | 'continue'
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
+
+export interface ItemRarityProfile {
+  /** Why the item is scarce in this world; rarity is not a power rating. */
+  basis: string
+  scarcity: string
+  knownCopies?: number
+  recognition: string
+  marketImpact: string
+  acquisitionRisk: number
+}
+export type ItemCategory = 'weapon' | 'armor' | 'consumable' | 'artifact' | 'quest' | 'material' | 'other'
+export type LoreType = 'character' | 'location' | 'faction' | 'object' | 'rule' | 'history' | 'secret'
+export type MemoryKind = 'summary' | 'fact' | 'promise' | 'relationship' | 'mystery'
+
+export interface WorldLabels {
+  scene: string
+  character: string
+  inventory: string
+  world: string
+  quests: string
+  abilities: string
+  lore: string
+  memories: string
+  stats: string
+  resources: string
+  conditions: string
+  level: string
+  chapter: string
+  turn: string
+  action: string
+  speech: string
+  direction: string
+  continue: string
+}
+
+export interface WorldPresentation {
+  accent: string
+  accentStrong: string
+  secondary: string
+  surface: 'paper' | 'arcane' | 'tech' | 'organic' | 'noir' | 'minimal'
+  motif: string
+  labels: WorldLabels
+  categoryLabels: Record<ItemCategory, string>
+  rarityLabels: Record<Rarity, string>
+}
+
+/** Safe visual grammar which the model composes into a world-specific interface. */
+export type AdaptiveInterfacePlacement = 'scene' | 'hero' | 'inventory' | 'world'
+export type AdaptiveInterfaceVisual = 'meters' | 'nodes' | 'slots' | 'track' | 'ledger' | 'signals' | 'radar'
+export type AdaptiveInterfaceIcon = 'spark' | 'eye' | 'shield' | 'network' | 'pulse' | 'compass' | 'crown' | 'rune' | 'gear' | 'flame' | 'star' | 'moon'
+export type AdaptiveInterfaceElementKind = 'meter' | 'value' | 'badge' | 'node' | 'slot' | 'step' | 'text'
+export type AdaptiveInterfaceElementState = 'normal' | 'positive' | 'warning' | 'danger' | 'locked' | 'inactive'
+export type AdaptiveInterfaceBindingDomain =
+  | 'custom'
+  | 'player.resource'
+  | 'player.stat'
+  | 'player.currency'
+  | 'player.condition-count'
+  | 'scene.tension'
+  | 'world.day'
+  | 'faction.reputation'
+  | 'inventory.category-count'
+  | 'inventory.item-charges'
+  | 'quest.active-count'
+  | 'npc.resource'
+  | 'npc.relationship'
+
+export interface AdaptiveInterfaceBinding {
+  domain: AdaptiveInterfaceBindingDomain
+  /** Exact key, category, currency or faction name, depending on domain. */
+  key?: string
+  /** Exact NPC/item id or name for an entity-specific binding. */
+  target?: string
+}
+
+export interface AdaptiveInterfaceElement {
+  id: ID
+  label: string
+  description?: string
+  kind: AdaptiveInterfaceElementKind
+  value?: string | number | boolean
+  min?: number
+  max?: number
+  unit?: string
+  state: AdaptiveInterfaceElementState
+  binding?: AdaptiveInterfaceBinding
+  links?: ID[]
+}
+
+export interface AdaptiveInterfaceModule {
+  id: ID
+  title: string
+  subtitle?: string
+  description: string
+  placement: AdaptiveInterfacePlacement
+  visual: AdaptiveInterfaceVisual
+  icon: AdaptiveInterfaceIcon
+  accent: string
+  secondary: string
+  priority: number
+  visibility: 'known' | 'rumored' | 'hidden'
+  /** Why this exact module belongs to this world instead of being generic HUD chrome. */
+  reason: string
+  /** Facts which require the model to update custom values or restructure the module. */
+  updatePolicy: string
+  collapsible: boolean
+  collapsedByDefault: boolean
+  elements: AdaptiveInterfaceElement[]
+  createdTurn: number
+  lastChangedTurn: number
+}
+
+export interface EquipmentSlotDefinition {
+  key: string
+  label: string
+  accepts: ItemCategory[]
+}
+
+export interface WorldSystem {
+  name: string
+  summary: string
+  progression: string
+  conflictResolution: string
+  consequences: string
+  equipmentSlots: EquipmentSlotDefinition[]
+}
+
+export interface Stat {
+  key: string
+  label: string
+  value: number
+  max?: number
+  description?: string
+  aliases?: string[]
+}
+
+export interface Resource extends Stat {
+  color?: string
+  kind?: ResourceKind
+  criticalBelow?: number
+}
+
+export type ResourceKind = 'health' | 'stamina' | 'mana' | 'energy' | 'focus' | 'sanity' | 'morale' | 'hunger' | 'ammo' | 'charges' | 'custom'
+
+export type StatusEffectCategory = 'injury' | 'buff' | 'debuff' | 'disease' | 'poison' | 'curse' | 'blessing' | 'environment' | 'mental' | 'other'
+
+export interface StatusEffect {
+  id: ID
+  name: string
+  description: string
+  category: StatusEffectCategory
+  severity: number
+  source: string
+  effects: string[]
+  /** Deterministic recurring resource changes applied once at the start of each following turn. */
+  resourceDeltasPerTurn?: Record<string, number>
+  /** Deterministic action-check modifiers: exact stat key and/or "*" for every check. */
+  checkModifiers?: Record<string, number>
+  stacks: number
+  duration: {
+    unit: 'turns' | 'scenes' | 'days' | 'until' | 'indefinite'
+    remaining?: number
+    expiresTurn?: number
+    condition?: string
+  }
+  appliedTurn: number
+  hidden?: boolean
+}
+
+export interface AbilityCost {
+  resource: string
+  amount: number
+}
+
+export type PowerCategory = 'offense' | 'defense' | 'control' | 'mobility' | 'utility' | 'perception' | 'creation' | 'summoning' | 'transformation' | 'reality' | 'time' | 'space' | 'mind' | 'soul' | 'energy' | 'matter' | 'other'
+export type CanonStatus = 'canonical' | 'derived' | 'original'
+
+export interface PowerSpecification {
+  category?: PowerCategory
+  scale?: string
+  activation?: string
+  capabilities?: string[]
+  synergies?: string[]
+  counters?: string[]
+  examples?: string[]
+  canonStatus?: CanonStatus
+  canonReference?: string
+}
+
+export interface EvolutionPath {
+  id: ID
+  name: string
+  description: string
+  requirement: string
+  unlocked: boolean
+}
+
+export interface ProgressHistoryEntry {
+  id: ID
+  turn: number
+  title: string
+  description: string
+}
+
+export type ProgressHistoryDraft = Omit<ProgressHistoryEntry, 'id' | 'turn'> & {
+  id?: ID
+  turn?: number
+}
+
+export interface Ability extends PowerSpecification {
+  id: ID
+  name: string
+  description: string
+  rank?: string
+  source?: string
+  cooldown?: string
+  kind?: 'active' | 'passive' | 'reaction' | 'ritual' | 'transformation' | 'other'
+  mastery?: number
+  costs?: AbilityCost[]
+  effects?: string[]
+  limitations?: string[]
+  requirements?: string[]
+  progression?: string
+  evolutionPaths?: EvolutionPath[]
+  history?: ProgressHistoryEntry[]
+  tags?: string[]
+}
+
+export type AbilityDraft = Omit<Ability, 'id' | 'history' | 'evolutionPaths'> & {
+  id?: ID
+  history?: ProgressHistoryDraft[]
+  evolutionPaths?: Array<Omit<EvolutionPath, 'id'> & { id?: ID }>
+}
+
+export interface AbilityChangePatch {
+  abilityId: ID
+  mastery?: number
+  masteryDelta?: number
+  kind?: Ability['kind']
+  rank?: string
+  description?: string
+  cooldown?: string
+  costs?: AbilityCost[]
+  requirements?: string[]
+  progression?: string
+  tags?: string[]
+  category?: PowerCategory
+  scale?: string
+  activation?: string
+  canonStatus?: CanonStatus
+  canonReference?: string
+  /** Exact replacement fields used when a technique is materially rebuilt or upgraded. */
+  capabilities?: string[]
+  synergies?: string[]
+  counters?: string[]
+  examples?: string[]
+  effects?: string[]
+  limitations?: string[]
+  addCapabilities?: string[]
+  addSynergies?: string[]
+  addCounters?: string[]
+  addExamples?: string[]
+  addEffects?: string[]
+  addLimitations?: string[]
+  addEvolutionPaths?: Array<Omit<EvolutionPath, 'id'> & { id?: ID }>
+  unlockEvolutionPathIds?: ID[]
+  history?: { title: string; description: string }
+}
+
+export interface ArtifactPower extends PowerSpecification {
+  id: ID
+  name: string
+  description: string
+  mastery: number
+  costs: AbilityCost[]
+  trigger?: string
+  limitations: string[]
+}
+
+export interface ArtifactComponent {
+  id: ID
+  name: string
+  description: string
+  role: string
+  status: 'active' | 'dormant' | 'missing' | 'damaged' | 'destroyed'
+  capabilities: string[]
+  required: boolean
+}
+
+export interface ArtifactPowerChangePatch {
+  powerId: ID
+  name?: string
+  description?: string
+  mastery?: number
+  masteryDelta?: number
+  costs?: AbilityCost[]
+  trigger?: string
+  category?: PowerCategory
+  scale?: string
+  activation?: string
+  canonStatus?: CanonStatus
+  canonReference?: string
+  capabilities?: string[]
+  synergies?: string[]
+  counters?: string[]
+  examples?: string[]
+  limitations?: string[]
+  addCapabilities?: string[]
+  addSynergies?: string[]
+  addCounters?: string[]
+  addExamples?: string[]
+  addLimitations?: string[]
+}
+
+export interface ArtifactComponentChangePatch {
+  componentId: ID
+  name?: string
+  description?: string
+  role?: string
+  status?: ArtifactComponent['status']
+  required?: boolean
+  capabilities?: string[]
+  addCapabilities?: string[]
+}
+
+export interface ArtifactChangePatch {
+  itemId: ID
+  /** Inventory-facing dossier fields that must stay in sync with the artifact profile. */
+  itemDescription?: string
+  itemEffects?: string[]
+  mastery?: number
+  attunement?: number
+  bond?: number
+  masteryDelta?: number
+  bondDelta?: number
+  attunementDelta?: number
+  awakened?: boolean
+  mood?: string
+  classification?: string
+  powerSource?: string
+  operatingPrinciple?: string
+  scale?: string
+  canonStatus?: CanonStatus
+  canonReference?: string
+  requirements?: string[]
+  passiveEffects?: string[]
+  combinedEffects?: string[]
+  failureModes?: string[]
+  drawbacks?: string[]
+  addPassiveEffects?: string[]
+  addCombinedEffects?: string[]
+  addFailureModes?: string[]
+  addPowers?: Array<Omit<ArtifactPower, 'id'> & { id?: ID }>
+  powerChanges?: ArtifactPowerChangePatch[]
+  powerMasteryDeltas?: Record<ID, number>
+  addComponents?: Array<Omit<ArtifactComponent, 'id'> & { id?: ID }>
+  componentChanges?: ArtifactComponentChangePatch[]
+  addDrawbacks?: string[]
+  addEvolutionPaths?: Array<Omit<EvolutionPath, 'id'> & { id?: ID }>
+  unlockEvolutionPathIds?: ID[]
+  history?: { title: string; description: string }
+}
+
+export interface ArtifactProfile {
+  sentient: boolean
+  awakened: boolean
+  /** Общая степень освоения предмета. Не заменяет mastery его отдельных сил. */
+  mastery?: number
+  attunement: number
+  bond: number
+  personality?: string
+  desire?: string
+  taboo?: string
+  mood?: string
+  voice?: string
+  classification?: string
+  powerSource?: string
+  operatingPrinciple?: string
+  scale?: string
+  canonStatus?: CanonStatus
+  canonReference?: string
+  requirements: string[]
+  passiveEffects: string[]
+  combinedEffects: string[]
+  failureModes: string[]
+  components: ArtifactComponent[]
+  powers: ArtifactPower[]
+  drawbacks: string[]
+  evolutionPaths: EvolutionPath[]
+  secrets: string[]
+}
+
+export interface KnowledgeFact {
+  id: ID
+  subject: string
+  statement: string
+  status: 'known' | 'believed' | 'suspected' | 'false'
+  confidence: number
+  source: string
+  secret: boolean
+}
+
+export interface Character {
+  id: ID
+  name: string
+  pronouns?: string
+  archetype: string
+  level: number
+  portrait?: string
+  appearance: string
+  personality: string
+  backstory: string
+  goal: string
+  stats: Stat[]
+  resources: Resource[]
+  abilities: Ability[]
+  conditions: string[]
+  statusEffects: StatusEffect[]
+  lifeState: 'active' | 'unconscious' | 'incapacitated' | 'dead' | 'missing'
+  currency: Record<string, number>
+}
+
+export interface InventoryItem {
+  id: ID
+  name: string
+  description: string
+  category: ItemCategory
+  quantity: number
+  rarity: Rarity
+  rarityProfile?: ItemRarityProfile
+  equipped: boolean
+  equippedSlot?: string
+  weight?: number
+  durability?: number
+  maxDurability?: number
+  charges?: number
+  maxCharges?: number
+  state?: 'intact' | 'damaged' | 'broken' | 'depleted' | 'sealed'
+  effects: string[]
+  origin?: string
+  discoveredTurn: number
+  history?: ProgressHistoryEntry[]
+  artifact?: ArtifactProfile
+}
+
+export interface RelationshipDimensions {
+  trust: number
+  respect: number
+  affection: number
+  fear: number
+  suspicion: number
+  dependence: number
+}
+
+export interface NPCInitiative {
+  intent: string
+  nextMove: string
+  trigger: string
+  urgency: number
+  blockedBy: string[]
+  lastAdvancedTurn: number
+  visibility: 'known' | 'rumored' | 'hidden'
+}
+
+export interface NPCStrategy {
+  intelligence: number
+  tacticalSkill: number
+  strategicSkill: number
+  predictionSkill: number
+  adaptability: number
+  deceptionSkill: number
+  riskTolerance: number
+  planningHorizon: string
+  decisionStyle: string
+  observedPlayerPatterns: string[]
+  strengths: string[]
+  blindSpots: string[]
+  currentPlan: string
+  contingencies: string[]
+  visibility: 'known' | 'rumored' | 'hidden'
+  lastUpdatedTurn: number
+}
+
+export interface NPCRecruitment {
+  status: 'unavailable' | 'possible' | 'invited' | 'member' | 'left'
+  willingness: number
+  reason: string
+  requirements: string[]
+}
+
+export interface NPC {
+  id: ID
+  name: string
+  role: string
+  description: string
+  disposition: string
+  relationship: number
+  status: 'active' | 'absent' | 'missing' | 'dead' | 'unknown'
+  currentGoal: string
+  lastSeen: string
+  notes: string[]
+  stats?: Stat[]
+  resources?: Resource[]
+  statusEffects?: StatusEffect[]
+  abilities?: Ability[]
+  knowledge?: KnowledgeFact[]
+  relationshipDimensions?: RelationshipDimensions
+  initiative?: NPCInitiative
+  strategy?: NPCStrategy
+  recruitment?: NPCRecruitment
+  voice?: {
+    style: string
+    patterns: string[]
+    avoids: string[]
+  }
+}
+
+export interface CharacterArc {
+  id: ID
+  ownerId: ID
+  title: string
+  theme: string
+  currentStage: string
+  progress: number
+  stages: string[]
+  turningPoints: string[]
+  status: 'active' | 'completed' | 'broken'
+  secret: boolean
+  lastAdvancedTurn: number
+}
+
+export interface MysteryClue {
+  id: ID
+  title: string
+  detail: string
+  location: string
+  source: string
+  discovered: boolean
+  essential: boolean
+}
+
+export interface MysteryCase {
+  id: ID
+  title: string
+  premise: string
+  truth: string
+  culpritId?: ID
+  status: 'open' | 'solved' | 'failed'
+  clues: MysteryClue[]
+  redHerrings: string[]
+  revelationRules: string[]
+  conclusion?: string
+  createdTurn: number
+  solvedTurn?: number
+}
+
+export interface AntagonistPlanStep {
+  id: ID
+  title: string
+  trigger: string
+  consequence: string
+  status: 'pending' | 'active' | 'completed' | 'failed' | 'abandoned'
+}
+
+export interface AntagonistPlan {
+  id: ID
+  ownerNpcId: ID
+  title: string
+  objective: string
+  method: string
+  currentStep: number
+  pressure: number
+  resources: string[]
+  knowledge: string[]
+  steps: AntagonistPlanStep[]
+  weaknesses: string[]
+  status: 'active' | 'completed' | 'failed' | 'abandoned'
+  secret: boolean
+  lastAdvancedTurn: number
+}
+
+export interface InfluenceAsset {
+  id: ID
+  kind: 'favor' | 'debt' | 'leverage' | 'contact' | 'access' | 'reputation' | 'oath' | 'other'
+  title: string
+  description: string
+  holderId: ID
+  targetId?: ID
+  value: number
+  status: 'active' | 'spent' | 'repaid' | 'lost'
+  source: string
+  secret: boolean
+  acquiredTurn: number
+}
+
+export interface SocialLink {
+  id: ID
+  fromNpcId: ID
+  toNpcId: ID
+  kind: string
+  label: string
+  score: number
+  secret: boolean
+  notes: string[]
+}
+
+export interface StoryThread {
+  id: ID
+  type: string
+  title: string
+  detail: string
+  participantIds: ID[]
+  status: string
+  dueTurn?: number
+  secret: boolean
+  createdTurn: number
+}
+
+export interface ScheduledWorldEvent {
+  id: ID
+  title: string
+  description: string
+  dueTurn?: number
+  dueDay?: number
+  status: 'scheduled' | 'due' | 'resolved' | 'cancelled'
+  visibility: 'known' | 'rumored' | 'hidden'
+  involvedIds: ID[]
+  createdTurn: number
+}
+
+export interface FactionReputation {
+  factionName: string
+  value: number
+  label: string
+  notes: string[]
+}
+
+export interface CanonChunk {
+  id: ID
+  text: string
+  keys: string[]
+}
+
+export interface CanonDocument {
+  id: ID
+  title: string
+  chunks: CanonChunk[]
+  createdAt: string
+}
+
+export interface StoryArchive {
+  id: ID
+  kind: 'scene' | 'chapter' | 'era'
+  title: string
+  summary: string
+  startTurn: number
+  endTurn: number
+  tags: string[]
+  entityIds: ID[]
+  importance: number
+  createdAt: string
+}
+
+export interface WorldRoute {
+  id: ID
+  from: string
+  to: string
+  label: string
+  travelTime: string
+  distance: number
+  danger: number
+  discovered: boolean
+}
+
+export type WorldLawStatus = 'proposed' | 'active' | 'contested' | 'repealed'
+export type WorldVisibility = 'known' | 'rumored' | 'hidden'
+
+/** A mutable social or political law. Metaphysical truths remain in world.rules. */
+export interface WorldLaw {
+  id: ID
+  title: string
+  description: string
+  scope: string
+  authority: string
+  status: WorldLawStatus
+  visibility: WorldVisibility
+  consequences: string[]
+  createdTurn: number
+  lastChangedTurn: number
+}
+
+export type WorldMechanicCategory = 'power' | 'social' | 'economic' | 'travel' | 'crafting' | 'survival' | 'political' | 'other'
+export type WorldMechanicStatus = 'emerging' | 'active' | 'obsolete'
+
+/** A persistent rule of play that may emerge from discoveries and world events. */
+export interface WorldMechanic {
+  id: ID
+  name: string
+  description: string
+  category: WorldMechanicCategory
+  trigger: string
+  effects: string[]
+  source: string
+  discovered: boolean
+  status: WorldMechanicStatus
+  createdTurn: number
+  lastChangedTurn: number
+}
+
+export interface WorldFaction {
+  id?: ID
+  name: string
+  description: string
+  attitude: string
+  status?: 'active' | 'dormant' | 'dissolved'
+  power?: number
+  influence?: string
+  territory?: string[]
+  resources?: string[]
+  goals?: string[]
+  currentMove?: string
+  publicFace?: string
+  origin?: string
+  secrets?: string[]
+  lastChangedTurn?: number
+}
+
+export interface Quest {
+  id: ID
+  title: string
+  description: string
+  status: 'active' | 'completed' | 'failed' | 'hidden'
+  objectives: Array<{ id: ID; text: string; completed: boolean }>
+  reward?: string
+  giver?: string
+}
+
+export interface LoreEntry {
+  id: ID
+  title: string
+  type: LoreType
+  content: string
+  keys: string[]
+  enabled: boolean
+  alwaysOn: boolean
+  secret: boolean
+  discovered: boolean
+  priority: number
+  conditions?: {
+    locations?: string[]
+    npcIds?: ID[]
+    questIds?: ID[]
+    minTurn?: number
+    maxTurn?: number
+    minRelationship?: number
+  }
+}
+
+export interface MemoryEntry {
+  id: ID
+  kind: MemoryKind
+  content: string
+  tags: string[]
+  importance: number
+  pinned?: boolean
+  turn: number
+  createdAt: string
+}
+
+export interface GameEvent {
+  id: ID
+  turn: number
+  title: string
+  description: string
+  category: 'story' | 'inventory' | 'character' | 'relationship' | 'quest' | 'world' | 'ability' | 'artifact' | 'influence' | 'mystery'
+  createdAt: string
+}
+
+export interface SceneState {
+  title: string
+  location: string
+  time: string
+  weather: string
+  tension: number
+  presentNpcIds: ID[]
+}
+
+export interface StoryMessage {
+  id: ID
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+  turn: number
+  actionType?: ActionType
+  suggestions?: string[]
+  activeLoreIds?: ID[]
+  recalledMemoryIds?: ID[]
+  activeDocumentChunkIds?: ID[]
+  changeSummary?: string[]
+  stateChanges?: StateChange[]
+  continuityNotes?: string[]
+  check?: ActionCheck
+  failed?: boolean
+}
+
+export type StateChangeKind = 'health' | 'resource' | 'stat' | 'currency' | 'condition' | 'inventory' | 'ability' | 'artifact' | 'relationship' | 'reputation' | 'quest' | 'character' | 'knowledge' | 'scene' | 'world' | 'system'
+
+export interface StateChange {
+  kind: StateChangeKind
+  label: string
+  detail: string
+  tone: 'positive' | 'negative' | 'neutral' | 'warning'
+  entityId?: ID
+  before?: number | string
+  after?: number | string
+  delta?: number
+  source?: string
+}
+
+export interface ActionCheck {
+  statKey: string
+  statLabel: string
+  roll: number
+  modifier: number
+  target: number
+  total: number
+  outcome: 'critical' | 'success' | 'mixed' | 'failure'
+  visibility: 'hidden' | 'visible'
+  oppositionNpcId?: ID
+  oppositionLabel?: string
+  oppositionModifier?: number
+}
+
+export interface World {
+  name: string
+  tagline: string
+  inspiration: string
+  genre: string
+  tone: string
+  era: string
+  overview: string
+  rules: string[]
+  factions: WorldFaction[]
+  locations: Array<{ name: string; description: string; danger: number }>
+  mysteries: string[]
+  calendar: { day: number; label: string }
+  routes?: WorldRoute[]
+  laws?: WorldLaw[]
+  mechanics?: WorldMechanic[]
+  interfaceModules?: AdaptiveInterfaceModule[]
+  system?: WorldSystem
+  presentation?: WorldPresentation
+}
+
+export interface CampaignSettings {
+  responseLength: 'compact' | 'balanced' | 'detailed'
+  playerAgency: 'strict' | 'cinematic'
+  difficulty: 'story' | 'balanced' | 'harsh'
+  canonMode: 'faithful' | 'flexible' | 'original'
+  autoApplyChanges: boolean
+  contentBoundaries: string
+  authorsNote: string
+  resolutionMode?: 'off' | 'hidden' | 'visible'
+  contextProfile?: 'standard' | 'long' | 'million'
+  qualityMode?: 'balanced' | 'deep'
+  scenePace?: 'slow' | 'balanced' | 'fast' | 'montage'
+  proseStyle?: 'literary' | 'cinematic' | 'direct'
+  dialogueDensity?: 'low' | 'balanced' | 'high'
+  npcAutonomy?: 'reactive' | 'balanced' | 'independent'
+  worldDynamics?: 'quiet' | 'living' | 'volatile'
+}
+
+export interface CampaignSnapshot {
+  turn: number
+  world: World
+  player: Character
+  inventory: InventoryItem[]
+  npcs: NPC[]
+  quests: Quest[]
+  lore: LoreEntry[]
+  memories: MemoryEntry[]
+  scene: SceneState
+  socialLinks?: SocialLink[]
+  threads?: StoryThread[]
+  worldEvents?: ScheduledWorldEvent[]
+  factionReputation?: FactionReputation[]
+  archives?: StoryArchive[]
+  partyMemberIds?: ID[]
+  partyRoles?: Record<ID, string>
+  characterArcs?: CharacterArc[]
+  mysteryCases?: MysteryCase[]
+  antagonistPlans?: AntagonistPlan[]
+  influenceAssets?: InfluenceAsset[]
+  messageCount: number
+  eventCount: number
+}
+
+export interface Campaign {
+  id: ID
+  title: string
+  createdAt: string
+  updatedAt: string
+  turn: number
+  world: World
+  player: Character
+  inventory: InventoryItem[]
+  npcs: NPC[]
+  quests: Quest[]
+  lore: LoreEntry[]
+  memories: MemoryEntry[]
+  timeline: GameEvent[]
+  messages: StoryMessage[]
+  scene: SceneState
+  socialLinks?: SocialLink[]
+  threads?: StoryThread[]
+  worldEvents?: ScheduledWorldEvent[]
+  factionReputation?: FactionReputation[]
+  documents?: CanonDocument[]
+  archives?: StoryArchive[]
+  partyMemberIds?: ID[]
+  partyRoles?: Record<ID, string>
+  characterArcs?: CharacterArc[]
+  mysteryCases?: MysteryCase[]
+  antagonistPlans?: AntagonistPlan[]
+  influenceAssets?: InfluenceAsset[]
+  settings: CampaignSettings
+  snapshots: CampaignSnapshot[]
+}
+
+export type InventoryItemPatch = Omit<Partial<InventoryItem>, 'history'> & {
+  name?: string
+  history?: ProgressHistoryDraft[]
+}
+
+export type InventoryMutation =
+  | { operation: 'add'; item: InventoryItemPatch }
+  | { operation: 'update'; targetId: ID; item: InventoryItemPatch }
+  | {
+    operation: 'remove'
+    targetId: ID
+    /** Omit to remove the whole entry, or provide a number for a partial stack. */
+    quantity?: number
+    reason?: string
+  }
+
+export interface QuestMutation {
+  operation: 'add' | 'update' | 'complete' | 'fail'
+  targetId?: ID
+  quest?: Partial<Quest> & { title?: string }
+}
+
+export type NPCUpdatePatch = Partial<Omit<NPC,
+  'id' | 'stats' | 'resources' | 'statusEffects' | 'abilities' | 'knowledge' | 'relationshipDimensions' | 'initiative' | 'strategy' | 'voice'
+>> & {
+  /** Arrays on NPC updates are safe upserts; omitted entries are preserved. */
+  stats?: Stat[]
+  resources?: Resource[]
+  statusEffects?: Array<Omit<StatusEffect, 'id' | 'appliedTurn'> & { id?: ID; appliedTurn?: number }>
+  /** Existing entries are preserved; these arrays are safe ability upserts. */
+  abilities?: AbilityDraft[]
+  upsertAbilities?: AbilityDraft[]
+  removeAbilityIds?: ID[]
+  abilityChanges?: AbilityChangePatch[]
+  knowledge?: Array<Omit<KnowledgeFact, 'id'> & { id?: ID }>
+  relationshipDimensions?: Partial<RelationshipDimensions>
+  initiative?: Partial<NPCInitiative>
+  strategy?: Partial<NPCStrategy>
+  voice?: Partial<NonNullable<NPC['voice']>>
+  upsertStats?: Stat[]
+  removeStatKeys?: string[]
+  upsertResources?: Resource[]
+  removeResourceKeys?: string[]
+  statDeltas?: Record<string, number>
+  resourceDeltas?: Record<string, number>
+  upsertStatusEffects?: Array<Omit<StatusEffect, 'id' | 'appliedTurn'> & { id?: ID; appliedTurn?: number }>
+  removeStatusEffectIds?: ID[]
+  removeKnowledgeIds?: ID[]
+}
+
+export type NPCMutation =
+  | { operation: 'add'; npc: NPC }
+  | { operation: 'update'; targetId: ID; npc: NPCUpdatePatch }
+
+export interface WorldPatch {
+  name?: string
+  tagline?: string
+  inspiration?: string
+  genre?: string
+  tone?: string
+  overview?: string
+  era?: string
+  system?: Partial<WorldSystem>
+  presentation?: Partial<Omit<WorldPresentation, 'labels' | 'categoryLabels' | 'rarityLabels'>> & {
+    labels?: Partial<WorldLabels>
+    categoryLabels?: Partial<WorldPresentation['categoryLabels']>
+    rarityLabels?: Partial<WorldPresentation['rarityLabels']>
+  }
+  addRules?: string[]
+  removeRules?: string[]
+  upsertFactions?: Array<Partial<WorldFaction> & Pick<WorldFaction, 'name' | 'description' | 'attitude'>>
+  removeFactions?: string[]
+  upsertLocations?: Array<{ name: string; description: string; danger: number }>
+  removeLocations?: string[]
+  addMysteries?: string[]
+  resolveMysteries?: string[]
+  calendarDayDelta?: number
+  calendarLabel?: string
+  upsertRoutes?: WorldRoute[]
+  removeRouteIds?: ID[]
+  upsertLaws?: Array<Omit<WorldLaw, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldLaw, 'createdTurn' | 'lastChangedTurn'>>>
+  removeLawIds?: ID[]
+  upsertMechanics?: Array<Omit<WorldMechanic, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldMechanic, 'createdTurn' | 'lastChangedTurn'>>>
+  removeMechanicIds?: ID[]
+  upsertInterfaceModules?: Array<Omit<AdaptiveInterfaceModule, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<AdaptiveInterfaceModule, 'createdTurn' | 'lastChangedTurn'>>>
+  removeInterfaceModuleIds?: ID[]
+}
+
+export interface PlayerProfilePatch {
+  name?: string
+  archetype?: string
+  appearance?: string
+  personality?: string
+  backstory?: string
+  goal?: string
+  levelDelta?: number
+  lifeState?: Character['lifeState']
+}
+
+export interface TurnPatch {
+  inventory?: InventoryMutation[]
+  playerProfile?: PlayerProfilePatch
+  upsertStats?: Stat[]
+  removeStatKeys?: string[]
+  upsertResources?: Resource[]
+  removeResourceKeys?: string[]
+  statDeltas?: Record<string, number>
+  resourceDeltas?: Record<string, number>
+  currencyDeltas?: Record<string, number>
+  addAbilities?: AbilityDraft[]
+  removeAbilityIds?: ID[]
+  abilityChanges?: AbilityChangePatch[]
+  artifactChanges?: ArtifactChangePatch[]
+  addConditions?: string[]
+  removeConditions?: string[]
+  upsertStatusEffects?: Array<Omit<StatusEffect, 'id' | 'appliedTurn'> & { id?: ID; appliedTurn?: number }>
+  removeStatusEffectIds?: ID[]
+  relationships?: Array<{
+    npcId: ID
+    delta: number
+    dimensions?: Partial<RelationshipDimensions>
+    note?: string
+  }>
+  npcs?: NPCMutation[]
+  quests?: QuestMutation[]
+  lore?: Array<Omit<LoreEntry, 'id'> & { id?: ID }>
+  scene?: Partial<SceneState>
+  world?: WorldPatch
+  socialLinks?: SocialLink[]
+  threads?: Array<{ operation: 'add' | 'update' | 'resolve' | 'break'; targetId?: ID; thread?: Partial<StoryThread> & { title?: string } }>
+  worldEvents?: Array<{ operation: 'add' | 'update' | 'resolve' | 'cancel'; targetId?: ID; event?: Partial<ScheduledWorldEvent> & { title?: string } }>
+  factionReputationDeltas?: Record<string, number>
+  upsertFactionReputation?: Array<{
+    factionName: string
+    value: number
+    label?: string
+    notes?: string[]
+  }>
+  party?: { addNpcIds?: ID[]; removeNpcIds?: ID[]; roles?: Record<ID, string> }
+  upsertCharacterArcs?: CharacterArc[]
+  upsertMysteryCases?: MysteryCase[]
+  upsertAntagonistPlans?: AntagonistPlan[]
+  upsertInfluenceAssets?: InfluenceAsset[]
+  removeInfluenceAssetIds?: ID[]
+  memories?: Array<Omit<MemoryEntry, 'id' | 'turn' | 'createdAt'>>
+  events?: Array<Omit<GameEvent, 'id' | 'turn' | 'createdAt'>>
+}
+
+export interface TurnResponse {
+  narrative: string
+  suggestions: string[]
+  statePatch: TurnPatch
+  stateChanges?: StateChange[]
+  activeLoreIds: ID[]
+  recalledMemoryIds: ID[]
+  activeDocumentChunkIds?: ID[]
+  continuityNotes?: string[]
+  check?: ActionCheck
+  archives?: Array<Omit<StoryArchive, 'id' | 'createdAt'>>
+}
+
+export interface OperationProgress {
+  percent: number
+  stage: string
+  detail: string
+  completedSteps?: number
+  totalSteps?: number
+}
+
+export interface CampaignEditRequest {
+  campaign: Campaign
+  instruction: string
+  provider: ProviderConfig
+}
+
+export interface CampaignEditResponse {
+  summary: string
+  statePatch: TurnPatch
+  campaignPatch?: { title?: string }
+  settingsPatch?: Partial<CampaignSettings>
+}
+
+export type ProviderKind = 'demo' | 'openai' | 'openrouter' | 'ollama' | 'custom'
+
+export interface ProviderConfig {
+  provider: ProviderKind
+  model: string
+  baseUrl: string
+  apiKey?: string
+  temperature: number
+}
+
+export type PersistentProviderConfig = Omit<ProviderConfig, 'apiKey'>
+
+export interface WorldGenerationRequest {
+  inspiration: string
+  genre: string
+  tone: string
+  characterName: string
+  characterConcept: string
+  opening: string
+  canonMode: CampaignSettings['canonMode']
+  contentBoundaries: string
+  provider: ProviderConfig
+}
+
+export interface TurnRequest {
+  campaign: Campaign
+  input: string
+  actionType: ActionType
+  provider: ProviderConfig
+}
