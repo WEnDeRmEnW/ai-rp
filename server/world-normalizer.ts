@@ -1,6 +1,6 @@
 import type { Campaign, WorldGenerationRequest } from '../shared/types.js'
 import { defaultEventDirectorState, normalizeEventDirectorSettings } from '../shared/event-director.js'
-import { rarityFromKnownCopies } from '../shared/rarity.js'
+import { normalizeItemRarity, normalizeRarityProfile } from '../shared/rarity.js'
 import type { GeneratedWorld } from './schemas.js'
 
 const id = () => crypto.randomUUID()
@@ -99,6 +99,15 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
     turn: 0,
     world: {
       ...generated.world,
+      presentation: {
+        ...generated.world.presentation,
+        rarityLabels: {
+          ...generated.world.presentation.rarityLabels,
+          exceptional: generated.world.presentation.rarityLabels.exceptional ?? 'Исключительный',
+          mythic: generated.world.presentation.rarityLabels.mythic ?? 'Мифический',
+          transcendent: generated.world.presentation.rarityLabels.transcendent ?? 'Трансцендентный',
+        },
+      },
       factions: generated.world.factions.map((faction) => ({ ...faction, id: id(), lastChangedTurn: 0 })),
       places: generated.world.places.map(({ parentName, ...place }) => ({
         ...place,
@@ -150,10 +159,9 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
         : durability !== undefined && durability <= 0 ? 'broken' as const
           : charges !== undefined && maxCharges !== undefined && charges <= 0 ? 'depleted' as const
             : item.state ?? (durability !== undefined && maxDurability !== undefined && durability < maxDurability ? 'damaged' as const : durability !== undefined || charges !== undefined ? 'intact' as const : undefined)
-      return {
+      const normalizedItem = normalizeItemRarity({
         ...item,
-        rarity: rarityFromKnownCopies(item.rarity, item.rarityProfile.knownCopies),
-        rarityProfile: { ...item.rarityProfile, acquisitionRisk: Math.max(0, Math.min(100, item.rarityProfile.acquisitionRisk)) },
+        rarityProfile: normalizeRarityProfile(item.rarityProfile),
         durability,
         maxDurability,
         charges,
@@ -172,7 +180,8 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
           components: item.artifact.components.map((component) => ({ ...component, id: id() })),
           evolutionPaths: item.artifact.evolutionPaths.map((path) => ({ ...path, id: id() })),
         } : undefined,
-      }
+      })
+      return normalizedItem
     }),
     npcs,
     socialLinks: generated.socialLinks.flatMap((link) => {

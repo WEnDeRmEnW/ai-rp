@@ -5,7 +5,7 @@ import {
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
-import { rarityFromKnownCopies } from '../../shared/rarity'
+import { assessItemRarity } from '../../shared/rarity'
 import { readCanonDocument } from '../lib/canon'
 import { localizeTechnicalText, resourceUiLabel, uiLabel } from '../lib/ui-labels'
 import { getWorldInterfaceBlueprint, getWorldPresentation, getWorldSystem } from '../lib/world-customization'
@@ -282,18 +282,25 @@ function ItemEditor({ open, presentation, onClose, onSave }: { open: boolean; pr
   const [recognition, setRecognition] = useState('')
   const [marketImpact, setMarketImpact] = useState('')
   const [acquisitionRisk, setAcquisitionRisk] = useState(0)
+  const [potency, setPotency] = useState(20)
+  const [versatility, setVersatility] = useState(20)
+  const [worldImpact, setWorldImpact] = useState(15)
+  const [provenance, setProvenance] = useState(20)
+  const [limitations, setLimitations] = useState('')
 
   return <Modal open={open} onClose={onClose} title={`Добавить: ${presentation.labels.inventory}`} eyebrow="Ручное изменение">
     <form className="form-stack" onSubmit={(event) => {
       event.preventDefault()
       if (!name.trim() || !description.trim() || !rarityBasis.trim() || !scarcity.trim() || !recognition.trim() || !marketImpact.trim()) return
       const copies = knownCopies.trim() ? Math.max(1, Number(knownCopies)) : undefined
-      onSave({
+      const draft: InventoryItem = {
         id: crypto.randomUUID(), name: name.trim(), description: description.trim(), category, quantity,
-        rarity: rarityFromKnownCopies(rarity, copies), rarityProfile: { basis: rarityBasis.trim(), scarcity: scarcity.trim(), knownCopies: copies, recognition: recognition.trim(), marketImpact: marketImpact.trim(), acquisitionRisk }, equipped: false, effects: effects.split('\n').map((value) => value.trim()).filter(Boolean), discoveredTurn: 0,
+        rarity, rarityProfile: { basis: rarityBasis.trim(), scarcity: scarcity.trim(), knownCopies: copies, recognition: recognition.trim(), marketImpact: marketImpact.trim(), acquisitionRisk, potency, versatility, worldImpact, provenance, limitations: limitations.split('\n').map((value) => value.trim()).filter(Boolean) }, equipped: false, effects: effects.split('\n').map((value) => value.trim()).filter(Boolean), discoveredTurn: 0,
         origin: 'Добавлено вручную',
-      })
-      setName(''); setDescription(''); setEffects(''); setQuantity(1); setRarityBasis(''); setScarcity(''); setKnownCopies(''); setRecognition(''); setMarketImpact(''); setAcquisitionRisk(0); onClose()
+      }
+      draft.rarity = assessItemRarity(draft).rarity
+      onSave(draft)
+      setName(''); setDescription(''); setEffects(''); setQuantity(1); setRarityBasis(''); setScarcity(''); setKnownCopies(''); setRecognition(''); setMarketImpact(''); setAcquisitionRisk(0); setPotency(20); setVersatility(20); setWorldImpact(15); setProvenance(20); setLimitations(''); onClose()
     }}>
       <label className="field"><span>Название</span><input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} placeholder="Например, печать огня" /></label>
       <label className="field"><span>Описание</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} required rows={3} maxLength={1000} /></label>
@@ -301,13 +308,17 @@ function ItemEditor({ open, presentation, onClose, onSave }: { open: boolean; pr
         <label className="field"><span>Категория</span><select value={category} onChange={(event) => setCategory(event.target.value as InventoryItem['category'])}>
           {Object.entries(presentation.categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
-        <label className="field"><span>Редкость</span><select value={rarity} onChange={(event) => setRarity(event.target.value as Rarity)}>
+        <label className="field"><span>Предварительный класс</span><select value={rarity} onChange={(event) => setRarity(event.target.value as Rarity)}>
           {Object.entries(presentation.rarityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
       </div>
       <label className="field"><span>Почему предмет редок</span><textarea value={rarityBasis} onChange={(event) => setRarityBasis(event.target.value)} required rows={2} /></label>
       <label className="field"><span>Где и как встречается</span><textarea value={scarcity} onChange={(event) => setScarcity(event.target.value)} required rows={2} /></label>
       <div className="field-grid"><label className="field"><span>Известно экземпляров</span><input type="number" min={1} value={knownCopies} onChange={(event) => setKnownCopies(event.target.value)} placeholder="Можно не указывать" /></label><label className="field"><span>Риск добычи, %</span><input type="number" min={0} max={100} value={acquisitionRisk} onChange={(event) => setAcquisitionRisk(Math.max(0, Math.min(100, Number(event.target.value))))} /></label></div>
+      <div className="rarity-editor-metrics">
+        {([['Реальная мощь', potency, setPotency], ['Широта применения', versatility, setVersatility], ['Влияние на мир', worldImpact, setWorldImpact], ['Значимость происхождения', provenance, setProvenance]] as const).map(([label, value, setter]) => <label className="field" key={label}><span>{label}, 0–100</span><input type="number" min={0} max={100} value={value} onChange={(event) => setter(Math.max(0, Math.min(100, Number(event.target.value))))} /></label>)}
+      </div>
+      <label className="field"><span>Реальные ограничения — по одному на строке</span><textarea value={limitations} onChange={(event) => setLimitations(event.target.value)} rows={3} /></label>
       <label className="field"><span>Кто и как его узнаёт</span><textarea value={recognition} onChange={(event) => setRecognition(event.target.value)} required rows={2} /></label>
       <label className="field"><span>Цена, спрос и последствия</span><textarea value={marketImpact} onChange={(event) => setMarketImpact(event.target.value)} required rows={2} /></label>
       <label className="field"><span>Количество</span><input type="number" min={1} max={999} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label>
@@ -315,6 +326,23 @@ function ItemEditor({ open, presentation, onClose, onSave }: { open: boolean; pr
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button className="primary-button" type="submit">Добавить</button></div>
     </form>
   </Modal>
+}
+
+function ItemRarityCard({ item, label }: { item: InventoryItem; label: string }) {
+  if (!item.rarityProfile) return null
+  const assessment = assessItemRarity(item)
+  const metrics = [
+    ['Мощь', assessment.potency], ['Гибкость', assessment.versatility], ['Влияние', assessment.worldImpact],
+    ['Происхождение', assessment.provenance], ['Дефицит', assessment.scarcity],
+  ] as const
+  return <div className="rarity-profile">
+    <header><span>Класс предмета · {label}</span><strong>{assessment.score} / 100</strong></header>
+    <p>{item.rarityProfile.assessment || item.rarityProfile.basis}</p><small>{item.rarityProfile.scarcity}</small>
+    <div className="rarity-metrics">{metrics.map(([name, value]) => <div key={name}><span>{name}</span><b>{value}</b><i><em style={{ width: `${value}%` }} /></i></div>)}</div>
+    <dl><div><dt>Известные экземпляры</dt><dd>{item.rarityProfile.knownCopies ?? 'точное число неизвестно'}</dd></div><div><dt>Рынок и спрос</dt><dd>{item.rarityProfile.marketImpact}</dd></div><div><dt>Узнаваемость</dt><dd>{item.rarityProfile.recognition}</dd></div><div><dt>Риск добычи</dt><dd>{assessment.acquisitionRisk}%</dd></div></dl>
+    {!!item.rarityProfile.limitations?.length && <div className="rarity-limitations"><b>Что удерживает класс</b><ul>{item.rarityProfile.limitations.map((value) => <li key={value}>{value}</li>)}</ul></div>}
+    {assessment.inferred && <small className="rarity-migrated">Оценки восстановлены из реальных эффектов старого предмета. ИИ уточнит их при следующем изменении.</small>}
+  </div>
 }
 
 function LoreEditor({ open, onClose, onSave }: { open: boolean; onClose: () => void; onSave: (entry: LoreEntry) => void }) {
@@ -588,12 +616,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                     {item.charges !== undefined && <div><span>Заряды</span><strong>{item.charges}{item.maxCharges !== undefined ? ` / ${item.maxCharges}` : ''}</strong>{item.maxCharges !== undefined && item.maxCharges > 0 && <i><b style={{ width: `${Math.max(0, Math.min(100, item.charges / item.maxCharges * 100))}%` }} /></i>}</div>}
                   </div>}
                   <p>{item.description}</p>
-                  {item.rarityProfile && <div className="rarity-profile">
-                    <header><span>Реальная редкость</span><strong>{item.rarityProfile.knownCopies ? `известно экземпляров: ${item.rarityProfile.knownCopies}` : 'точное число неизвестно'}</strong></header>
-                    <p>{item.rarityProfile.basis}</p><small>{item.rarityProfile.scarcity}</small>
-                    <dl><div><dt>Узнаваемость</dt><dd>{item.rarityProfile.recognition}</dd></div><div><dt>Рынок и спрос</dt><dd>{item.rarityProfile.marketImpact}</dd></div></dl>
-                    <div className="rarity-risk"><span>Риск добычи</span><b>{item.rarityProfile.acquisitionRisk}%</b><i><em style={{ width: `${item.rarityProfile.acquisitionRisk}%` }} /></i></div>
-                  </div>}
+                  <ItemRarityCard item={item} label={presentation.rarityLabels[item.rarity]} />
                   {!!item.effects.length && <ul>{item.effects.map((effect) => <li key={effect}>{effect}</li>)}</ul>}
                   {item.origin && <small>Источник: {item.origin}</small>}
                   {item.artifact && <div className="artifact-profile">
@@ -636,7 +659,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                     <button onClick={() => mutate((next) => { const target = next.inventory.find((candidate) => candidate.id === item.id); if (target) target.quantity = Math.min(999, target.quantity + 1) })}><Plus size={13} /> 1</button>
                     <button disabled={item.quantity <= 1} onClick={() => mutate((next) => { const target = next.inventory.find((candidate) => candidate.id === item.id); if (target) target.quantity -= 1 })}><Minus size={13} /> 1</button>
                     <button className="danger-action" onClick={() => {
-                      if (['rare', 'epic', 'legendary'].includes(item.rarity) && !window.confirm(`Удалить редкий предмет «${item.name}»?`)) return
+                      if (['rare', 'exceptional', 'epic', 'legendary', 'mythic', 'transcendent'].includes(item.rarity) && !window.confirm(`Удалить редкий предмет «${item.name}»?`)) return
                       mutate((next) => { next.inventory = next.inventory.filter((candidate) => candidate.id !== item.id) })
                     }}><Trash2 size={13} /></button>
                   </div>

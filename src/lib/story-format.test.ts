@@ -65,4 +65,12 @@ describe('story typography parser', () => {
       { kind: 'narration', text: 'Он замер. Дверь открылась. В коридоре никого не было.' },
     ])
   })
+
+  it('renders model-authored choice headings and ASCII bullets without markdown garbage or fake dialogue', () => {
+    expect(formatStoryText('**Выбор:**\n\n- Схватить якорь и рвануть к двери.\n\n- Использовать папку как отвлечение.')).toEqual([
+      { kind: 'heading', text: 'Выбор' },
+      { kind: 'choice', text: 'Схватить якорь и рвануть к двери.' },
+      { kind: 'choice', text: 'Использовать папку как отвлечение.' },
+    ])
+  })
 })

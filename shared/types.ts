@@ -1,16 +1,28 @@
 export type ID = string
 
 export type ActionType = 'do' | 'say' | 'story' | 'continue'
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'exceptional' | 'epic' | 'legendary' | 'mythic' | 'transcendent'
 
 export interface ItemRarityProfile {
-  /** Why the item is scarce in this world; rarity is not a power rating. */
+  /** Why the item is scarce in this world. Scarcity is only one part of its resulting class. */
   basis: string
   scarcity: string
   knownCopies?: number
   recognition: string
   marketImpact: string
   acquisitionRisk: number
+  /** Actual mechanical potency, not fame or scarcity. Optional only for migrated saves. */
+  potency?: number
+  /** Breadth of useful applications and adaptability. Optional only for migrated saves. */
+  versatility?: number
+  /** Maximum plausible influence on a scene, region or the laws of the world. */
+  worldImpact?: number
+  /** Historical, canonical and metaphysical significance of its origin. */
+  provenance?: number
+  /** Real conditions and weaknesses which reduce practical value. */
+  limitations?: string[]
+  /** Short world-specific justification of the resulting class. */
+  assessment?: string
 }
 export type ItemCategory = 'weapon' | 'armor' | 'consumable' | 'artifact' | 'quest' | 'material' | 'other'
 export type LoreType = 'character' | 'location' | 'faction' | 'object' | 'rule' | 'history' | 'secret'

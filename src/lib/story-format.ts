@@ -1,4 +1,4 @@
-export type StoryBlockKind = 'narration' | 'dialogue' | 'thought' | 'transition'
+export type StoryBlockKind = 'narration' | 'dialogue' | 'thought' | 'transition' | 'heading' | 'choice'
 
 export interface StoryBlock {
   kind: StoryBlockKind
@@ -9,6 +9,8 @@ export interface StoryBlock {
 const dialogueStart = /^[—–-]\s+/u
 const sceneBreak = /^(?:\*\s*\*\s*\*|[-—–]{3,}|[•·◦]\s*[•·◦]\s*[•·◦])$/u
 const markdownHeading = /^#{1,3}\s+(.+)$/u
+const boldHeading = /^\*\*([^*\n]{1,100})\*\*:?$/u
+const asciiChoice = /^-\s+(.+)$/u
 const thoughtMarkers = [
   /^\*([^*][\s\S]*?)\*$/u,
   /^_([^_][\s\S]*?)_$/u,
@@ -38,12 +40,22 @@ function cleanText(value: string) {
   return value.replace(/\r\n?/gu, '\n').replace(/[\t\f\v]+/gu, ' ').trim()
 }
 
+function cleanInlineMarkdown(value: string) {
+  return value.replace(/\*\*([^*]+)\*\*/gu, '$1').replace(/__([^_]+)__/gu, '$1')
+}
+
 function classifyBlock(value: string): StoryBlock {
   const text = cleanText(value)
   if (sceneBreak.test(text)) return { kind: 'transition', text: '' }
 
   const heading = text.match(markdownHeading)
   if (heading?.[1]) return { kind: 'transition', text: heading[1].trim() }
+
+  const strongHeading = text.match(boldHeading)
+  if (strongHeading?.[1]) return { kind: 'heading', text: strongHeading[1].trim().replace(/:\s*$/u, '') }
+
+  const choice = text.match(asciiChoice)
+  if (choice?.[1]) return { kind: 'choice', text: cleanInlineMarkdown(choice[1].trim()) }
 
   for (const marker of thoughtMarkers) {
     const match = text.match(marker)
@@ -55,7 +67,7 @@ function classifyBlock(value: string): StoryBlock {
     return { kind: 'dialogue', speaker: speakerMatch[1].trim(), text: speakerMatch[2].trim() }
   }
 
-  return { kind: dialogueStart.test(text) ? 'dialogue' : 'narration', text }
+  return { kind: dialogueStart.test(text) ? 'dialogue' : 'narration', text: cleanInlineMarkdown(text) }
 }
 
 function hasStructuralLine(lines: string[]) {

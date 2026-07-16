@@ -5,6 +5,11 @@ import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit'
 import helmet from 'helmet'
+import { createAdminRouter } from './admin-routes.js'
+import { createAuthRouter } from './auth-routes.js'
+import { closeDatabase } from './database.js'
+import { createSyncRouter } from './sync-routes.js'
+import { privacyPage, termsPage } from './legal-pages.js'
 import type { Campaign, CampaignEditResponse, TurnResponse, WorldQuestionResponse } from '../shared/types.js'
 import { OperationJobs } from './operation-jobs.js'
 import { answerWorldQuestion, editCampaign, runTurn, generateWorld } from './orchestrator.js'
@@ -48,6 +53,10 @@ app.use('/api', rateLimit({
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, name: 'letopis-api', time: new Date().toISOString() })
 })
+
+app.use('/api/auth', createAuthRouter())
+app.use('/api/sync', createSyncRouter())
+app.use('/api/admin', createAdminRouter())
 
 app.post('/api/jobs/turn', (req, res, next) => {
   try {
@@ -144,6 +153,8 @@ app.post('/api/worlds/generate', async (req, res, next) => {
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const webDist = path.resolve(currentDir, '../../dist')
+app.get('/privacy', privacyPage)
+app.get('/terms', termsPage)
 app.use(express.static(webDist))
 app.use((req, res, next) => {
   if (req.method === 'GET' && req.accepts('html')) return res.sendFile(path.join(webDist, 'index.html'))
@@ -162,5 +173,6 @@ const server = app.listen(port, '127.0.0.1', () => {
   console.log(`Letopis API: http://127.0.0.1:${port}`)
 })
 
-process.on('SIGTERM', () => server.close())
-process.on('SIGINT', () => server.close())
+const shutdown = () => server.close(() => closeDatabase())
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)

@@ -27,12 +27,28 @@ describe('campaign IndexedDB storage', () => {
     expect(saved.id).toEqual(expect.any(String))
     expect(saved.id.length).toBeGreaterThan(0)
 
-    const upgradedDb = await openDB('letopis-rp', 2)
+    const upgradedDb = await openDB('letopis-rp', 3)
     const migratedRecords = await upgradedDb.getAll('campaigns-v2')
     expect(migratedRecords.some((record) => record.id === 'legacy-campaign')).toBe(true)
     expect(migratedRecords.some((record) => record.id === saved.id)).toBe(true)
     expect(await upgradedDb.count('campaigns')).toBe(0)
+    expect(upgradedDb.objectStoreNames.contains('campaign-owners')).toBe(true)
     upgradedDb.close()
+  })
+
+  it('claims guest stories once and keeps campaigns isolated by account', async () => {
+    const storage = await import('./storage')
+    await storage.clearCampaigns()
+    const guest = createDemoCampaign()
+    const other = { ...createDemoCampaign(), id: crypto.randomUUID(), title: 'Другой аккаунт' }
+    await storage.saveCampaign(guest, 'guest')
+    await storage.saveCampaign(other, 'user-b')
+
+    await storage.claimGuestCampaigns('user-a')
+
+    expect((await storage.getCampaignsForOwner('user-a')).map((campaign) => campaign.id)).toEqual([guest.id])
+    expect((await storage.getCampaignsForOwner('user-b')).map((campaign) => campaign.id)).toEqual([other.id])
+    expect(await storage.getCampaignsForOwner('guest')).toEqual([])
   })
 
   it('restores an NPC name corrupted by an operation token from the newest real snapshot', async () => {

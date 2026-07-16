@@ -12,17 +12,23 @@ import { Sidebar } from './components/Sidebar'
 import { StoryView } from './components/StoryView'
 import { TopBar } from './components/TopBar'
 import { WorldQuestionPanel } from './components/WorldQuestionPanel'
+import { AccountDialog } from './components/AccountDialog'
+import { AdminPanel } from './components/AdminPanel'
 import { useApp } from './state/AppContext'
+import { useAuth } from './state/AuthContext'
 import { getWorldPresentation } from './lib/world-customization'
 import { loadInterfacePreferences, saveInterfacePreferences, type InterfacePreferences } from './lib/interface-preferences'
 
 export function App() {
   const app = useApp()
+  const auth = useAuth()
   const [newWorldOpen, setNewWorldOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [worldQuestionOpen, setWorldQuestionOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(() => Boolean(new URLSearchParams(window.location.search).get('authError') || new URLSearchParams(window.location.search).get('auth')))
+  const [adminOpen, setAdminOpen] = useState(false)
   const [focusMode, setFocusMode] = useState(false)
   const [interfacePreferences, setInterfacePreferences] = useState<InterfacePreferences>(() => loadInterfacePreferences())
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -142,6 +148,10 @@ export function App() {
         onFocusMode={() => setFocusMode((value) => !value)}
         onCommand={() => setCommandOpen(true)}
         onAsk={() => setWorldQuestionOpen(true)}
+        onAccount={() => setAccountOpen(true)}
+        accountName={auth.user?.displayName}
+        syncState={app.syncState}
+        syncMessage={app.syncMessage}
       />
       <HeroVitals campaign={campaign} onOpen={() => openInspectorTab('hero')} />
       <StoryView
@@ -179,6 +189,8 @@ export function App() {
     <SettingsDialog open={settingsOpen} provider={app.provider} theme={app.theme} interfacePreferences={interfacePreferences} campaign={campaign} onClose={() => setSettingsOpen(false)} onProvider={app.setProvider} onTheme={app.setTheme} onInterface={setInterfacePreferences} onCampaign={app.updateActiveCampaign} />
     <CampaignEditorDialog open={editorOpen} campaign={campaign} generating={app.generating} progress={app.operationProgress} onClose={() => setEditorOpen(false)} onManual={app.updateActiveCampaign} onAi={app.aiEditCampaign} onUndoEdit={app.undoLastEdit} canUndoEdit={app.canUndoEdit} />
     <WorldQuestionPanel key={campaign.id} open={worldQuestionOpen} campaign={campaign} provider={app.provider} onClose={() => setWorldQuestionOpen(false)} />
+    <AccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} onAdmin={() => { setAccountOpen(false); setAdminOpen(true) }} />
+    <AdminPanel open={adminOpen && auth.user?.role === 'admin'} onClose={() => setAdminOpen(false)} />
 
     <CommandPalette
       open={commandOpen}

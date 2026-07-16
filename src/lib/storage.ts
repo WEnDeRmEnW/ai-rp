@@ -1,7 +1,7 @@
 import { openDB, type DBSchema } from 'idb'
 import type { Campaign, InventoryItem, PowerTechnique, Resource, ResourceKind, StatusEffect } from '../../shared/types'
 import { normalizeEventDirectorSettings, normalizeEventDirectorState } from '../../shared/event-director'
-import { rarityFromKnownCopies } from '../../shared/rarity'
+import { normalizeItemRarity, normalizeRarityProfile } from '../../shared/rarity'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { ensureCampaignIdentity } from './campaign-identity'
 
@@ -78,12 +78,12 @@ function migrateItem(item: InventoryItem): InventoryItem {
       : charges !== undefined && maxCharges !== undefined && charges <= 0
         ? 'depleted'
         : item.state ?? (durability !== undefined && maxDurability !== undefined && durability < maxDurability ? 'damaged' : durability !== undefined || charges !== undefined ? 'intact' : undefined)
-  return {
+  const normalized = normalizeItemRarity({
     ...item,
-    rarity: rarityFromKnownCopies(item.rarity, item.rarityProfile?.knownCopies),
-    rarityProfile: item.rarityProfile ? { ...item.rarityProfile, acquisitionRisk: clamp(item.rarityProfile.acquisitionRisk, 0, 100) } : undefined,
+    rarityProfile: item.rarityProfile ? normalizeRarityProfile(item.rarityProfile) : undefined,
     maxDurability, durability, maxCharges, charges, state,
-  }
+  })
+  return normalized
 }
 
 interface LetopisDB extends DBSchema {
@@ -97,13 +97,22 @@ interface LetopisDB extends DBSchema {
     value: Campaign
     indexes: { 'by-updated': string }
   }
+  'campaign-owners': {
+    key: string
+    value: { campaignId: string; ownerId: string; updatedAt: string }
+    indexes: { 'by-owner': string }
+  }
 }
 
-const dbPromise = openDB<LetopisDB>('letopis-rp', 2, {
+const dbPromise = openDB<LetopisDB>('letopis-rp', 3, {
   upgrade(db) {
     if (!db.objectStoreNames.contains('campaigns-v2')) {
       const store = db.createObjectStore('campaigns-v2', { keyPath: 'id' })
       store.createIndex('by-updated', 'updatedAt')
+    }
+    if (!db.objectStoreNames.contains('campaign-owners')) {
+      const owners = db.createObjectStore('campaign-owners', { keyPath: 'campaignId' })
+      owners.createIndex('by-owner', 'ownerId')
     }
   },
 })
@@ -349,21 +358,47 @@ export function migrateCampaign(campaign: Campaign): Campaign {
   }
 }
 
-export async function saveCampaign(campaign: Campaign): Promise<Campaign> {
-  const safeCampaign = ensureCampaignIdentity(campaign)
-  await (await dbPromise).put('campaigns-v2', safeCampaign)
+export async function getCampaignsForOwner(ownerId: string): Promise<Campaign[]> {
+  const [campaigns, db] = await Promise.all([getCampaigns(), dbPromise])
+  const owners = new Map((await db.getAll('campaign-owners')).map((entry) => [entry.campaignId, entry.ownerId]))
+  return campaigns.filter((campaign) => (owners.get(campaign.id) || 'guest') === ownerId)
+}
+
+export async function claimGuestCampaigns(ownerId: string): Promise<void> {
+  const [campaigns, db] = await Promise.all([getCampaigns(), dbPromise])
+  const owners = new Map((await db.getAll('campaign-owners')).map((entry) => [entry.campaignId, entry.ownerId]))
+  const now = new Date().toISOString()
+  await Promise.all(campaigns
+    .filter((campaign) => !owners.has(campaign.id) || owners.get(campaign.id) === 'guest')
+    .map((campaign) => db.put('campaign-owners', { campaignId: campaign.id, ownerId, updatedAt: now })))
+}
+
+export async function setCampaignOwner(campaignId: string, ownerId: string): Promise<void> {
+  await (await dbPromise).put('campaign-owners', { campaignId, ownerId, updatedAt: new Date().toISOString() })
+}
+
+export async function saveCampaign(campaign: Campaign, ownerId?: string): Promise<Campaign> {
+  // Normalise on every write, not only after a reload. This makes model-authored
+  // item changes (including an inflated rarity) immediately consistent in UI,
+  // IndexedDB and cloud sync.
+  const safeCampaign = migrateCampaign(ensureCampaignIdentity(campaign))
+  const db = await dbPromise
+  await db.put('campaigns-v2', safeCampaign)
+  if (ownerId) await db.put('campaign-owners', { campaignId: safeCampaign.id, ownerId, updatedAt: new Date().toISOString() })
   return safeCampaign
 }
 
 export async function deleteCampaign(id: string): Promise<void> {
   const db = await dbPromise
   await db.delete('campaigns-v2', id)
+  await db.delete('campaign-owners', id)
   if (db.objectStoreNames.contains('campaigns')) await db.delete('campaigns', id)
 }
 
 export async function clearCampaigns(): Promise<void> {
   const db = await dbPromise
   await db.clear('campaigns-v2')
+  await db.clear('campaign-owners')
   if (db.objectStoreNames.contains('campaigns')) await db.clear('campaigns')
 }
 

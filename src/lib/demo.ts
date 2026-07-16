@@ -66,7 +66,8 @@ export function createDemoCampaign(): Campaign {
           weapon: 'Орудие', armor: 'Облачение', consumable: 'Запас', artifact: 'Реликвия', quest: 'Ключ истории', material: 'Материал', other: 'Вещь',
         },
         rarityLabels: {
-          common: 'Знакомое', uncommon: 'Примечательное', rare: 'Памятное', epic: 'Звёздное', legendary: 'Именное',
+          common: 'Знакомое', uncommon: 'Примечательное', rare: 'Памятное', exceptional: 'Созвездное', epic: 'Звёздное',
+          legendary: 'Именное', mythic: 'Небесное', transcendent: 'За гранью пути',
         },
       },
       calendar: { day: 1, label: 'Ночь Погасшего Паломника' },

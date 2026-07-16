@@ -38,7 +38,12 @@ const alias = (values: Record<string, string>) => (value: unknown) => {
 const arrayish = (value: unknown) => value === undefined ? value : Array.isArray(value) ? value : [value]
 const colorSchema = z.preprocess(normalizeHexColor, z.string().regex(/^#[0-9a-f]{6}$/i, 'Expected a six-digit HEX color'))
 const itemCategorySchema = z.preprocess(alias({ оружие: 'weapon', броня: 'armor', защита: 'armor', расходник: 'consumable', припас: 'consumable', артефакт: 'artifact', реликвия: 'artifact', квест: 'quest', сюжетный: 'quest', материал: 'material', другое: 'other', прочее: 'other' }), z.enum(['weapon', 'armor', 'consumable', 'artifact', 'quest', 'material', 'other']))
-const raritySchema = z.preprocess(alias({ обычный: 'common', обычное: 'common', необычный: 'uncommon', необычное: 'uncommon', редкий: 'rare', редкое: 'rare', эпический: 'epic', эпическое: 'epic', легендарный: 'legendary', легендарное: 'legendary' }), z.enum(['common', 'uncommon', 'rare', 'epic', 'legendary']))
+const raritySchema = z.preprocess(alias({
+  обычный: 'common', обычное: 'common', необычный: 'uncommon', необычное: 'uncommon', редкий: 'rare', редкое: 'rare',
+  исключительный: 'exceptional', исключительное: 'exceptional', эпический: 'epic', эпическое: 'epic',
+  легендарный: 'legendary', легендарное: 'legendary', мифический: 'mythic', мифическое: 'mythic',
+  трансцендентный: 'transcendent', трансцендентное: 'transcendent', божественный: 'transcendent', божественное: 'transcendent',
+}), z.enum(['common', 'uncommon', 'rare', 'exceptional', 'epic', 'legendary', 'mythic', 'transcendent']))
 const npcStatusSchema = z.preprocess(alias({ активен: 'active', активна: 'active', активно: 'active', отсутствует: 'absent', отсутствующий: 'absent', пропал: 'missing', пропала: 'missing', пропавший: 'missing', мертв: 'dead', мёртв: 'dead', мертва: 'dead', мертва́: 'dead', неизвестно: 'unknown', неизвестен: 'unknown' }), z.enum(['active', 'absent', 'missing', 'dead', 'unknown']))
 const worldVisibilitySchema = z.preprocess(alias({ известно: 'known', известное: 'known', открыто: 'known', слух: 'rumored', слухи: 'rumored', слухами: 'rumored', предположение: 'rumored', скрыто: 'hidden', скрытое: 'hidden', тайно: 'hidden', секретно: 'hidden' }), z.enum(['known', 'rumored', 'hidden']))
 const worldLawStatusSchema = z.preprocess(alias({ предложен: 'proposed', предложено: 'proposed', проект: 'proposed', активен: 'active', активно: 'active', действует: 'active', оспаривается: 'contested', оспорен: 'contested', спорный: 'contested', отменен: 'repealed', отменён: 'repealed', отменено: 'repealed' }), z.enum(['proposed', 'active', 'contested', 'repealed']))
@@ -1243,6 +1248,12 @@ const rarityProfileSchema = z.object({
   recognition: longText,
   marketImpact: longText,
   acquisitionRisk: modelNumber(z.number().min(0).max(100)),
+  potency: optionalModelNumber(z.number().min(0).max(100)),
+  versatility: optionalModelNumber(z.number().min(0).max(100)),
+  worldImpact: optionalModelNumber(z.number().min(0).max(100)),
+  provenance: optionalModelNumber(z.number().min(0).max(100)),
+  limitations: z.array(longText).max(16).optional(),
+  assessment: longText.optional(),
 }).strict()
 
 const npcRecruitmentSchema = z.object({
@@ -1487,7 +1498,7 @@ const turnPatchContract = z.object({
         chapter: shortText.optional(), turn: shortText.optional(), action: shortText.optional(), speech: shortText.optional(), direction: shortText.optional(), continue: shortText.optional(),
       }).strict().optional(),
       categoryLabels: z.object({ weapon: shortText.optional(), armor: shortText.optional(), consumable: shortText.optional(), artifact: shortText.optional(), quest: shortText.optional(), material: shortText.optional(), other: shortText.optional() }).strict().optional(),
-      rarityLabels: z.object({ common: shortText.optional(), uncommon: shortText.optional(), rare: shortText.optional(), epic: shortText.optional(), legendary: shortText.optional() }).strict().optional(),
+      rarityLabels: z.object({ common: shortText.optional(), uncommon: shortText.optional(), rare: shortText.optional(), exceptional: shortText.optional(), epic: shortText.optional(), legendary: shortText.optional(), mythic: shortText.optional(), transcendent: shortText.optional() }).strict().optional(),
     }).strict().optional(),
     addRules: z.array(shortText).max(8).optional(), removeRules: z.array(shortText).max(8).optional(),
     upsertFactions: z.array(worldFactionPatchSchema).max(12).optional(),
@@ -2166,7 +2177,7 @@ const generatedWorldContract = z.object({
       categoryLabels: z.object({
         weapon: shortText, armor: shortText, consumable: shortText, artifact: shortText, quest: shortText, material: shortText, other: shortText,
       }).strict(),
-      rarityLabels: z.object({ common: shortText, uncommon: shortText, rare: shortText, epic: shortText, legendary: shortText }).strict(),
+      rarityLabels: z.object({ common: shortText, uncommon: shortText, rare: shortText, exceptional: shortText.optional(), epic: shortText, legendary: shortText, mythic: shortText.optional(), transcendent: shortText.optional() }).strict(),
     }).strict(),
   }),
   player: z.object({

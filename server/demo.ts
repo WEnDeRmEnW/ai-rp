@@ -528,7 +528,8 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
           weapon: 'Оружие', armor: 'Защита', consumable: 'Припас', artifact: 'Реликвия', quest: 'Ключ', material: 'Материал', other: 'Снаряжение',
         },
         rarityLabels: {
-          common: 'Обычное', uncommon: 'Необычное', rare: 'Редкое', epic: 'Эпическое', legendary: 'Легендарное',
+          common: 'Обычное', uncommon: 'Необычное', rare: 'Редкое', exceptional: 'Исключительное', epic: 'Эпическое',
+          legendary: 'Легендарное', mythic: 'Мифическое', transcendent: 'Запредельное',
         },
       },
     },

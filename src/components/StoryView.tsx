@@ -63,6 +63,10 @@ function StoryBlockView({ block }: { block: StoryBlock }) {
     </div>
   }
 
+  if (block.kind === 'heading') return <h3 className="story-section-heading">{block.text}</h3>
+
+  if (block.kind === 'choice') return <div className="story-inline-choice"><i aria-hidden="true" /><span>{block.text}</span></div>
+
   if (block.kind === 'dialogue') {
     return <blockquote className="story-block story-dialogue" aria-label={block.speaker ? `Реплика: ${block.speaker}` : 'Реплика персонажа'}>
       {block.speaker && <cite>{block.speaker}</cite>}

@@ -1,4 +1,4 @@
-import { Cloud, Command, Maximize2, Menu, MessageCircleQuestion, Minimize2, MoreHorizontal, PanelLeftClose, PanelRight, PencilRuler, RotateCcw, Settings2 } from 'lucide-react'
+import { Cloud, CloudOff, Command, LoaderCircle, Maximize2, Menu, MessageCircleQuestion, Minimize2, MoreHorizontal, PanelLeftClose, PanelRight, PencilRuler, RotateCcw, Settings2, UserRound } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Campaign } from '../../shared/types'
 
@@ -16,9 +16,13 @@ interface TopBarProps {
   onFocusMode: () => void
   onCommand: () => void
   onAsk: () => void
+  onAccount: () => void
+  accountName?: string
+  syncState: 'local' | 'syncing' | 'synced' | 'error'
+  syncMessage?: string
 }
 
-export function TopBar({ campaign, canUndo, sidebarOpen, inspectorOpen, focusMode, onMenu, onInspector, onUndo, onSettings, onEdit, onFocusMode, onCommand, onAsk }: TopBarProps) {
+export function TopBar({ campaign, canUndo, sidebarOpen, inspectorOpen, focusMode, onMenu, onInspector, onUndo, onSettings, onEdit, onFocusMode, onCommand, onAsk, onAccount, accountName, syncState, syncMessage }: TopBarProps) {
   const [overflowOpen, setOverflowOpen] = useState(false)
   const overflowRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -39,9 +43,10 @@ export function TopBar({ campaign, canUndo, sidebarOpen, inspectorOpen, focusMod
         <strong>{campaign.scene.title}</strong>
         <span>{campaign.title} <i>•</i> {campaign.scene.location} <i>•</i> {campaign.scene.time}</span>
       </div>
-      <div className="save-state"><i /><Cloud size={13} /> <span>Сохранено на устройстве</span></div>
+      <button className={`save-state is-${syncState}`} onClick={onAccount} title={syncMessage || (accountName ? 'Облачная синхронизация' : 'Войти и синхронизировать истории')}><i />{syncState === 'syncing' ? <LoaderCircle className="spin" size={13} /> : syncState === 'error' ? <CloudOff size={13} /> : <Cloud size={13} />} <span>{syncState === 'synced' ? 'Сохранено в облаке' : syncState === 'syncing' ? 'Синхронизация…' : syncState === 'error' ? 'Локальная копия' : 'На устройстве'}</span></button>
       <div className="topbar-actions">
         <button className="topbar-ask-button" onClick={onAsk} aria-label="Спросить ИИ о кампании" title="Спросить о мире, сцене или способностях"><MessageCircleQuestion size={16} /><span>Спросить ИИ</span></button>
+        <button className={`account-button ${accountName ? 'is-signed-in' : ''}`} onClick={onAccount} aria-label={accountName ? `Аккаунт ${accountName}` : 'Войти в аккаунт'} title={accountName ? `Аккаунт: ${accountName}` : 'Войти и синхронизировать истории'}>{accountName ? <b>{accountName.slice(0, 1).toUpperCase()}</b> : <UserRound size={17} />}<span>{accountName || 'Войти'}</span></button>
         <button className="command-button" onClick={onCommand} aria-label="Открыть быстрые действия" title="Быстрые действия (Ctrl+K)"><Command size={15} /><span>Действия</span><kbd>Ctrl K</kbd></button>
         <span className="topbar-divider" />
         <button className="icon-button" disabled={!canUndo} onClick={onUndo} aria-label="Отменить последний ход" title="Отменить ход"><RotateCcw size={18} /></button>

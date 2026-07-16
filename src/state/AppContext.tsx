@@ -7,7 +7,9 @@ import { ensureCampaignIdentity } from '../lib/campaign-identity'
 import { createDemoCampaign } from '../lib/demo'
 import { applyPatch, commitTurn, rewindLastTurn } from '../lib/engine'
 import { loadProviderConfig, persistProviderConfig } from '../lib/provider-settings'
-import { deleteCampaign as deleteStoredCampaign, getCampaigns, readCampaignFile, saveCampaign } from '../lib/storage'
+import { syncApi } from '../lib/auth-api'
+import { claimGuestCampaigns, deleteCampaign as deleteStoredCampaign, getCampaignsForOwner, readCampaignFile, saveCampaign } from '../lib/storage'
+import { useAuth } from './AuthContext'
 
 type Theme = 'dark' | 'light'
 
@@ -21,6 +23,10 @@ interface AppContextValue {
   generating: boolean
   error?: string
   operationProgress?: OperationProgress
+  syncState: 'local' | 'syncing' | 'synced' | 'error'
+  syncMessage?: string
+  lastSyncedAt?: string
+  syncNow: () => Promise<void>
   setActiveCampaignId: (id: string) => void
   setProvider: (config: ProviderConfig) => void
   setTheme: (theme: Theme) => void
@@ -46,6 +52,7 @@ const ACTIVE_KEY = 'letopis-active-campaign'
 const THEME_KEY = 'letopis-theme'
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const auth = useAuth()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [activeCampaignId, setActiveId] = useState<string>()
   const [provider, setProviderState] = useState<ProviderConfig>(() => loadProviderConfig())
@@ -57,31 +64,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const abortRef = useRef<AbortController | undefined>(undefined)
   const lastFailedTurnRef = useRef<{ input: string; actionType: ActionType } | undefined>(undefined)
   const [canRetryFailedTurn, setCanRetryFailedTurn] = useState(false)
-  const initializedRef = useRef(false)
   const lastEditBackupRef = useRef<Campaign | undefined>(undefined)
   const [canUndoEdit, setCanUndoEdit] = useState(false)
+  const [syncState, setSyncState] = useState<'local' | 'syncing' | 'synced' | 'error'>('local')
+  const [syncMessage, setSyncMessage] = useState<string>()
+  const [lastSyncedAt, setLastSyncedAt] = useState<string>()
+  const loadSequenceRef = useRef(0)
+  const syncQueueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const ownerId = auth.user?.id || 'guest'
+
+  const pendingDeleteKey = (userId: string) => `letopis-pending-deletes-${userId}`
+  const getPendingDeletes = (userId: string): string[] => {
+    try {
+      const value = JSON.parse(localStorage.getItem(pendingDeleteKey(userId)) || '[]')
+      return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+    } catch { return [] }
+  }
+  const setPendingDeletes = (userId: string, ids: string[]) => localStorage.setItem(pendingDeleteKey(userId), JSON.stringify([...new Set(ids)]))
+
+  const queueCloudWrite = useCallback((task: () => Promise<unknown>) => {
+    setSyncState('syncing')
+    setSyncMessage('Сохраняем изменения в облаке…')
+    syncQueueRef.current = syncQueueRef.current.catch(() => undefined).then(task).then(() => {
+      setLastSyncedAt(new Date().toISOString())
+      setSyncState('synced')
+      setSyncMessage('Все изменения сохранены')
+    }).catch((cause) => {
+      setSyncState('error')
+      setSyncMessage(cause instanceof Error ? cause.message : 'Нет связи с облаком. Локальная копия сохранена.')
+    })
+  }, [])
+
+  const reconcileOwner = useCallback(async () => {
+    if (!auth.user) return getCampaignsForOwner('guest')
+    setSyncState('syncing')
+    setSyncMessage('Объединяем истории с облаком…')
+    await claimGuestCampaigns(auth.user.id)
+    const local = await getCampaignsForOwner(auth.user.id)
+    try {
+      const pending = getPendingDeletes(auth.user.id)
+      const result = await syncApi.reconcile(local, pending)
+      for (const tombstone of result.tombstones) await deleteStoredCampaign(tombstone.id)
+      for (const campaign of result.campaigns) await saveCampaign(campaign, auth.user.id)
+      setPendingDeletes(auth.user.id, [])
+      setLastSyncedAt(result.syncedAt)
+      setSyncState('synced')
+      setSyncMessage('Истории доступны на всех устройствах')
+      return getCampaignsForOwner(auth.user.id)
+    } catch (cause) {
+      setSyncState('error')
+      setSyncMessage(cause instanceof Error ? cause.message : 'Облако временно недоступно. Работаем с локальной копией.')
+      return local
+    }
+  }, [auth.user])
 
   useEffect(() => {
-    if (initializedRef.current) return
-    initializedRef.current = true
+    if (auth.loading) return
+    const sequence = ++loadSequenceRef.current
     void (async () => {
+      setLoading(true)
       try {
-        let stored = await getCampaigns()
+        let stored = await reconcileOwner()
         if (!stored.length) {
           const demo = createDemoCampaign()
-          await saveCampaign(demo)
+          await saveCampaign(demo, ownerId)
           stored = [demo]
+          if (auth.user) queueCloudWrite(() => syncApi.save(demo))
         }
+        if (sequence !== loadSequenceRef.current) return
         setCampaigns(stored)
-        const preferred = localStorage.getItem(ACTIVE_KEY)
+        const preferred = localStorage.getItem(`${ACTIVE_KEY}-${ownerId}`)
         setActiveId(stored.some((campaign) => campaign.id === preferred) ? preferred! : stored[0].id)
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Не удалось открыть локальное хранилище.')
       } finally {
-        setLoading(false)
+        if (sequence === loadSequenceRef.current) setLoading(false)
       }
     })()
-  }, [])
+  }, [auth.loading, auth.user, ownerId, queueCloudWrite, reconcileOwner])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -92,8 +152,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setActiveCampaignId = useCallback((id: string) => {
     setActiveId(id)
-    localStorage.setItem(ACTIVE_KEY, id)
-  }, [])
+    localStorage.setItem(`${ACTIVE_KEY}-${ownerId}`, id)
+  }, [ownerId])
 
   const setProvider = useCallback((config: ProviderConfig) => {
     setProviderState(config)
@@ -103,10 +163,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((next: Theme) => setThemeState(next), [])
 
   const upsert = useCallback(async (campaign: Campaign) => {
-    const saved = await saveCampaign(ensureCampaignIdentity(campaign))
+    const saved = await saveCampaign(ensureCampaignIdentity(campaign), ownerId)
     setCampaigns((current) => [saved, ...current.filter((item) => item.id !== saved.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
+    if (auth.user) queueCloudWrite(async () => {
+      const result = await syncApi.save(saved)
+      if (result.campaign.updatedAt > saved.updatedAt) {
+        const remote = await saveCampaign(result.campaign, auth.user!.id)
+        setCampaigns((current) => [remote, ...current.filter((item) => item.id !== remote.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
+      }
+    })
     return saved
-  }, [])
+  }, [auth.user, ownerId, queueCloudWrite])
+
+  const syncNow = useCallback(async () => {
+    if (!auth.user) return
+    const stored = await reconcileOwner()
+    setCampaigns(stored)
+    if (!stored.some((campaign) => campaign.id === activeCampaignId) && stored[0]) setActiveCampaignId(stored[0].id)
+  }, [activeCampaignId, auth.user, reconcileOwner, setActiveCampaignId])
 
   const updateActiveCampaign = useCallback(async (updater: (campaign: Campaign) => Campaign) => {
     const current = campaigns.find((campaign) => campaign.id === activeCampaignId)
@@ -283,17 +357,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const removeCampaign = useCallback(async (campaignId: string) => {
     await deleteStoredCampaign(campaignId)
+    if (auth.user) {
+      setPendingDeletes(auth.user.id, [...getPendingDeletes(auth.user.id), campaignId])
+      queueCloudWrite(async () => {
+        await syncApi.remove(campaignId)
+        setPendingDeletes(auth.user!.id, getPendingDeletes(auth.user!.id).filter((id) => id !== campaignId))
+      })
+    }
     const remaining = campaigns.filter((campaign) => campaign.id !== campaignId)
     if (!remaining.length) {
       const demo = createDemoCampaign()
-      await saveCampaign(demo)
+      await saveCampaign(demo, ownerId)
+      if (auth.user) queueCloudWrite(() => syncApi.save(demo))
       setCampaigns([demo])
       setActiveCampaignId(demo.id)
     } else {
       setCampaigns(remaining)
       if (activeCampaignId === campaignId) setActiveCampaignId(remaining[0].id)
     }
-  }, [activeCampaignId, campaigns, setActiveCampaignId])
+  }, [activeCampaignId, auth.user, campaigns, ownerId, queueCloudWrite, setActiveCampaignId])
 
   const importCampaign = useCallback(async (file: File) => {
     try {
@@ -307,10 +389,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setActiveCampaignId, upsert])
 
   const value = useMemo<AppContextValue>(() => ({
-    campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress,
+    campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, syncState, syncMessage, lastSyncedAt, syncNow,
     setActiveCampaignId, setProvider, setTheme, dismissError: () => setError(undefined), sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, canRetryFailedTurn, createCampaign, aiEditCampaign,
     updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign,
-  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
+  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, syncState, syncMessage, lastSyncedAt, syncNow, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

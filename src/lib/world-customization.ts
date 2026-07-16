@@ -15,7 +15,8 @@ const legacyPresentation: WorldPresentation = {
     weapon: 'Оружие', armor: 'Защита', consumable: 'Расходник', artifact: 'Артефакт', quest: 'Сюжетное', material: 'Материал', other: 'Прочее',
   },
   rarityLabels: {
-    common: 'Обычный', uncommon: 'Необычный', rare: 'Редкий', epic: 'Эпический', legendary: 'Легендарный',
+    common: 'Обычный', uncommon: 'Необычный', rare: 'Редкий', exceptional: 'Исключительный', epic: 'Эпический',
+    legendary: 'Легендарный', mythic: 'Мифический', transcendent: 'Трансцендентный',
   },
 }
 
