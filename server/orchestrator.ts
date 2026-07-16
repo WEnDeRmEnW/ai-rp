@@ -4,8 +4,8 @@ import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEve
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt, worldRewritePrompt } from './prompts.js'
-import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
+import { agencyRevisionPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldEcologyRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, worldRewritePrompt } from './prompts.js'
+import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldDraftSchema, generatedWorldEcologyRepairSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldEcologyRepair, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder } from '../shared/rarity.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
@@ -2100,6 +2100,134 @@ export async function answerWorldQuestion(request: WorldQuestionRequest, report?
   }
 }
 
+const generatedWorldIssueIsEcologyOwned = (issue: { path: PropertyKey[] }) => (
+  issue.path[0] === 'npcs'
+  || (issue.path[0] === 'world' && issue.path[1] === 'legends')
+)
+
+function mergeGeneratedNamed<T extends { name: string }>(existing: T[], repaired: T[]) {
+  const merged = new Map(existing.map((entry) => [normalizedReference(entry.name), entry]))
+  repaired.forEach((entry) => merged.set(normalizedReference(entry.name), entry))
+  return [...merged.values()]
+}
+
+/**
+ * Request identity and an already-established place name are facts, not model-authored content.
+ * Canonicalizing those references avoids spending a full repair pass on "Акира" vs "Акира " or
+ * on "Токио-3 (предположительно)" when the atlas key is exactly "Токио-3".
+ */
+export function normalizeGeneratedWorldReferences(source: GeneratedWorld, requestedPlayerName: string): GeneratedWorld {
+  const world = structuredClone(source)
+  const exactPlayerName = requestedPlayerName.trim()
+  const generatedPlayerName = world.player.name
+  const renamePlayerReference = (value: string | undefined) => (
+    value !== undefined && normalizedReference(value) === normalizedReference(generatedPlayerName)
+      ? exactPlayerName
+      : value
+  )
+  const renamePlayerReferences = (values: string[]) => values.map((value) => renamePlayerReference(value) ?? value)
+
+  world.player.name = exactPlayerName
+  world.characterArcs.forEach((arc) => { arc.ownerName = renamePlayerReference(arc.ownerName) ?? arc.ownerName })
+  world.mysteryCases.forEach((mystery) => { mystery.culpritName = renamePlayerReference(mystery.culpritName) })
+  world.worldEvents.forEach((event) => { event.involvedNpcNames = renamePlayerReferences(event.involvedNpcNames) })
+  world.threads.forEach((thread) => { thread.participantNames = renamePlayerReferences(thread.participantNames) })
+  world.worldPressures.forEach((pressure) => {
+    pressure.sourceNpcName = renamePlayerReference(pressure.sourceNpcName)
+    pressure.targetNames = renamePlayerReferences(pressure.targetNames)
+  })
+  world.influenceAssets.forEach((asset) => {
+    asset.holderName = renamePlayerReference(asset.holderName) ?? asset.holderName
+    asset.targetName = renamePlayerReference(asset.targetName)
+  })
+  world.world.legends.forEach((legend) => {
+    legend.characterName = renamePlayerReference(legend.characterName)
+    legend.relatedNpcNames = renamePlayerReferences(legend.relatedNpcNames)
+    legend.successorNpcNames = renamePlayerReferences(legend.successorNpcNames)
+    legend.legacies.forEach((legacy) => { legacy.holderNpcNames = renamePlayerReferences(legacy.holderNpcNames) })
+  })
+
+  const atlas = world.world.places
+    .map((place) => ({ name: place.name, normalized: normalizedReference(place.name) }))
+    .filter((place) => place.normalized)
+    .sort((left, right) => right.normalized.length - left.normalized.length)
+  const explicitlyUnlocated = /^(неизвест|местонахождение не установлено|место не установлено|unknown|location unknown)/i
+  world.world.legends.forEach((legend) => {
+    const rawLocation = legend.currentState.locationName
+    if (!rawLocation) return
+    const normalizedLocation = normalizedReference(rawLocation)
+    const exact = atlas.find((place) => place.normalized === normalizedLocation)
+    const embedded = exact ?? atlas.find((place) => normalizedLocation.includes(place.normalized))
+    if (embedded) legend.currentState.locationName = embedded.name
+    else if (explicitlyUnlocated.test(rawLocation.trim())) delete legend.currentState.locationName
+  })
+
+  return world
+}
+
+async function ensureGeneratedWorldIntegrity(
+  source: GeneratedWorld,
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
+  originalMessages: ReturnType<typeof worldArchitectPrompt> | ReturnType<typeof worldRewritePrompt>,
+  report?: ProgressReporter,
+): Promise<GeneratedWorld> {
+  let world = normalizeGeneratedWorldReferences(source, request.characterName)
+  let strict = generatedWorldSchema.safeParse(world)
+  if (strict.success) return strict.data
+
+  // Preserve the previous whole-world repair path for unrelated semantic failures. Ecology is
+  // handled below by a smaller contract so DeepSeek can spend its output on real characters.
+  if (strict.error.issues.some((issue) => !generatedWorldIssueIsEcologyOwned(issue))) {
+    world = normalizeGeneratedWorldReferences(
+      await parseWithRepair<GeneratedWorld>(world, generatedWorldSchema, request.provider, originalMessages),
+      request.characterName,
+    )
+    strict = generatedWorldSchema.safeParse(world)
+    if (strict.success) return strict.data
+  }
+
+  for (let attempt = 0; attempt < 3 && !strict.success; attempt += 1) {
+    reportProgress(report, 47 + attempt * 4, 'world-integrity', attempt === 0
+      ? 'Связываем легендарных фигур с полноценными персонажами, силами и точными местами'
+      : `Доводим связи сильных персонажей и легенд: проход ${attempt + 1}`, 3, 6)
+    const issues = compactIssues(strict.error, world)
+    const repairMessages = worldEcologyRepairPrompt(request, concept, world, issues)
+    const rawRepair = await completeJson(request.provider, repairMessages, { stage: 'world', maxOutputTokens: 65_536 })
+    const repair = await parseWithRepair<GeneratedWorldEcologyRepair>(
+      rawRepair,
+      generatedWorldEcologyRepairSchema,
+      request.provider,
+      repairMessages,
+    )
+    world = normalizeGeneratedWorldReferences({
+      ...world,
+      npcs: mergeGeneratedNamed(world.npcs, repair.npcs),
+      world: {
+        ...world.world,
+        legends: mergeGeneratedNamed(world.world.legends, repair.legends),
+      },
+    }, request.characterName)
+    strict = generatedWorldSchema.safeParse(world)
+    if (strict.success) return strict.data
+
+    // A repaired NPC array can expose an unrelated old dangling reference. Use the existing
+    // full repair only for that exceptional case, then return to the focused validator.
+    if (strict.error.issues.some((issue) => !generatedWorldIssueIsEcologyOwned(issue))) {
+      world = normalizeGeneratedWorldReferences(
+        await parseWithRepair<GeneratedWorld>(world, generatedWorldSchema, request.provider, originalMessages),
+        request.characterName,
+      )
+      strict = generatedWorldSchema.safeParse(world)
+      if (strict.success) return strict.data
+    }
+  }
+
+  const finalCheck = generatedWorldSchema.safeParse(world)
+  if (finalCheck.success) return finalCheck.data
+  throw new Error(`DeepSeek не смог завершить обязательную структуру после специализированного исправления экологии мира: ${compactIssues(finalCheck.error, world)}`)
+}
+
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {
   reportProgress(report, 4, 'concept', 'Разбираем замысел, героя и ограничения', 1, 6)
   if (request.provider.provider === 'demo') {
@@ -2119,9 +2247,13 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
   }
 
   const createCandidate = async (messages: ReturnType<typeof worldArchitectPrompt> | ReturnType<typeof worldRewritePrompt>) => {
+    const parseCandidate = async (raw: unknown, candidateMessages: typeof messages) => {
+      const structural = await parseWithRepair<GeneratedWorld>(raw, generatedWorldDraftSchema, request.provider, candidateMessages)
+      return ensureGeneratedWorldIntegrity(structural, request, concept, candidateMessages, report)
+    }
     try {
       const raw = await completeJson(request.provider, messages)
-      return await parseWithRepair<GeneratedWorld>(raw, generatedWorldSchema, request.provider, messages)
+      return await parseCandidate(raw, messages)
     } catch (error) {
       if (!(error instanceof Error) || !error.message.startsWith('DeepSeek не смог завершить обязательную структуру')) throw error
       const retryMessages = [
@@ -2132,7 +2264,7 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
         },
       ]
       const regenerated = await completeJson(request.provider, retryMessages)
-      return parseWithRepair<GeneratedWorld>(regenerated, generatedWorldSchema, request.provider, retryMessages)
+      return parseCandidate(regenerated, retryMessages)
     }
   }
 

@@ -2229,7 +2229,7 @@ const generatedInfluenceAssetSchema = z.object({
   secret: modelBoolean,
 }).strict()
 
-const generatedWorldContract = z.object({
+const generatedWorldStructuralContract = z.object({
   title: shortText,
   world: z.object({
     name: shortText,
@@ -2245,7 +2245,9 @@ const generatedWorldContract = z.object({
     places: z.array(generatedWorldPlaceSchema).max(36),
     processes: z.array(generatedWorldProcessSchema).max(14),
     legendarium: generatedLegendariumSchema,
-    legends: z.array(generatedLegendaryFigureSchema).min(10).max(18),
+    // The focused integrity stage can add missing fully-authored figures. Keeping the minimum
+    // out of the structural pass prevents an incomplete roster from forcing a whole-world rewrite.
+    legends: z.array(generatedLegendaryFigureSchema).max(18),
     mysteries: z.array(shortText).max(8),
     routes: z.array(worldRouteSchema).max(30),
     laws: z.array(generatedWorldLawSchema).max(12),
@@ -2348,7 +2350,9 @@ const generatedWorldContract = z.object({
     narrative: longText,
     suggestions: z.array(shortText).min(2).max(4),
   }),
-}).strict().superRefine((world, context) => {
+}).strict()
+
+const generatedWorldContract = generatedWorldStructuralContract.superRefine((world, context) => {
   const npcNames = new Set(world.npcs.map((npc) => npc.name.toLocaleLowerCase('ru-RU')))
   const entityNames = new Set([...npcNames, world.player.name.toLocaleLowerCase('ru-RU')])
   const placeNames = new Set(world.world.places.map((place) => place.name.toLocaleLowerCase('ru-RU')))
@@ -2694,9 +2698,22 @@ const generatedWorldContract = z.object({
   })
 })
 
+const generatedWorldEcologyRepairContract = z.object({
+  npcs: generatedWorldStructuralContract.shape.npcs,
+  legends: generatedWorldStructuralContract.shape.world.shape.legends,
+}).strict()
+
+/**
+ * DeepSeek first has to finish the complete JSON shape. Cross-entity guarantees are checked
+ * separately so a small ecology/reference problem can be repaired without regenerating every
+ * unrelated law, item, place and UI module five times.
+ */
+export const generatedWorldDraftSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldStructuralContract)
+export const generatedWorldEcologyRepairSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldEcologyRepairContract)
 export const generatedWorldSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldContract)
 
 export type GeneratedWorld = z.infer<typeof generatedWorldSchema>
+export type GeneratedWorldEcologyRepair = z.infer<typeof generatedWorldEcologyRepairSchema>
 export type ConceptAnalysis = z.infer<typeof conceptAnalysisSchema>
 export type WorldQualityReview = z.infer<typeof worldQualityReviewSchema>
 export type ConsequenceAudit = z.infer<typeof consequenceAuditSchema>

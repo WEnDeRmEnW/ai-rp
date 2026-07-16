@@ -1903,6 +1903,79 @@ quests[{title,description,objectives[],reward?,giver?}]; lore[{title,type,conten
   ]
 }
 
+/**
+ * Repairs the two densely connected collections separately from the rest of a generated world.
+ * DeepSeek is much more reliable when it does not have to repeat unrelated UI, geography,
+ * inventory and opening-scene JSON merely to add three NPCs or correct a legend reference.
+ */
+export function worldEcologyRepairPrompt(input: WorldConceptInput, concept: ConceptAnalysis, world: GeneratedWorld, issues: string) {
+  const repairContext = {
+    requestedPlayerName: input.characterName,
+    canonMode: input.canonMode,
+    concept: {
+      recognizedCanon: concept.recognizedCanon,
+      startingAccess: concept.startingAccess,
+      powerFantasy: concept.powerFantasy,
+      desiredScale: concept.desiredScale,
+      entities: concept.entities.map((entity) => ({
+        exactName: entity.exactName,
+        source: entity.source,
+        continuity: entity.continuity,
+        mustPreserve: entity.mustPreserve,
+        adaptationConflicts: entity.adaptationConflicts,
+      })),
+    },
+    world: {
+      name: world.world.name,
+      era: world.world.era,
+      rules: world.world.rules,
+      system: world.world.system,
+      legendarium: world.world.legendarium,
+      places: world.world.places.map((place) => ({ name: place.name, kind: place.kind, visibility: place.visibility })),
+      factions: world.world.factions.map((faction) => ({ name: faction.name, kind: faction.kind, visibility: faction.visibility, power: faction.power })),
+    },
+    player: {
+      name: world.player.name,
+      archetype: world.player.archetype,
+      backstory: world.player.backstory,
+      abilities: world.player.abilities,
+    },
+    npcs: world.npcs,
+    legends: world.world.legends,
+  }
+
+  return [
+    {
+      role: 'system' as const,
+      content: `Ты — специализированный редактор экологии сильных персонажей и легендарных фигур уже созданного мира. Не переписывай мир, героя, географию, фракции, предметы, сюжет или интерфейс. Верни только JSON-объект {"npcs":[...],"legends":[...]} с полными финальными массивами.
+
+Сохрани всех существующих содержательных NPC и легенд. Исправляй их записи и добавляй недостающих только из уже установленных законов, профессий, эпох, фракций, мест и конфликтов этого конкретного мира. Запрещены универсальные заготовки, безымянная древняя энергия, одинаковые силы, пустые досье и значения «неизвестно» ради заполнения поля.
+
+Обязательная целостность:
+- player.name остаётся точно равен requestedPlayerName;
+- characterName у легенды либо дословно совпадает с requestedPlayerName/именем NPC, либо поле опущено; living и returned всегда имеют такую связь;
+- living/returned dangerous+ подтверждены NPC с threatProfile не слабее powerStanding, полными abilities, ресурсами, strategy, knowledge, контрмерами и собственной доктриной;
+- минимум 4 NPC имеют threatProfile.tier dangerous+, среди них минимум 2 visibility=hidden и минимум 2 tier=elite|legendary|mythic; скрытые NPC не добавляются в стартовую сцену и не знают героя без канала сведений;
+- у dangerous/elite/legendary/mythic реальный максимум mastery не ниже 45/65/80/90, а signatureAbilities дословно совпадают с именами созданных ability или technique;
+- legends содержит 10–18 разных фигур: минимум 4 legendary|mythic, 3 hidden, 3 dead|ascended, 2 notable|renowned, 4 unresolved, 3 причинно достижимых, 3 эпохи и 8 различных powerStanding.domains;
+- notable/renowned/legendary/mythic имеют powerStanding не ниже capable/dangerous/elite/legendary;
+- renown не ниже собственного порога legendarium.thresholds; legendary/mythic имеют минимум два knownFeats, два deeds и суммарно минимум два myths+legacies;
+- каждый powerStanding.basis и сильная боевая доктрина уникальны, а evidence описывает фактические подтверждения, не ярлык;
+- locationName может содержать только ОДНО точное имя из world.places. Если точное место действительно не установлено, опусти locationName и вырази неопределённость через blockers/signs/lastConfirmedAt; не пиши «Неизвестно» в locationName;
+- associatedFactionNames, deed/legacy factionNames используют только точные имена существующих factions; scopeNames — только точные имена places;
+- relatedNpcNames, successorNpcNames и holderNpcNames используют только requestedPlayerName или точные имена NPC;
+- не раскрывай hidden-фигуру: discovery.visibility=hidden, revealedSections=[] и evidence=[] до реального канала знания;
+- faithfully соблюдай canonSource, continuity и adaptationConflicts.
+
+Массив npcs должен содержать полные объекты в той же форме и с той же глубиной, что входные NPC: name, role, description, personality, disposition, relationship, currentGoal, lastSeen, notes[], stats[], resources[], abilities[], knowledge[], relationshipDimensions, initiative, strategy, threatProfile?, recruitment, dossier?, voice. Массив legends должен содержать полные записи в той же форме, что входные legends, без сокращений и серверных id/turn-полей. Верни только JSON.`
+    },
+    {
+      role: 'user' as const,
+      content: `Программная проверка нашла следующие нарушения:\n${issues}\n\nКонтекст существующего мира:\n${JSON.stringify(repairContext)}`,
+    },
+  ]
+}
+
 export function worldQualityCriticPrompt(input: WorldConceptInput, concept: ConceptAnalysis, world: GeneratedWorld) {
   return [
     {
