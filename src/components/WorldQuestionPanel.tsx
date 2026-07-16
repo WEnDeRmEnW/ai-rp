@@ -1,5 +1,5 @@
-import { BookOpenCheck, BrainCircuit, Eye, EyeOff, LoaderCircle, Send, ShieldCheck, Square, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { BookOpenCheck, BrainCircuit, Eye, EyeOff, GripVertical, LoaderCircle, LocateFixed, Send, ShieldCheck, Square, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { Campaign, OperationProgress, ProviderConfig, WorldQuestionMessage, WorldQuestionScope } from '../../shared/types'
 import { askWorldQuestion } from '../lib/api'
 import './world-question.css'
@@ -17,6 +17,21 @@ interface ChatEntry extends WorldQuestionMessage {
   scope?: WorldQuestionScope
 }
 
+interface PanelPosition {
+  x: number
+  y: number
+}
+
+interface DragState {
+  pointerId: number
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+}
+
+const positionStorageKey = 'letopis-world-question-position-v2'
+
 const quickQuestions = [
   'Что сейчас происходит и что мой герой точно видит?',
   'На что сейчас способны мои силы и техники?',
@@ -29,11 +44,35 @@ function storageKey(campaignId: string) {
   return `letopis-world-questions-${campaignId}`
 }
 
+function defaultPosition(): PanelPosition {
+  return {
+    x: Math.max(12, window.innerWidth - 466),
+    y: Math.max(12, Math.min(72, window.innerHeight - 440)),
+  }
+}
+
+function readPosition(): PanelPosition {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(positionStorageKey) ?? 'null')
+    if (parsed && Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) return { x: parsed.x, y: parsed.y }
+  } catch {
+    // Invalid layout preferences fall back to a safe visible position.
+  }
+  return defaultPosition()
+}
+
+function clampPosition(position: PanelPosition, width: number, height: number): PanelPosition {
+  return {
+    x: Math.min(Math.max(8, position.x), Math.max(8, window.innerWidth - Math.min(width, window.innerWidth) - 8)),
+    y: Math.min(Math.max(8, position.y), Math.max(8, window.innerHeight - Math.min(height, window.innerHeight - 16) - 8)),
+  }
+}
+
 function readHistory(campaignId: string): ChatEntry[] {
   try {
     const value = JSON.parse(localStorage.getItem(storageKey(campaignId)) ?? '[]')
     if (!Array.isArray(value)) return []
-    return value.filter((entry): entry is ChatEntry => (
+    const valid = value.filter((entry): entry is ChatEntry => (
       entry
       && typeof entry === 'object'
       && typeof entry.id === 'string'
@@ -41,6 +80,10 @@ function readHistory(campaignId: string): ChatEntry[] {
       && typeof entry.content === 'string'
       && entry.content.trim().length > 0
     )).slice(-30)
+    return valid.filter((entry, index) => {
+      const previous = valid[index - 1]
+      return !(entry.role === 'user' && previous?.role === 'user' && previous.content.trim() === entry.content.trim())
+    })
   } catch {
     return []
   }
@@ -80,7 +123,12 @@ export function WorldQuestionPanel({ open, campaign, provider, onClose }: WorldQ
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState<OperationProgress>()
   const [error, setError] = useState('')
+  const [position, setPosition] = useState<PanelPosition>(() => readPosition())
+  const [isDragging, setIsDragging] = useState(false)
+  const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth <= 800)
   const abortRef = useRef<AbortController | null>(null)
+  const dragRef = useRef<DragState | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const feedRef = useRef<HTMLDivElement>(null)
 
@@ -111,12 +159,83 @@ export function WorldQuestionPanel({ open, campaign, provider, onClose }: WorldQ
   }, [onClose, open])
 
   useEffect(() => {
+    const onResize = () => {
+      const compact = window.innerWidth <= 800
+      setIsCompactViewport(compact)
+      if (compact) return
+      const panel = panelRef.current
+      setPosition((current) => clampPosition(current, panel?.offsetWidth ?? 450, panel?.offsetHeight ?? 640))
+    }
+    window.addEventListener('resize', onResize)
+    onResize()
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
     if (!open) return
     const feed = feedRef.current
     if (feed && typeof feed.scrollTo === 'function') feed.scrollTo({ top: feed.scrollHeight, behavior: entries.length > 1 ? 'smooth' : 'auto' })
   }, [entries, loading, open])
 
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  const persistPosition = (next: PanelPosition) => {
+    try {
+      localStorage.setItem(positionStorageKey, JSON.stringify(next))
+    } catch {
+      // Position persistence is optional and must not affect the assistant.
+    }
+  }
+
+  const resetPosition = () => {
+    const next = defaultPosition()
+    setPosition(next)
+    persistPosition(next)
+  }
+
+  const startDragging = (event: ReactPointerEvent<HTMLElement>) => {
+    if (isCompactViewport || event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: position.x,
+      originY: position.y,
+    }
+    if (typeof event.currentTarget.setPointerCapture === 'function') event.currentTarget.setPointerCapture(event.pointerId)
+    setIsDragging(true)
+    event.preventDefault()
+  }
+
+  const movePanel = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const panel = panelRef.current
+    const next = clampPosition({
+      x: drag.originX + event.clientX - drag.startX,
+      y: drag.originY + event.clientY - drag.startY,
+    }, panel?.offsetWidth ?? 450, panel?.offsetHeight ?? 640)
+    setPosition(next)
+  }
+
+  const stopDragging = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    setIsDragging(false)
+    const panel = panelRef.current
+    const styleX = panel ? Number.parseFloat(panel.style.left) : Number.NaN
+    const styleY = panel ? Number.parseFloat(panel.style.top) : Number.NaN
+    const next = panel ? {
+      x: Number.isFinite(styleX) ? styleX : panel.offsetLeft,
+      y: Number.isFinite(styleY) ? styleY : panel.offsetTop,
+    } : position
+    setPosition(next)
+    persistPosition(next)
+    if (typeof event.currentTarget.hasPointerCapture === 'function' && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
 
   const conversationalHistory = useMemo<WorldQuestionMessage[]>(() => entries.slice(-12).map(({ role, content }) => ({ role, content })), [entries])
 
@@ -148,8 +267,9 @@ export function WorldQuestionPanel({ open, campaign, provider, onClose }: WorldQ
       }
       setEntries((current) => [...current, assistantEntry].slice(-30))
     } catch (caught) {
-      if (caught instanceof DOMException && caught.name === 'AbortError') return
+      setEntries((current) => current.filter((entry) => entry.id !== userEntry.id))
       setQuestion(content)
+      if (caught instanceof DOMException && caught.name === 'AbortError') return
       setError(caught instanceof Error ? caught.message : 'Не удалось получить справку. Кампания не изменена.')
     } finally {
       if (abortRef.current === controller) abortRef.current = null
@@ -167,15 +287,27 @@ export function WorldQuestionPanel({ open, campaign, provider, onClose }: WorldQ
 
   if (!open) return null
 
+  const panelStyle: CSSProperties | undefined = isCompactViewport ? undefined : { left: position.x, top: position.y }
+
   return <div className="world-question-layer">
-    <button className="world-question-backdrop" onClick={onClose} tabIndex={-1} aria-label="Закрыть справочник" />
-    <section className="world-question-panel" role="dialog" aria-modal="true" aria-labelledby="world-question-title">
-      <header className="world-question-header">
-        <span className="world-question-mark"><BrainCircuit size={18} /></span>
+    <section ref={panelRef} className={`world-question-panel ${isDragging ? 'is-dragging' : ''}`} style={panelStyle} role="dialog" aria-labelledby="world-question-title">
+      <header
+        className="world-question-header"
+        onPointerDown={startDragging}
+        onPointerMove={movePanel}
+        onPointerUp={stopDragging}
+        onPointerCancel={stopDragging}
+        onDoubleClick={(event) => {
+          if (!isCompactViewport && !(event.target as HTMLElement).closest('button')) resetPosition()
+        }}
+        title={isCompactViewport ? undefined : 'Перетащите окно за заголовок. Двойной щелчок вернёт его вправо.'}
+      >
+        <span className="world-question-mark"><GripVertical size={12} /><BrainCircuit size={18} /></span>
         <div>
           <strong id="world-question-title">Спросить о мире</strong>
-          <small><ShieldCheck size={11} /> Ответ не изменяет историю</small>
+          <small><span><GripVertical size={10} /> можно переносить</span><i /><span><ShieldCheck size={11} /> история не изменится</span></small>
         </div>
+        {!isCompactViewport && <button className="world-question-icon" onClick={resetPosition} aria-label="Вернуть окно в правый угол" title="Вернуть окно в правый угол"><LocateFixed size={15} /></button>}
         {entries.length > 0 && <button className="world-question-icon" onClick={clearHistory} aria-label="Очистить историю вопросов" title="Очистить историю"><Trash2 size={15} /></button>}
         <button className="world-question-icon" onClick={onClose} aria-label="Закрыть справочник"><X size={17} /></button>
       </header>

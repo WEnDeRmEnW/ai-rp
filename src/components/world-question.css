@@ -26,35 +26,33 @@
   pointer-events: none;
 }
 
-.world-question-backdrop {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: color-mix(in srgb, #03070a 18%, transparent);
-  opacity: 0;
-  pointer-events: auto;
-  cursor: default;
-}
-
 .world-question-panel {
   position: absolute;
-  top: 68px;
-  right: 16px;
-  bottom: 16px;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
-  width: min(430px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  width: min(450px, calc(100vw - 24px));
+  height: min(650px, calc(100dvh - 88px));
+  min-width: 360px;
+  min-height: 410px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
-  border-radius: 18px;
+  border-radius: 16px;
   background:
-    radial-gradient(circle at 96% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 26%),
-    color-mix(in srgb, var(--surface-1) 97%, #05090c);
-  box-shadow: 0 24px 80px rgb(0 0 0 / 44%), 0 0 0 1px rgb(255 255 255 / 2%) inset;
+    radial-gradient(circle at 96% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 27%),
+    linear-gradient(160deg, color-mix(in srgb, var(--surface-1) 98%, #0a0e11), color-mix(in srgb, var(--surface-1) 94%, #05080a));
+  box-shadow: 0 22px 70px rgb(0 0 0 / 40%), 0 0 0 1px rgb(255 255 255 / 2%) inset;
   pointer-events: auto;
+  resize: both;
   animation: world-question-enter .18s ease-out;
+}
+
+.world-question-panel.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 50%), 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent) inset;
+  opacity: .98;
+  user-select: none;
 }
 
 @keyframes world-question-enter {
@@ -63,30 +61,42 @@
 }
 
 .world-question-header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 62px;
-  padding: 11px 12px 10px 14px;
+  min-height: 58px;
+  padding: 9px 10px 9px 11px;
   border-bottom: 1px solid var(--border-soft);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.world-question-panel.is-dragging .world-question-header {
+  cursor: grabbing;
 }
 
 .world-question-mark {
-  display: grid;
-  width: 34px;
+  display: flex;
+  width: 42px;
   height: 34px;
-  place-items: center;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
-  border-radius: 11px;
+  border-radius: 10px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 9%, var(--surface-2));
 }
 
+.world-question-mark svg:first-child { color: var(--faint); }
+
 .world-question-header > div {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
-  gap: 3px;
+  gap: 2px;
 }
 
 .world-question-header strong {
@@ -97,21 +107,28 @@
 .world-question-header small {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   color: var(--muted);
-  font-size: calc(9.5px * var(--panel-scale));
+  font-size: calc(8.5px * var(--panel-scale));
+  line-height: 1.25;
 }
+
+.world-question-header small span { display: inline-flex; align-items: center; gap: 3px; }
+.world-question-header small i { width: 2px; height: 2px; border-radius: 50%; background: var(--faint); }
 
 .world-question-icon {
   display: grid;
   width: 30px;
   height: 30px;
+  flex: 0 0 auto;
   padding: 0;
   place-items: center;
   border: 0;
   border-radius: 9px;
   color: var(--muted);
   background: transparent;
+  cursor: pointer;
+  touch-action: auto;
 }
 
 .world-question-icon:hover {
@@ -123,8 +140,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  padding: 10px 12px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--surface-2) 35%, transparent);
 }
 
 .world-question-scope > button {
@@ -133,17 +152,18 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 8px 9px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   color: var(--muted);
   text-align: left;
-  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  background: transparent;
 }
 
 .world-question-scope > button:hover {
   color: var(--text-soft);
-  border-color: var(--border);
+  border-color: var(--border-soft);
+  background: color-mix(in srgb, var(--surface-3) 65%, transparent);
 }
 
 .world-question-scope > button.is-active {
@@ -186,6 +206,7 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
+  flex: 0 0 auto;
   margin: 0 12px 8px;
   padding: 8px 9px;
   border: 1px solid color-mix(in srgb, var(--gold) 25%, var(--border-soft));
@@ -199,6 +220,7 @@
 .world-question-warning svg { flex: 0 0 auto; margin-top: 1px; }
 
 .world-question-feed {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 12px;
@@ -384,6 +406,9 @@
 }
 
 .world-question-error {
+  flex: 0 0 auto;
+  max-height: 100px;
+  overflow: auto;
   margin: 0 12px 8px;
   padding: 8px 9px;
   border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border-soft));
@@ -399,6 +424,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
+  flex: 0 0 auto;
   padding: 10px 12px 9px;
   border-top: 1px solid var(--border-soft);
   background: color-mix(in srgb, var(--surface-1) 94%, transparent);
@@ -449,12 +475,6 @@
   font-size: calc(8px * var(--panel-scale));
 }
 
-@media (min-width: 1301px) {
-  .app-shell.has-inspector .world-question-panel {
-    right: calc(var(--inspector-width) + 16px);
-  }
-}
-
 @media (max-width: 1150px) {
   .topbar-ask-button {
     width: 36px;
@@ -465,21 +485,27 @@
 }
 
 @media (max-width: 800px) {
-  .world-question-backdrop {
-    opacity: 1;
-    background: rgb(0 0 0 / 44%);
-  }
-
   .world-question-panel {
-    top: auto;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    height: min(82dvh, 720px);
+    top: auto !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: min(84dvh, 720px) !important;
+    min-width: 0;
+    min-height: 360px;
+    max-width: none;
+    max-height: 92dvh;
+    resize: none;
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
     border-radius: 18px 18px 0 0;
+  }
+
+  .world-question-header {
+    cursor: default;
+    touch-action: auto;
   }
 
   .world-question-message.is-user { margin-left: 24px; }

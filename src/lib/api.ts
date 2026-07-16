@@ -29,7 +29,15 @@ async function fetchJson<T>(url: string, init: RequestInit, signal?: AbortSignal
       try {
         data = text ? JSON.parse(text) : null
       } catch {
-        throw new ApiError('Сервер вернул некорректный ответ. Запрос можно безопасно повторить.', response.status)
+        const preview = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180)
+        if (response.status === 404 && url.includes('/api/jobs/')) {
+          throw new ApiError('Локальный сервер приложения использует старую версию. Перезапустите сайт и обновите страницу — история не повреждена.', response.status)
+        }
+        if (response.status === 429) {
+          throw new ApiError('Сервер временно ограничил частоту запросов. Подождите несколько секунд и повторите.', response.status)
+        }
+        const detail = preview && !/^(404|502|503|504)$/i.test(preview) ? ` Ответ: ${preview}` : ''
+        throw new ApiError(`Сервер вернул ответ в неизвестном формате.${detail} Кампания не изменена.`, response.status)
       }
       if (!response.ok) {
         const error = new ApiError(data?.error || `Ошибка сервера ${response.status}`, response.status)

@@ -34,7 +34,16 @@ app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false 
 app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/] }))
 // Кампания целиком остаётся локальной, но очень длинная история может занимать десятки мегабайт.
 app.use(express.json({ limit: '250mb' }))
-app.use('/api', rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false }))
+app.use('/api', rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  // Long AI jobs are polled frequently. Reading or forgetting an existing job
+  // must not consume the same quota as creating expensive model requests.
+  skip: (req) => req.method === 'GET' || req.method === 'DELETE',
+  handler: (_req, res) => res.status(429).json({ error: 'Слишком много новых запросов за минуту. Подождите немного и повторите.' }),
+}))
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, name: 'letopis-api', time: new Date().toISOString() })
