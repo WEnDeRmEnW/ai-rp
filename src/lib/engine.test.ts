@@ -30,7 +30,193 @@ function interfaceModule(id: string, title: string, priority: number, elements?:
   }
 }
 
+function legendaryFigure(characterId?: string): NonNullable<NonNullable<TurnPatch['world']>['upsertLegends']>[number] {
+  return {
+    id: 'legend-rin',
+    characterId,
+    name: 'Рин, Хранительница последнего пути',
+    aliases: ['Рин Астэр'],
+    titles: ['Хранительница последнего пути'],
+    epithet: 'Та, кто вывела караван сквозь погасшую сеть',
+    role: 'Живая защитница путей и полевой стратег',
+    summary: 'Рин спасла несколько поселений, связав разрозненные пути в работающий маршрут эвакуации.',
+    origin: 'Полевой связной Центральной области.',
+    era: 'Текущая эпоха',
+    stage: 'legendary',
+    lifeStatus: 'living',
+    scope: 'regional',
+    truthStatus: 'confirmed',
+    renown: 74,
+    influence: 63,
+    reputation: 'Перевозчики доверяют её маршрутам, а Хранители опасаются независимости её решений.',
+    knownFeats: ['Вывела караван из зоны цепного отказа', 'Сорвала закрытие нейтральной переправы'],
+    disputedClaims: ['Будто бы она заранее знает каждый обвал пути'],
+    associatedFactionNames: [],
+    relatedNpcIds: [],
+    successorNpcIds: [],
+    deeds: [
+      {
+        id: 'deed-caravan',
+        title: 'Путь сквозь отказ',
+        summary: 'Рин проложила маршрут между гаснущими узлами и вывела караван до обрушения сети.',
+        era: 'Текущая эпоха',
+        scale: 'regional',
+        scopeIds: [],
+        factionNames: [],
+        witnesses: ['Экипажи каравана'],
+        consequences: ['Поселения получили припасы', 'Маршрут эвакуации сохранился в полевых картах'],
+        truth: 'confirmed',
+        visibility: 'known',
+        renownImpact: 24,
+      },
+      {
+        id: 'deed-bridge',
+        title: 'Ночь закрытого моста',
+        summary: 'Рин добилась отсрочки силового закрытия переправы и вывела гражданских.',
+        era: 'Текущая эпоха',
+        scale: 'local',
+        scopeIds: [],
+        factionNames: [],
+        witnesses: ['Береговые старосты'],
+        consequences: ['Переправа сохранила нейтралитет', 'Приказ о закрытии был оспорен'],
+        truth: 'confirmed',
+        visibility: 'rumored',
+        renownImpact: 18,
+      },
+    ],
+    myths: [{
+      id: 'myth-map',
+      title: 'Карта, видящая будущее',
+      claim: 'Рин будто бы читает разрушение пути до первых признаков.',
+      origin: 'Рассказы спасённых перевозчиков',
+      spread: 'Передаётся между караванами.',
+      believers: ['Молодые проводники'],
+      distortion: 'Её прогноз основан на наблюдениях и расчёте, а не на ясновидении.',
+      truth: 'distorted',
+      visibility: 'rumored',
+    }],
+    legacies: [{
+      id: 'legacy-route',
+      name: 'Полевой протокол Рин',
+      kind: 'school',
+      description: 'Метод проверки маршрута через независимые наблюдения и запасные развилки.',
+      status: 'Используется несколькими караванами',
+      holderNpcIds: characterId ? [characterId] : [],
+      scopeIds: [],
+      factionNames: [],
+      accessConditions: ['Пройти маршрут вместе с опытным проводником'],
+      consequences: ['Снижает риск цепной ошибки', 'Требует времени и нескольких наблюдателей'],
+      visibility: 'known',
+    }],
+    currentState: {
+      activity: 'Проверяет следующий безопасный маршрут.',
+      objective: 'Сохранить путь между изолированными поселениями.',
+      mobility: 'Перемещается с караванами по доступным дорогам.',
+      encounterReadiness: 65,
+      encounterConditions: ['Оказаться на маршруте её текущей миссии'],
+      blockers: ['Удалённость текущего каравана'],
+      signs: ['Полевые метки на развилках'],
+      lastConfirmedAt: 'Надёжный отчёт перевозчиков',
+    },
+    emergence: {
+      momentum: 58,
+      nextMilestone: 'Успешно открыть постоянный безопасный путь',
+      qualifyingSigns: ['Свершения подтверждены независимыми свидетелями'],
+      disqualifiers: ['Доказанная подделка полевых отчётов'],
+    },
+    canon: {
+      status: 'original',
+      source: 'Состояние кампании',
+      continuity: 'Основная линия кампании',
+      anchorFacts: ['Рин жива', 'Её прогноз не является ясновидением'],
+      forbiddenContradictions: ['Нельзя телепортировать Рин к герою', 'Нельзя приписывать ей всеведение'],
+      divergenceNotes: [],
+    },
+    discovery: {
+      visibility: 'known',
+      awareness: 54,
+      revealedSections: ['identity', 'summary', 'status', 'deeds', 'myths', 'legacies'],
+      evidence: [{
+        id: 'evidence-caravan',
+        section: 'deeds',
+        summary: 'Спасённые экипажи независимо подтвердили маршрут.',
+        source: 'Свидетельства каравана',
+        reliability: 91,
+      }],
+    },
+  }
+}
+
 describe('state engine', () => {
+  it('keeps legendary figures causal, linked to living characters and server-stamped without leaking turn fields into model patches', () => {
+    const campaign = createDemoCampaign()
+    const npc = campaign.npcs[0]
+    campaign.world.legendarium = {
+      name: 'Память путей',
+      summary: 'Легендой становится тот, чьи решения сохраняют путь для других.',
+      recognitionRules: ['Подтверждённое свершение с устойчивым последствием'],
+      transmissionChannels: ['Свидетельства караванов'],
+      distortionForces: ['Устные преувеличения'],
+      memoryKeepers: ['Проводники'],
+      erasureForces: ['Гибель архивов'],
+      successionRules: ['Метод должен быть воспроизведён учеником'],
+      encounterRules: ['Встреча следует из маршрута и цели'],
+      thresholds: [
+        { stage: 'notable', minRenown: 20, requirements: ['Одно свершение'] },
+        { stage: 'renowned', minRenown: 40, requirements: ['Известность нескольких поселений'] },
+        { stage: 'legendary', minRenown: 70, requirements: ['Несколько подтверждённых свершений'] },
+        { stage: 'mythic', minRenown: 90, requirements: ['Изменение эпохи'] },
+      ],
+      updatedTurn: 0,
+    }
+
+    const added = applyPatch(campaign, { world: { upsertLegends: [legendaryFigure(npc.id)] } }, 5)
+    const legend = added.world.legends?.[0]
+    expect(legend).toMatchObject({
+      id: 'legend-rin',
+      characterId: npc.id,
+      createdTurn: 5,
+      lastChangedTurn: 5,
+      currentState: { lastUpdatedTurn: 5 },
+      emergence: { lastEvaluatedTurn: 5 },
+      discovery: { updatedTurn: 5, evidence: [{ learnedTurn: 5 }] },
+    })
+
+    const update = legendaryFigure(npc.id)
+    update.renown = 79
+    update.discovery.awareness = 68
+    update.discovery.revealedSections.push('whereabouts')
+    update.discovery.evidence.push({
+      id: 'evidence-location',
+      section: 'whereabouts',
+      summary: 'Курьер подтвердил её текущий маршрут.',
+      source: 'Полевой курьер',
+      reliability: 84,
+    })
+    const evolved = applyPatch(added, { world: { upsertLegends: [update] } }, 8)
+    expect(evolved.world.legends?.[0]).toMatchObject({
+      id: 'legend-rin',
+      createdTurn: 5,
+      lastChangedTurn: 8,
+      renown: 79,
+      discovery: { awareness: 68, updatedTurn: 8 },
+    })
+    expect(evolved.world.legends?.[0].discovery.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'evidence-caravan', learnedTurn: 5 }),
+      expect.objectContaining({ id: 'evidence-location', learnedTurn: 8 }),
+    ]))
+
+    const diagnostics: StateChange[] = []
+    const rejected = applyPatch(campaign, { world: { upsertLegends: [legendaryFigure()] } }, 5, diagnostics)
+    expect(rejected.world.legends).toEqual([])
+    expect(diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ detail: expect.stringContaining('не связана с симулируемым героем или NPC') }),
+    ]))
+
+    const playerLegend = applyPatch(campaign, { world: { upsertLegends: [legendaryFigure(campaign.player.id)] } }, 5)
+    expect(playerLegend.world.legends?.[0]?.characterId).toBe(campaign.player.id)
+  })
+
   it('maintains a large-scale atlas and archives finished active state instead of losing history', () => {
     const campaign = createDemoCampaign()
     campaign.quests.push({ id: 'quest-done', title: 'Закрыть ворота', description: 'Ворота должны быть запечатаны.', status: 'completed', objectives: [] })

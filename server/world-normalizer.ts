@@ -10,6 +10,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const npcIds = new Map<string, string>(generated.npcs.map((npc) => [npc.name.toLocaleLowerCase('ru-RU'), id()]))
   const placeIds = new Map<string, string>(generated.world.places.map((place) => [place.name.toLocaleLowerCase('ru-RU'), id()]))
   const processIds = new Map<string, string>(generated.world.processes.map((process) => [process.title.toLocaleLowerCase('ru-RU'), id()]))
+  const legendIds = new Map<string, string>(generated.world.legends.map((legend) => [legend.name.toLocaleLowerCase('ru-RU'), id()]))
   const eventIds = new Map<string, string>(generated.worldEvents.map((event) => [event.title.toLocaleLowerCase('ru-RU'), id()]))
   const threadIds = new Map<string, string>(generated.threads.map((thread) => [thread.title.toLocaleLowerCase('ru-RU'), id()]))
   const causalIds = new Map([...processIds, ...eventIds, ...threadIds])
@@ -49,6 +50,45 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const presentNpcIds = generated.opening.scene.presentNpcNames
     .map((name) => npcIds.get(name.toLocaleLowerCase('ru-RU')))
     .filter((candidate): candidate is string => Boolean(candidate))
+  const legends = generated.world.legends.map((legend) => {
+    const {
+      characterName, relatedNpcNames, successorNpcNames, deeds, myths, legacies,
+      currentState, emergence, discovery, ...profile
+    } = legend
+    const { locationName, ...legendCurrentState } = currentState
+    return {
+      ...profile,
+      id: legendIds.get(legend.name.toLocaleLowerCase('ru-RU'))!,
+      characterId: characterName ? entityId(characterName) : undefined,
+      relatedNpcIds: relatedNpcNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+      successorNpcIds: successorNpcNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+      deeds: deeds.map(({ scopeNames, ...deed }) => ({
+        ...deed,
+        id: id(),
+        scopeIds: scopeNames.map((name) => placeIds.get(name.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
+      })),
+      myths: myths.map((myth) => ({ ...myth, id: id() })),
+      legacies: legacies.map(({ holderNpcNames, scopeNames, ...legacy }) => ({
+        ...legacy,
+        id: id(),
+        holderNpcIds: holderNpcNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+        scopeIds: scopeNames.map((name) => placeIds.get(name.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
+      })),
+      currentState: {
+        ...legendCurrentState,
+        locationId: locationName ? placeIds.get(locationName.toLocaleLowerCase('ru-RU')) : undefined,
+        lastUpdatedTurn: 0,
+      },
+      emergence: { ...emergence, lastEvaluatedTurn: 0 },
+      discovery: {
+        ...discovery,
+        evidence: discovery.evidence.map((entry) => ({ ...entry, id: id(), learnedTurn: 0 })),
+        updatedTurn: 0,
+      },
+      createdTurn: 0,
+      lastChangedTurn: 0,
+    }
+  })
 
   return {
     id: id(),
@@ -74,6 +114,8 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
         createdTurn: 0,
         lastAdvancedTurn: 0,
       })),
+      legendarium: { ...generated.world.legendarium, updatedTurn: 0 },
+      legends,
       chronicle: [],
       routes: generated.world.routes.map((route) => ({ ...route, id: id() })),
       laws: generated.world.laws.map((law) => ({ ...law, id: id(), createdTurn: 0, lastChangedTurn: 0 })),

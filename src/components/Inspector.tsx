@@ -15,6 +15,7 @@ import { StateChangeLine } from './StateReceipt'
 import { AdaptiveWorldModules } from './AdaptiveWorldModules'
 import { getNpcDisclosure } from '../lib/npc-disclosure'
 import { WorldCockpit } from './WorldCockpit'
+import { LegendariumPanel } from './LegendariumPanel'
 
 export type InspectorTab = InspectorTabId
 type ChangeFilter = 'all' | 'character' | 'inventory' | 'social' | 'world'
@@ -665,6 +666,9 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                   : <div className={`world-pulse-card event-${event.status}`} key={event.id}><header><strong>{event.title}</strong><span>{event.status === 'due' ? 'созрело' : event.dueTurn ? `к ходу ${event.dueTurn}` : event.dueDay ? `ко дню ${event.dueDay}` : 'развивается'}</span></header><p>{event.description}</p><small>Известно герою</small></div>)}
                 {!visibleInitiatives.length && !visibleWorldEvents.length && <EmptyMini>Внешние процессы пока не дали заметных сигналов.</EmptyMini>}
               </div>
+            </Section>
+            <Section title="Легенды, мифы и наследие" action={<Sparkles size={15} />} defaultExpanded={false}>
+              <LegendariumPanel campaign={campaign} />
             </Section>
             <Section title="Давление мира" action={<ShieldAlert size={15} />} defaultExpanded={false}>
               <div className="world-pressure-list">

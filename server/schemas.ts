@@ -49,6 +49,11 @@ const worldPlaceKindSchema = z.preprocess(alias({ континент: 'continent
 const worldProcessStatusSchema = z.preprocess(alias({ активно: 'active', развивается: 'active', застопорилось: 'stalled', остановлено: 'stalled', завершено: 'resolved', разрешено: 'resolved', провалено: 'failed' }), z.enum(['active', 'stalled', 'resolved', 'failed']))
 const worldProcessDirectionSchema = z.preprocess(alias({ растет: 'rising', растёт: 'rising', усиливается: 'rising', стабильно: 'stable', без_изменений: 'stable', снижается: 'declining', ослабевает: 'declining' }), z.enum(['rising', 'stable', 'declining']))
 const worldScaleSchema = z.preprocess(alias({ личный: 'personal', персональный: 'personal', местный: 'local', локальный: 'local', региональный: 'regional', регион: 'regional', национальный: 'national', страна: 'national', континентальный: 'continental', континент: 'continental', глобальный: 'global', мировой: 'global', космический: 'cosmic', вселенский: 'cosmic' }), z.enum(['personal', 'local', 'regional', 'national', 'continental', 'global', 'cosmic']))
+const legendStageSchema = z.preprocess(alias({ заметный: 'notable', известный: 'renowned', прославленный: 'renowned', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['notable', 'renowned', 'legendary', 'mythic']))
+const legendLifeStatusSchema = z.preprocess(alias({ жив: 'living', жива: 'living', живой: 'living', мертв: 'dead', мёртв: 'dead', мертва: 'dead', пропал: 'missing', пропала: 'missing', исчез: 'missing', запечатан: 'sealed', запечатана: 'sealed', спит: 'dormant', дремлет: 'dormant', вернулся: 'returned', вернулась: 'returned', воскрешен: 'returned', воскрешён: 'returned', вознесен: 'ascended', вознесён: 'ascended', вознеслась: 'ascended', неизвестно: 'unknown' }), z.enum(['living', 'dead', 'missing', 'sealed', 'dormant', 'returned', 'ascended', 'unknown']))
+const legendTruthStatusSchema = z.preprocess(alias({ подтверждено: 'confirmed', подтверждённо: 'confirmed', правда: 'confirmed', частично_правда: 'partly_true', частично: 'partly_true', искажено: 'distorted', искаженная: 'distorted', выдумано: 'fabricated', ложь: 'fabricated', неизвестно: 'unknown' }), z.enum(['confirmed', 'partly_true', 'distorted', 'fabricated', 'unknown']))
+const legendLegacyKindSchema = z.preprocess(alias({ техника: 'technique', способность: 'technique', артефакт: 'artifact', реликвия: 'artifact', род: 'bloodline', кровь: 'bloodline', школа: 'school', учение: 'school', фракция: 'faction', организация: 'faction', культ: 'cult', закон: 'law', место: 'place', локация: 'place', пророчество: 'prophecy', титул: 'title', другое: 'other', прочее: 'other' }), z.enum(['technique', 'artifact', 'bloodline', 'school', 'faction', 'cult', 'law', 'place', 'prophecy', 'title', 'other']))
+const legendDiscoverySectionSchema = z.preprocess(alias({ личность: 'identity', имя: 'identity', обзор: 'summary', описание: 'summary', статус: 'status', судьба: 'status', происхождение: 'origin', подвиги: 'deeds', деяния: 'deeds', мифы: 'myths', легенды: 'myths', наследие: 'legacies', наследства: 'legacies', связи: 'affiliations', принадлежность: 'affiliations', местонахождение: 'whereabouts', следы: 'whereabouts', встреча: 'encounter', доступность: 'encounter', канон: 'canon', хронология: 'canon' }), z.enum(['identity', 'summary', 'status', 'origin', 'deeds', 'myths', 'legacies', 'affiliations', 'whereabouts', 'encounter', 'canon']))
 const interfacePlacementSchema = z.preprocess(alias({ пульт: 'dashboard', сводка: 'dashboard', обзор: 'dashboard', сцена: 'scene', герой: 'hero', персонаж: 'hero', инвентарь: 'inventory', снаряжение: 'inventory', мир: 'world' }), z.enum(['dashboard', 'scene', 'hero', 'inventory', 'world']))
 const interfaceVisualSchema = z.preprocess(alias({ шкалы: 'meters', индикаторы: 'meters', узлы: 'nodes', сеть: 'nodes', слоты: 'slots', ячейки: 'slots', путь: 'track', этапы: 'track', журнал: 'ledger', реестр: 'ledger', сигналы: 'signals', сообщения: 'signals', радар: 'radar', диаграмма: 'radar', карточки: 'cards', плитки: 'cards' }), z.enum(['meters', 'nodes', 'slots', 'track', 'ledger', 'signals', 'radar', 'cards']))
 const interfaceIconSchema = z.preprocess(alias({ искра: 'spark', глаз: 'eye', взгляд: 'eye', щит: 'shield', сеть: 'network', узлы: 'network', пульс: 'pulse', сердце: 'pulse', компас: 'compass', корона: 'crown', руна: 'rune', механизм: 'gear', шестерня: 'gear', пламя: 'flame', огонь: 'flame', звезда: 'star', луна: 'moon' }), z.enum(['spark', 'eye', 'shield', 'network', 'pulse', 'compass', 'crown', 'rune', 'gear', 'flame', 'star', 'moon']))
@@ -290,6 +295,215 @@ const worldProcessPatchSchema = worldProcessSchema.extend({
 const generatedWorldProcessSchema = worldProcessSchema.omit({ id: true, scopeIds: true, causeIds: true, createdTurn: true, lastAdvancedTurn: true }).extend({
   scopeNames: z.array(shortText).max(20),
   causeTitles: z.array(shortText).max(24).optional(),
+}).strict()
+
+const legendThresholdSchema = z.object({
+  stage: legendStageSchema,
+  minRenown: modelNumber(z.number().min(0).max(100)),
+  requirements: z.array(longText).min(1).max(12),
+}).strict()
+
+const legendariumBaseSchema = z.object({
+  name: shortText,
+  summary: longText,
+  recognitionRules: z.array(longText).min(1).max(16),
+  transmissionChannels: z.array(longText).min(1).max(16),
+  distortionForces: z.array(longText).max(16),
+  memoryKeepers: z.array(longText).max(16),
+  erasureForces: z.array(longText).max(16),
+  successionRules: z.array(longText).max(16),
+  encounterRules: z.array(longText).min(1).max(16),
+  thresholds: z.array(legendThresholdSchema).length(4),
+  updatedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+
+const validateLegendarium = (legendarium: z.infer<typeof legendariumBaseSchema>, context: z.RefinementCtx) => {
+  const stages = legendarium.thresholds.map((threshold) => threshold.stage)
+  if (new Set(stages).size !== 4 || !['notable', 'renowned', 'legendary', 'mythic'].every((stage) => stages.includes(stage as typeof stages[number]))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['thresholds'], message: 'Legend thresholds must contain every stage exactly once' })
+  }
+  const ordered = ['notable', 'renowned', 'legendary', 'mythic'].map((stage) => legendarium.thresholds.find((threshold) => threshold.stage === stage)?.minRenown ?? -1)
+  if (ordered.some((value, index) => index > 0 && value <= ordered[index - 1])) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['thresholds'], message: 'Legend thresholds must rise from notable to mythic' })
+  }
+}
+
+const generatedLegendariumSchema = legendariumBaseSchema.omit({ updatedTurn: true }).strict().superRefine((legendarium, context) => validateLegendarium({ ...legendarium, updatedTurn: 0 }, context))
+
+const legendariumPatchSchema = legendariumBaseSchema.extend({
+  updatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict().superRefine((legendarium, context) => validateLegendarium({ ...legendarium, updatedTurn: legendarium.updatedTurn ?? 0 }, context))
+
+const legendDeedSchema = z.object({
+  id: idSchema,
+  title: shortText,
+  summary: longText,
+  era: shortText,
+  scale: worldScaleSchema,
+  scopeIds: z.array(idSchema).max(24),
+  factionNames: z.array(shortText).max(20),
+  witnesses: z.array(longText).max(20),
+  consequences: z.array(longText).min(1).max(20),
+  truth: legendTruthStatusSchema,
+  visibility: worldVisibilitySchema,
+  renownImpact: modelNumber(z.number().min(-100).max(100)),
+}).strict()
+
+const legendMythSchema = z.object({
+  id: idSchema,
+  title: shortText,
+  claim: longText,
+  origin: longText,
+  spread: longText,
+  believers: z.array(longText).max(20),
+  distortion: longText,
+  truth: legendTruthStatusSchema,
+  visibility: worldVisibilitySchema,
+}).strict()
+
+const legendLegacySchema = z.object({
+  id: idSchema,
+  name: shortText,
+  kind: legendLegacyKindSchema,
+  description: longText,
+  status: shortText,
+  holderNpcIds: z.array(idSchema).max(20),
+  scopeIds: z.array(idSchema).max(24),
+  factionNames: z.array(shortText).max(20),
+  accessConditions: z.array(longText).max(16),
+  consequences: z.array(longText).max(16),
+  visibility: worldVisibilitySchema,
+}).strict()
+
+const legendDiscoveryEvidenceSchema = z.object({
+  id: idSchema,
+  section: legendDiscoverySectionSchema,
+  summary: longText,
+  source: shortText,
+  learnedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+  reliability: modelNumber(z.number().min(0).max(100)),
+}).strict()
+
+const legendDiscoverySchema = z.object({
+  visibility: worldVisibilitySchema,
+  awareness: modelNumber(z.number().min(0).max(100)),
+  revealedSections: z.array(legendDiscoverySectionSchema).max(16),
+  evidence: z.array(legendDiscoveryEvidenceSchema).max(80),
+  updatedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+
+const legendCurrentStateSchema = z.object({
+  activity: longText,
+  objective: longText,
+  locationId: idSchema.optional(),
+  mobility: longText,
+  encounterReadiness: modelNumber(z.number().min(0).max(100)),
+  encounterConditions: z.array(longText).max(16),
+  blockers: z.array(longText).max(16),
+  signs: z.array(longText).max(16),
+  lastConfirmedAt: shortText,
+  lastUpdatedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+
+const legendCanonProfileSchema = z.object({
+  status: z.preprocess(alias({ канон: 'canonical', канонический: 'canonical', производное: 'derived', развитие: 'derived', оригинал: 'original', оригинальный: 'original' }), z.enum(['canonical', 'derived', 'original'])),
+  source: longText,
+  continuity: longText,
+  anchorFacts: z.array(longText).max(24),
+  forbiddenContradictions: z.array(longText).max(24),
+  divergenceNotes: z.array(longText).max(24),
+}).strict()
+
+const legendEmergenceSchema = z.object({
+  momentum: modelNumber(z.number().min(-100).max(100)),
+  nextMilestone: longText,
+  qualifyingSigns: z.array(longText).max(16),
+  disqualifiers: z.array(longText).max(16),
+  lastEvaluatedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+
+const legendaryFigureSchema = z.object({
+  id: idSchema,
+  characterId: idSchema.optional(),
+  name: shortText,
+  aliases: z.array(shortText).max(16),
+  titles: z.array(shortText).max(16),
+  epithet: shortText.optional(),
+  role: shortText,
+  summary: longText,
+  origin: longText,
+  era: shortText,
+  stage: legendStageSchema,
+  lifeStatus: legendLifeStatusSchema,
+  scope: worldScaleSchema,
+  truthStatus: legendTruthStatusSchema,
+  renown: modelNumber(z.number().min(0).max(100)),
+  influence: modelNumber(z.number().min(0).max(100)),
+  reputation: longText,
+  knownFeats: z.array(longText).max(20),
+  disputedClaims: z.array(longText).max(20),
+  associatedFactionNames: z.array(shortText).max(20),
+  relatedNpcIds: z.array(idSchema).max(24),
+  successorNpcIds: z.array(idSchema).max(24),
+  deeds: z.array(legendDeedSchema).max(40),
+  myths: z.array(legendMythSchema).max(40),
+  legacies: z.array(legendLegacySchema).max(40),
+  currentState: legendCurrentStateSchema,
+  emergence: legendEmergenceSchema,
+  canon: legendCanonProfileSchema,
+  discovery: legendDiscoverySchema,
+  createdTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+  lastChangedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+
+const legendCurrentStatePatchSchema = legendCurrentStateSchema.omit({ lastUpdatedTurn: true }).extend({
+  lastUpdatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+const legendEmergencePatchSchema = legendEmergenceSchema.omit({ lastEvaluatedTurn: true }).extend({
+  lastEvaluatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+const legendDiscoveryPatchSchema = legendDiscoverySchema.omit({ updatedTurn: true, evidence: true }).extend({
+  evidence: z.array(legendDiscoveryEvidenceSchema.extend({
+    learnedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+  }).strict()).max(80),
+  updatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+const legendaryFigurePatchSchema = legendaryFigureSchema.extend({
+  currentState: legendCurrentStatePatchSchema,
+  emergence: legendEmergencePatchSchema,
+  discovery: legendDiscoveryPatchSchema,
+  createdTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+  lastChangedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+
+const generatedLegendDeedSchema = legendDeedSchema.omit({ id: true, scopeIds: true }).extend({
+  scopeNames: z.array(shortText).max(24),
+}).strict()
+const generatedLegendMythSchema = legendMythSchema.omit({ id: true }).strict()
+const generatedLegendLegacySchema = legendLegacySchema.omit({ id: true, holderNpcIds: true, scopeIds: true }).extend({
+  holderNpcNames: z.array(shortText).max(20),
+  scopeNames: z.array(shortText).max(24),
+}).strict()
+const generatedLegendDiscoverySchema = legendDiscoverySchema.omit({ evidence: true, updatedTurn: true }).extend({
+  evidence: z.array(legendDiscoveryEvidenceSchema.omit({ id: true, learnedTurn: true })).max(40),
+}).strict()
+const generatedLegendCurrentStateSchema = legendCurrentStateSchema.omit({ locationId: true, lastUpdatedTurn: true }).extend({
+  locationName: shortText.optional(),
+}).strict()
+const generatedLegendEmergenceSchema = legendEmergenceSchema.omit({ lastEvaluatedTurn: true })
+const generatedLegendaryFigureSchema = legendaryFigureSchema.omit({
+  id: true, characterId: true, relatedNpcIds: true, successorNpcIds: true, deeds: true, myths: true, legacies: true,
+  currentState: true, emergence: true, discovery: true, createdTurn: true, lastChangedTurn: true,
+}).extend({
+  characterName: shortText.optional(),
+  relatedNpcNames: z.array(shortText).max(24),
+  successorNpcNames: z.array(shortText).max(24),
+  deeds: z.array(generatedLegendDeedSchema).max(40),
+  myths: z.array(generatedLegendMythSchema).max(40),
+  legacies: z.array(generatedLegendLegacySchema).max(40),
+  currentState: generatedLegendCurrentStateSchema,
+  emergence: generatedLegendEmergenceSchema,
+  discovery: generatedLegendDiscoverySchema,
 }).strict()
 
 const generatedWorldLawSchema = worldLawSchema.omit({ id: true, createdTurn: true, lastChangedTurn: true })
@@ -1244,6 +1458,8 @@ const turnPatchContract = z.object({
     upsertRoutes: z.array(worldRouteSchema).max(40).optional(), removeRouteIds: z.array(idSchema).max(40).optional(),
     upsertPlaces: z.array(worldPlacePatchSchema).max(40).optional(), removePlaceIds: z.array(idSchema).max(40).optional(),
     upsertProcesses: z.array(worldProcessPatchSchema).max(24).optional(), retireProcessIds: z.array(idSchema).max(24).optional(),
+    legendarium: legendariumPatchSchema.optional(),
+    upsertLegends: z.array(legendaryFigurePatchSchema).max(24).optional(), removeLegendIds: z.array(idSchema).max(24).optional(),
     upsertLaws: z.array(worldLawPatchSchema).max(24).optional(), removeLawIds: z.array(idSchema).max(24).optional(),
     upsertMechanics: z.array(worldMechanicPatchSchema).max(24).optional(), removeMechanicIds: z.array(idSchema).max(24).optional(),
     upsertInterfaceModules: z.array(adaptiveInterfaceModuleDraftSchema).max(8).optional(),
@@ -1760,6 +1976,8 @@ const generatedWorldContract = z.object({
     locations: z.array(z.object({ name: shortText, description: longText, danger: modelNumber(z.number().min(0).max(100)) })).max(16),
     places: z.array(generatedWorldPlaceSchema).max(36),
     processes: z.array(generatedWorldProcessSchema).max(14),
+    legendarium: generatedLegendariumSchema,
+    legends: z.array(generatedLegendaryFigureSchema).max(18),
     mysteries: z.array(shortText).max(8),
     routes: z.array(worldRouteSchema).max(30),
     laws: z.array(generatedWorldLawSchema).max(12),
@@ -1867,6 +2085,7 @@ const generatedWorldContract = z.object({
   const entityNames = new Set([...npcNames, world.player.name.toLocaleLowerCase('ru-RU')])
   const placeNames = new Set(world.world.places.map((place) => place.name.toLocaleLowerCase('ru-RU')))
   const factionNames = new Set(world.world.factions.map((faction) => faction.name.toLocaleLowerCase('ru-RU')))
+  const legendThresholds = new Map(world.world.legendarium.thresholds.map((threshold) => [threshold.stage, threshold.minRenown]))
   const causalTitles = [
     ...world.world.processes.map((process) => process.title),
     ...world.worldEvents.map((event) => event.title),
@@ -1902,6 +2121,77 @@ const generatedWorldContract = z.object({
       code: z.ZodIssueCode.custom,
       path: ['worldPressures', index, 'sourceName'],
       message: `Pressure source must exactly match a faction name: ${pressure.sourceName}`,
+    })
+  })
+  const legendNames = new Set<string>()
+  world.world.legends.forEach((legend, index) => {
+    const normalizedLegendName = legend.name.toLocaleLowerCase('ru-RU')
+    if (legendNames.has(normalizedLegendName)) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'name'],
+      message: `Duplicate legendary figure: ${legend.name}`,
+    })
+    legendNames.add(normalizedLegendName)
+    if (legend.characterName && !entityNames.has(legend.characterName.toLocaleLowerCase('ru-RU'))) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'characterName'],
+      message: `Legend character must exactly match the player or an NPC name: ${legend.characterName}`,
+    })
+    if (['living', 'returned'].includes(legend.lifeStatus) && !legend.characterName) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'characterName'],
+      message: 'A living legendary figure must be backed by the simulated player or an NPC',
+    })
+    const minimumRenown = legendThresholds.get(legend.stage)
+    if (minimumRenown !== undefined && legend.renown < minimumRenown) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'renown'],
+      message: `Renown ${legend.renown} is below the ${legend.stage} threshold ${minimumRenown}`,
+    })
+    if (['dead', 'sealed', 'dormant'].includes(legend.lifeStatus) && legend.currentState.encounterReadiness > 0 && legend.currentState.encounterConditions.length === 0) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'currentState', 'encounterConditions'],
+      message: 'Unavailable figures require explicit encounter conditions before readiness can be above zero',
+    })
+    if (['legendary', 'mythic'].includes(legend.stage)) {
+      if (legend.knownFeats.length < 2 || legend.deeds.length < 2 || legend.myths.length + legend.legacies.length < 2) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['world', 'legends', index],
+        message: 'Legendary and mythic figures require multiple established deeds plus transmitted myths or legacies',
+      })
+    }
+    legend.relatedNpcNames.forEach((name, relatedIndex) => {
+      if (!entityNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'relatedNpcNames', relatedIndex], message: `Unknown related character: ${name}` })
+    })
+    legend.successorNpcNames.forEach((name, successorIndex) => {
+      if (!entityNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'successorNpcNames', successorIndex], message: `Unknown successor character: ${name}` })
+    })
+    legend.associatedFactionNames.forEach((name, factionIndex) => {
+      if (!factionNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'associatedFactionNames', factionIndex], message: `Unknown legend faction: ${name}` })
+    })
+    if (legend.currentState.locationName && !placeNames.has(legend.currentState.locationName.toLocaleLowerCase('ru-RU'))) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'currentState', 'locationName'],
+      message: `Unknown legend location: ${legend.currentState.locationName}`,
+    })
+    legend.deeds.forEach((deed, deedIndex) => {
+      deed.scopeNames.forEach((name, scopeIndex) => {
+        if (!placeNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'deeds', deedIndex, 'scopeNames', scopeIndex], message: `Unknown deed scope: ${name}` })
+      })
+      deed.factionNames.forEach((name, factionIndex) => {
+        if (!factionNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'deeds', deedIndex, 'factionNames', factionIndex], message: `Unknown deed faction: ${name}` })
+      })
+    })
+    legend.legacies.forEach((legacy, legacyIndex) => {
+      legacy.holderNpcNames.forEach((name, holderIndex) => {
+        if (!entityNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'legacies', legacyIndex, 'holderNpcNames', holderIndex], message: `Unknown legacy holder: ${name}` })
+      })
+      legacy.scopeNames.forEach((name, scopeIndex) => {
+        if (!placeNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'legacies', legacyIndex, 'scopeNames', scopeIndex], message: `Unknown legacy scope: ${name}` })
+      })
+      legacy.factionNames.forEach((name, factionIndex) => {
+        if (!factionNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['world', 'legends', index, 'legacies', legacyIndex, 'factionNames', factionIndex], message: `Unknown legacy faction: ${name}` })
+      })
     })
   })
   world.npcs.forEach((npc, index) => {

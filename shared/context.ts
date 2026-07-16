@@ -24,6 +24,7 @@ export interface SimulationReview {
   dueWorldEventIds: string[]
   dueProcessIds: string[]
   longUnchangedProcessIds: string[]
+  legendReviewIds: string[]
   terminalThreadIds: string[]
   terminalWorldEventIds: string[]
 }
@@ -222,6 +223,7 @@ export function buildSimulationReview(campaign: Campaign): SimulationReview {
   const terminalThreadStatuses = new Set(['fulfilled', 'broken', 'resolved'])
   const presentNpcIds = new Set(campaign.scene.presentNpcIds)
   const processes = campaign.world.processes ?? []
+  const legends = campaign.world.legends ?? []
   return {
     currentTurn: campaign.turn,
     offscreenNpcIds: campaign.npcs.filter((npc) => npc.status === 'active' && !presentNpcIds.has(npc.id)).map((npc) => npc.id),
@@ -230,6 +232,11 @@ export function buildSimulationReview(campaign: Campaign): SimulationReview {
     dueWorldEventIds: (campaign.worldEvents ?? []).filter((event) => ['scheduled', 'due'].includes(event.status) && event.dueTurn !== undefined && event.dueTurn <= campaign.turn).map((event) => event.id),
     dueProcessIds: processes.filter((process) => ['active', 'stalled'].includes(process.status) && process.dueTurn !== undefined && process.dueTurn <= campaign.turn).map((process) => process.id),
     longUnchangedProcessIds: processes.filter((process) => ['active', 'stalled'].includes(process.status) && campaign.turn - process.lastAdvancedTurn >= 8).map((process) => process.id),
+    legendReviewIds: legends.filter((legend) => (
+      legend.stage === 'notable'
+      || legend.stage === 'renowned'
+      || ['living', 'returned', 'missing', 'sealed', 'dormant'].includes(legend.lifeStatus)
+    ) && campaign.turn - Math.max(legend.lastChangedTurn, legend.emergence.lastEvaluatedTurn, legend.currentState.lastUpdatedTurn) >= 6).map((legend) => legend.id),
     terminalThreadIds: (campaign.threads ?? []).filter((thread) => terminalThreadStatuses.has(thread.status.toLocaleLowerCase('ru-RU'))).map((thread) => thread.id),
     terminalWorldEventIds: (campaign.worldEvents ?? []).filter((event) => ['resolved', 'cancelled'].includes(event.status)).map((event) => event.id),
   }

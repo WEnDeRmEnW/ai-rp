@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
+import { backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
+import { demoWorld } from './demo'
+import { normalizeWorld } from './world-normalizer'
 
 const plan = (relationships: unknown) => ({
   outcome: 'NPC стал относиться к герою теплее.',
@@ -19,6 +21,45 @@ describe('campaign editor contract', () => {
     expect(parsed.settingsPatch?.worldDynamics).toBe('volatile')
     expect(parsed.statePatch.world?.system?.progression).toContain('Опыт')
     expect(parsed.statePatch.world?.presentation?.labels?.abilities).toBe('Техники')
+  })
+})
+
+describe('legend ecosystem patch contract', () => {
+  it('allows the player to become a living legendary figure and preserves the live character link', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const generated = demoWorld(request)
+    generated.world.legends[0].characterName = generated.player.name
+    generated.world.legends[0].lifeStatus = 'living'
+
+    const campaign = normalizeWorld(generatedWorldSchema.parse(generated), request)
+    expect(campaign.world.legends?.[0]?.characterId).toBe(campaign.player.id)
+  })
+
+  it('accepts a full real legend update without model-authored server timestamps', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const campaign = normalizeWorld(generatedWorldSchema.parse(demoWorld(request)), request)
+    const legend: any = structuredClone(campaign.world.legends![0])
+    delete legend.createdTurn
+    delete legend.lastChangedTurn
+    delete legend.currentState.lastUpdatedTurn
+    delete legend.emergence.lastEvaluatedTurn
+    delete legend.discovery.updatedTurn
+    legend.discovery.evidence.forEach((entry: any) => delete entry.learnedTurn)
+
+    const parsed = turnPatchSchema.parse({ world: { upsertLegends: [legend] } })
+    const parsedLegend = parsed.world?.upsertLegends?.[0]
+    expect(parsedLegend).toMatchObject({ id: legend.id, name: 'Аурел Семипечатный' })
+    expect(parsedLegend?.currentState).not.toHaveProperty('lastUpdatedTurn')
+    expect(parsedLegend?.emergence).not.toHaveProperty('lastEvaluatedTurn')
+    expect(parsedLegend?.discovery).not.toHaveProperty('updatedTurn')
   })
 })
 

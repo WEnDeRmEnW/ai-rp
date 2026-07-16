@@ -1,5 +1,5 @@
 const ARRAY_KEYS = new Set([
-  'rules', 'factions', 'locations', 'mysteries', 'routes', 'places', 'processes', 'laws', 'mechanics', 'interfaceModules', 'metrics', 'elements', 'links', 'equipmentSlots', 'accepts',
+  'rules', 'factions', 'locations', 'mysteries', 'routes', 'places', 'processes', 'legends', 'laws', 'mechanics', 'interfaceModules', 'metrics', 'elements', 'links', 'equipmentSlots', 'accepts',
   'stats', 'resources', 'abilities', 'inventory', 'npcs', 'knowledge', 'socialLinks',
   'worldEvents', 'factionReputation', 'threads', 'quests', 'lore', 'presentNpcNames',
   'presentNpcIds', 'suggestions', 'objectives', 'keys', 'notes', 'effects', 'participantNames',
@@ -37,10 +37,14 @@ const ARRAY_KEYS = new Set([
   'culture', 'notableFacts', 'scopeIds', 'scopeNames', 'causeIds', 'causeTitles', 'involvedFactionNames',
   'drivers', 'obstacles', 'consequences', 'signs', 'evidence', 'npcIds', 'questIds',
   'npcAbilityChanges', 'narrativeIssues',
+  'recognitionRules', 'transmissionChannels', 'distortionForces', 'memoryKeepers', 'erasureForces', 'successionRules', 'encounterRules', 'thresholds',
+  'upsertLegends', 'removeLegendIds', 'deeds', 'myths', 'legacies', 'associatedFactionNames', 'relatedNpcIds', 'successorNpcIds',
+  'relatedNpcNames', 'successorNpcNames', 'factionNames', 'witnesses', 'believers', 'holderNpcIds', 'holderNpcNames',
+  'accessConditions', 'encounterConditions', 'qualifyingSigns', 'disqualifiers', 'anchorFacts', 'forbiddenContradictions', 'divergenceNotes',
 ])
 
 const ARRAY_LIMITS: Record<string, number> = {
-  rules: 10, factions: 12, locations: 12, mysteries: 8, routes: 30, places: 36, processes: 14, laws: 24, mechanics: 24, interfaceModules: 8, metrics: 12, upsertInterfaceModules: 8, elements: 16, links: 16, upsertLaws: 24, upsertMechanics: 24, territory: 24, goals: 16, equipmentSlots: 12,
+  rules: 10, factions: 12, locations: 12, mysteries: 8, routes: 30, places: 36, processes: 14, legends: 18, laws: 24, mechanics: 24, interfaceModules: 8, metrics: 12, upsertInterfaceModules: 8, elements: 16, links: 16, upsertLaws: 24, upsertMechanics: 24, territory: 24, goals: 16, equipmentSlots: 12,
   accepts: 7, stats: 24, resources: 24, upsertStats: 24, upsertResources: 24, abilities: 40, inventory: 25, npcs: 20,
   knowledge: 30, socialLinks: 40, worldEvents: 20, factionReputation: 8, threads: 20,
   quests: 10, lore: 30, presentNpcNames: 8, presentNpcIds: 12, suggestions: 4,
@@ -76,6 +80,10 @@ const ARRAY_LIMITS: Record<string, number> = {
   culture: 12, notableFacts: 16, scopeIds: 20, scopeNames: 20, causeIds: 24, causeTitles: 24,
   involvedFactionNames: 20, drivers: 16, obstacles: 16, consequences: 16, signs: 16, evidence: 20,
   npcIds: 20, questIds: 20, npcAbilityChanges: 12, narrativeIssues: 32,
+  recognitionRules: 16, transmissionChannels: 16, distortionForces: 16, memoryKeepers: 16, erasureForces: 16, successionRules: 16, encounterRules: 16, thresholds: 4,
+  upsertLegends: 24, removeLegendIds: 24, deeds: 40, myths: 40, legacies: 40, associatedFactionNames: 20, relatedNpcIds: 24, successorNpcIds: 24,
+  relatedNpcNames: 24, successorNpcNames: 24, factionNames: 20, witnesses: 20, believers: 20, holderNpcIds: 20, holderNpcNames: 20,
+  accessConditions: 16, encounterConditions: 16, qualifyingSigns: 16, disqualifiers: 16, anchorFacts: 24, forbiddenContradictions: 24, divergenceNotes: 24,
 }
 
 const BOOLEAN_KEYS = new Set([
@@ -95,10 +103,11 @@ const NUMBER_KEYS = new Set([
   'coverage', 'round', 'readiness', 'morale', 'startedTurn', 'lastUpdatedTurn',
   'criticalBelow', 'charges', 'maxCharges', 'stacks', 'remaining', 'expiresTurn', 'appliedTurn',
   'masteryDelta', 'attunementDelta', 'bondDelta', 'powerMasteryDelta', 'power', 'lastChangedTurn', 'min', 'intensity',
+  'minRenown', 'renown', 'influence', 'renownImpact', 'reliability', 'awareness', 'encounterReadiness', 'lastEvaluatedTurn',
 ])
 
 const ID_KEYS = new Set([
-  'id', 'targetId', 'npcId', 'fromNpcId', 'toNpcId', 'abilityId', 'itemId', 'powerId', 'componentId', 'ownerId',
+  'id', 'targetId', 'npcId', 'characterId', 'fromNpcId', 'toNpcId', 'abilityId', 'itemId', 'powerId', 'componentId', 'ownerId',
   'culpritId', 'holderId', 'ownerNpcId', 'entityId', 'techniqueId', 'sourceNpcId', 'moduleId',
 ])
 const ID_ARRAY_KEYS = new Set([
@@ -107,10 +116,11 @@ const ID_ARRAY_KEYS = new Set([
   'removeInfluenceAssetIds', 'removeTechniqueIds',
   'removeStatusEffectIds', 'removeKnowledgeIds', 'removePlaceIds', 'retireProcessIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds',
   'removeElementIds', 'removeMetricIds', 'links', 'targetIds', 'scopeIds', 'causeIds', 'npcIds', 'questIds', 'revealedAbilityIds',
+  'removeLegendIds', 'relatedNpcIds', 'successorNpcIds', 'holderNpcIds',
 ])
 
 const ARRAY_IDENTITY: Record<string, string> = {
-  factions: 'name', locations: 'name', places: 'name', processes: 'title', laws: 'title', mechanics: 'name', interfaceModules: 'id', metrics: 'id', elements: 'id', tabs: 'id', upsertLaws: 'id', upsertMechanics: 'id', upsertInterfaceModules: 'id', interfaceModuleChanges: 'moduleId', upsertElements: 'id', upsertMetrics: 'id', upsertPlaces: 'id', upsertProcesses: 'id', npcs: 'name', quests: 'title', lore: 'title',
+  factions: 'name', locations: 'name', places: 'name', processes: 'title', legends: 'name', upsertLegends: 'id', deeds: 'title', myths: 'title', legacies: 'name', thresholds: 'stage', laws: 'title', mechanics: 'name', interfaceModules: 'id', metrics: 'id', elements: 'id', tabs: 'id', upsertLaws: 'id', upsertMechanics: 'id', upsertInterfaceModules: 'id', interfaceModuleChanges: 'moduleId', upsertElements: 'id', upsertMetrics: 'id', upsertPlaces: 'id', upsertProcesses: 'id', npcs: 'name', quests: 'title', lore: 'title',
   worldEvents: 'title', knowledge: 'subject', stats: 'key', resources: 'key',
   characterArcs: 'title', upsertCharacterArcs: 'title', mysteryCases: 'title',
   upsertMysteryCases: 'title', antagonistPlans: 'title', upsertAntagonistPlans: 'title',
@@ -382,6 +392,23 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'beat') return translate({
     передышка: 'respite', отдых: 'respite', подготовка: 'setup', завязка: 'setup', исследование: 'exploration',
     нарастание: 'rising', напряжение: 'rising', испытание: 'challenge', последствия: 'aftermath', развязка: 'aftermath', кульминация: 'climax',
+  })
+  if (key === 'stage' && (has('legends') || has('upsertLegends') || has('thresholds'))) return translate({
+    заметный: 'notable', известный: 'renowned', прославленный: 'renowned', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic',
+  })
+  if (key === 'lifeStatus') return translate({
+    жив: 'living', жива: 'living', живой: 'living', мёртв: 'dead', мертв: 'dead', мертва: 'dead', пропал: 'missing', пропала: 'missing',
+    исчез: 'missing', запечатан: 'sealed', запечатана: 'sealed', спит: 'dormant', дремлет: 'dormant', вернулся: 'returned',
+    вернулась: 'returned', воскрешён: 'returned', воскрешен: 'returned', вознесён: 'ascended', вознесен: 'ascended', вознеслась: 'ascended', неизвестно: 'unknown',
+  })
+  if (key === 'truth' || key === 'truthStatus') return translate({
+    подтверждено: 'confirmed', правда: 'confirmed', частично: 'partly_true', частично_правда: 'partly_true', искажено: 'distorted',
+    выдумано: 'fabricated', ложь: 'fabricated', неизвестно: 'unknown',
+  })
+  if (key === 'kind' && has('legacies')) return translate({
+    техника: 'technique', способность: 'technique', артефакт: 'artifact', реликвия: 'artifact', род: 'bloodline', кровь: 'bloodline',
+    школа: 'school', учение: 'school', фракция: 'faction', организация: 'faction', культ: 'cult', закон: 'law', место: 'place',
+    локация: 'place', пророчество: 'prophecy', титул: 'title', другое: 'other', прочее: 'other',
   })
   if (key === 'challengeTier' || (key === 'tier' && has('conflict'))) return translate({
     нет: 'none', отсутствует: 'none', лёгкий: 'light', легкий: 'light', простой: 'light', обычный: 'standard', средний: 'standard',

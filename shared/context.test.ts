@@ -93,9 +93,21 @@ describe('context retrieval', () => {
     campaign.turn = 12
     campaign.threads = [{ id: 'due-thread', type: 'promise', title: 'Обещание', detail: 'Срок настал.', participantIds: [], status: 'active', dueTurn: 10, secret: false, createdTurn: 1 }]
     campaign.worldEvents = [{ id: 'due-event', title: 'Караван', description: 'Караван должен прибыть.', dueTurn: 11, status: 'scheduled', visibility: 'known', involvedIds: [], createdTurn: 2 }]
+    campaign.world.legends = [{
+      id: 'legend-review', name: 'Живой свидетель', aliases: [], titles: [], role: 'Проводник', summary: 'Сохраняет старый путь.',
+      origin: 'Север', era: 'Нынешняя эпоха', stage: 'renowned', lifeStatus: 'living', scope: 'regional', truthStatus: 'confirmed',
+      renown: 45, influence: 30, reputation: 'Известен проводникам.', knownFeats: [], disputedClaims: [], associatedFactionNames: [],
+      relatedNpcIds: [], successorNpcIds: [], deeds: [], myths: [], legacies: [],
+      currentState: { activity: 'Идёт по пути.', objective: 'Сохранить дорогу.', mobility: 'Пешком.', encounterReadiness: 0, encounterConditions: [], blockers: [], signs: [], lastConfirmedAt: 'Недавно', lastUpdatedTurn: 2 },
+      emergence: { momentum: 20, nextMilestone: 'Новый путь', qualifyingSigns: [], disqualifiers: [], lastEvaluatedTurn: 2 },
+      canon: { status: 'original', source: 'Кампания', continuity: 'Основная', anchorFacts: [], forbiddenContradictions: [], divergenceNotes: [] },
+      discovery: { visibility: 'known', awareness: 20, revealedSections: ['identity'], evidence: [], updatedTurn: 2 },
+      createdTurn: 1, lastChangedTurn: 2,
+    }]
     const review = buildSimulationReview(campaign)
     expect(review.dueThreadIds).toEqual(['due-thread'])
     expect(review.dueWorldEventIds).toEqual(['due-event'])
+    expect(review.legendReviewIds).toEqual(['legend-review'])
     expect(review.currentTurn).toBe(12)
   })
 })

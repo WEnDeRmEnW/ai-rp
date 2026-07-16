@@ -1,4 +1,4 @@
-import type { Campaign, ActionCheck, ActionType, TurnPatch } from '../shared/types.js'
+import type { Campaign, ActionCheck, ActionType, LegendaryFigure, TurnPatch } from '../shared/types.js'
 import { buildContextSelection, tokenize } from '../shared/context.js'
 import type { ConceptAnalysis, GeneratedWorld, WorldQualityReview } from './schemas.js'
 
@@ -56,6 +56,18 @@ const worldScalePatchShape = `Большой мир развивается че�
 - threads и worldEvents могут нести scale, scopeIds и causeIds для длинной причинной цепочки; worldEvents дополнительно consequences. При update сохраняй прежние причинные id и добавляй только доказанные новые связи. lastChangedTurn не возвращай — его назначает движок.
 - world.chronicle и causalChronicle во входе — неизменяемая хронология итогов. Не возвращай ключ chronicle в statePatch: движок сам создаёт запись, когда терминальная сущность проходит cleanup/retire.
 - world.upsertFactions поддерживает kind government|corporation|guild|military|religion|criminal|clan|movement|institution|other, headquarters и reach. Создавай корпорации, страны, кланы, государства или иные структуры только если они естественны для конкретного мира, а не по универсальному шаблону.`
+
+const legendPatchShape = `ЛЕГЕНДАРНЫЕ ЛИЧНОСТИ, МИФЫ И НАСЛЕДИЕ:
+- legendarium описывает не список знаменитостей, а то, КАК именно этот мир создаёт и помнит легенды: {"legendarium":{"name":"местный термин","summary":"культурная логика","recognitionRules":["какие реальные свершения признаются"],"transmissionChannels":["как известие распространяется"],"distortionForces":["что искажает рассказы"],"memoryKeepers":["кто сохраняет свидетельства"],"erasureForces":["кто или что стирает память"],"successionRules":["как переходят титулы и наследие"],"encounterRules":["почему легендарную фигуру можно или нельзя встретить"],"thresholds":[{"stage":"notable","minRenown":20,"requirements":["..."]},{"stage":"renowned","minRenown":40,"requirements":["..."]},{"stage":"legendary","minRenown":70,"requirements":["..."]},{"stage":"mythic","minRenown":90,"requirements":["..."]}]}}. Все четыре stage обязательны ровно по одному и с возрастающими порогами. Это устройство конкретного мира, а не универсальный фэнтези-шаблон.
+- Любое создание или изменение легендарной фигуры идёт полным объектом в world.upsertLegends. Стабильная форма:
+{"id":"точный прежний или новый уникальный id","characterId":"точный id героя или действующего NPC, если фигура реально симулируется","name":"...","aliases":[],"titles":[],"epithet":"...","role":"...","summary":"...","origin":"...","era":"...","stage":"notable|renowned|legendary|mythic","lifeStatus":"living|dead|missing|sealed|dormant|returned|ascended|unknown","scope":"personal|local|regional|national|continental|global|cosmic","truthStatus":"confirmed|partly_true|distorted|fabricated|unknown","renown":70,"influence":60,"reputation":"как её воспринимают разные общества","knownFeats":["краткие доказанные свершения"],"disputedClaims":["спорные утверждения"],"associatedFactionNames":["точные имена существующих фракций"],"relatedNpcIds":["точные id героя или NPC"],"successorNpcIds":["точные id героя или NPC"],"deeds":[{"id":"стабильный id","title":"...","summary":"что фактически произошло","era":"...","scale":"regional","scopeIds":["точные placeId"],"factionNames":["точные имена"],"witnesses":["кто мог передать сведения"],"consequences":["устойчивые результаты"],"truth":"confirmed|partly_true|distorted|fabricated|unknown","visibility":"known|rumored|hidden","renownImpact":12}],"myths":[{"id":"стабильный id","title":"...","claim":"что утверждает рассказ","origin":"где он возник","spread":"как и куда расходится","believers":["кто верит"],"distortion":"чем отличается от факта","truth":"confirmed|partly_true|distorted|fabricated|unknown","visibility":"known|rumored|hidden"}],"legacies":[{"id":"стабильный id","name":"...","kind":"technique|artifact|bloodline|school|faction|cult|law|place|prophecy|title|other","description":"что реально осталось","status":"...","holderNpcIds":["точные id героя или NPC"],"scopeIds":["точные placeId"],"factionNames":["точные имена"],"accessConditions":["как наследие получают"],"consequences":["что оно меняет"],"visibility":"known|rumored|hidden"}],"currentState":{"activity":"что делает сейчас либо почему не действует","objective":"текущая цель","locationId":"точный placeId, если установлен","mobility":"как перемещается и с какой скоростью","encounterReadiness":30,"encounterConditions":["причинные условия встречи"],"blockers":["что сейчас мешает встрече"],"signs":["наблюдаемые предвестники"],"lastConfirmedAt":"последнее достоверное свидетельство"},"emergence":{"momentum":55,"nextMilestone":"какое событие обоснованно изменит статус","qualifyingSigns":["что уже делает фигуру исключительной"],"disqualifiers":["что опровергнет или обесценит притязание"]},"canon":{"status":"canonical|derived|original","source":"источник или авторская основа","continuity":"точная версия и эпоха","anchorFacts":["неизменяемые факты"],"forbiddenContradictions":["что нельзя нарушать"],"divergenceNotes":[]},"discovery":{"visibility":"known|rumored|hidden","awareness":35,"revealedSections":["identity|summary|status|origin|deeds|myths|legacies|affiliations|whereabouts|encounter|canon"],"evidence":[{"id":"стабильный id","section":"deeds","summary":"что узнал герой","source":"свидетель, документ, наблюдение или проверенный рассказ","learnedTurn":3,"reliability":80}]}}.
+- renown — не декоративная сила и не уровень боя. Он растёт только из поступка, который имел масштаб, свидетелей/следы, последствия и реально распространился через transmissionChannels; скрытый подвиг без канала известности может изменить влияние или оставить наследие, но не обязан повышать renown. renown должен соответствовать порогу выбранного stage. legendary/mythic требуют нескольких конкретных deeds и совокупно хотя бы двух myths/legacies, а не одной красивой строки.
+- Живая notable/renowned фигура обязана иметь characterId героя или полный NPC-профиль, чтобы реально жить, действовать, ошибаться, вступать в конфликты и применять способности. Исторический умерший может существовать только как легенда. Живая legendary/mythic фигура тоже должна иметь characterId, если она способна сейчас действовать или встретиться; не создавай её как пустую вывеску.
+- currentState не телепортирует встречу. encounterReadiness — лишь причинная готовность мира: расстояние, цель фигуры, маршруты, посредники, печати, политика, канон и blockers должны позволять сближение. Для dead/sealed/dormant encounterReadiness>0 обязательно требует конкретных encounterConditions; воскрешение, пробуждение и возвращение невозможны без уже существующей механики и цены.
+- discovery — строгая граница знаний героя, как dossier у NPC. Не раскрывай всю карточку после одного слуха. Слух обычно открывает identity/myths и evidence с неполной reliability; подтверждённое наблюдение может открыть deed/status/whereabouts; внутреннюю цель, точное местоположение, условия встречи и канонические якоря показывай только при соответствующих доказательствах. Сохраняй прежние revealedSections и evidence, добавляя только реально полученное.
+- Новая легенда рождается из игры, а не из квоты. Сначала существуют реальные дела, свидетели, последствия и передача рассказа; stage notable/renowned допускает постепенное emergence. Переход в legendary/mythic — редкое историческое событие. Поражение, разоблачение или забвение способно снизить momentum, truthStatus, influence либо изменить миф, но не стирает свершившийся deed.
+- Канонический мир соблюдает точную эпоху. Например, персонаж существующей вселенной может быть жив, мёртв, запечатан, неизвестен или ещё не рождён в зависимости от выбранной continuity. Canon.anchorFacts и forbiddenContradictions важнее желания устроить раннюю встречу. Оригинальные новые легенды разрешены, если не подменяют и не обесценивают канон.
+- removeLegendIds исправляет ошибочную/дублирующую техническую запись. Смерть, исчезновение, забвение или разоблачение не удаляют легенду: обнови lifeStatus, truthStatus, myths, legacies, currentState и discovery. Не возвращай createdTurn, lastChangedTurn, currentState.lastUpdatedTurn, emergence.lastEvaluatedTurn или discovery.updatedTurn — их назначает движок.`
 
 const interfacePatchShape = `АДАПТИВНЫЙ ПУЛЬТ МИРА И ЕГО КАНОНИЧЕСКИЕ МУТАЦИИ:
 - Полная архитектура вкладок меняется через world.interfaceBlueprint:
@@ -162,6 +174,27 @@ function hiddenNarrativeFragments(campaign: Campaign): string[] {
     if (process.visibility === 'hidden') add(process)
     else if (process.visibility === 'rumored') add([process.description, process.scopeIds, process.involvedFactionNames, process.drivers, process.obstacles, process.stage, process.momentum, process.direction, process.nextMilestone, process.dueTurn, process.consequences, process.causeIds])
   })
+  ;(world.legends ?? []).forEach((legend) => {
+    if (legend.discovery.visibility === 'hidden') {
+      add(legend)
+      return
+    }
+    const revealed = new Set(legend.discovery.revealedSections)
+    if (!revealed.has('summary')) add([legend.summary, legend.role, legend.reputation, legend.knownFeats, legend.renown, legend.influence])
+    if (!revealed.has('status')) add([legend.stage, legend.lifeStatus, legend.scope, legend.truthStatus])
+    if (!revealed.has('origin')) add([legend.origin, legend.era])
+    if (!revealed.has('deeds')) add(legend.deeds)
+    if (!revealed.has('myths')) add([legend.myths, legend.disputedClaims])
+    if (!revealed.has('legacies')) add(legend.legacies)
+    if (!revealed.has('affiliations')) add([legend.associatedFactionNames, legend.relatedNpcIds, legend.successorNpcIds])
+    if (!revealed.has('whereabouts')) add([legend.currentState.activity, legend.currentState.objective, legend.currentState.locationId, legend.currentState.mobility, legend.currentState.lastConfirmedAt])
+    if (!revealed.has('encounter')) add([legend.currentState.encounterReadiness, legend.currentState.encounterConditions, legend.currentState.blockers, legend.currentState.signs])
+    if (!revealed.has('canon')) add(legend.canon)
+    add(legend.deeds.filter((deed) => deed.visibility === 'hidden'))
+    add(legend.myths.filter((myth) => myth.visibility === 'hidden'))
+    add(legend.legacies.filter((legacy) => legacy.visibility === 'hidden'))
+    add(legend.emergence)
+  })
   ;(world.laws ?? []).forEach((law) => {
     if (law.visibility === 'hidden') add(law)
     else if (law.visibility === 'rumored') add([law.description, law.scope, law.authority, law.status, law.consequences])
@@ -211,6 +244,71 @@ function narrativeProcess(process: NonNullable<Campaign['world']['processes']>[n
   if (process.visibility === 'hidden') return undefined
   if (process.visibility === 'rumored') return { id: process.id, title: process.title, visibility: process.visibility }
   return process
+}
+
+function narrativeLegend(legend: LegendaryFigure) {
+  if (legend.discovery.visibility === 'hidden') return undefined
+  const revealed = new Set(legend.discovery.revealedSections)
+  const base: Record<string, unknown> = {
+    id: legend.id,
+    name: legend.name,
+    discovery: {
+      visibility: legend.discovery.visibility,
+      awareness: legend.discovery.awareness,
+      revealedSections: legend.discovery.revealedSections,
+      evidence: legend.discovery.evidence,
+    },
+  }
+  if (revealed.has('identity')) Object.assign(base, { aliases: legend.aliases, titles: legend.titles, epithet: legend.epithet })
+  if (legend.discovery.visibility === 'rumored') {
+    if (revealed.has('myths')) {
+      base.myths = legend.myths
+        .filter((myth) => myth.visibility !== 'hidden')
+        .map(({ id, title, claim, origin, spread, believers, distortion, visibility }) => ({ id, title, claim, origin, spread, believers, distortion, visibility }))
+    }
+    return base
+  }
+  if (revealed.has('summary')) Object.assign(base, {
+    role: legend.role,
+    summary: legend.summary,
+    reputation: legend.reputation,
+    knownFeats: legend.knownFeats,
+  })
+  if (revealed.has('status')) Object.assign(base, {
+    stage: legend.stage,
+    lifeStatus: legend.lifeStatus,
+    scope: legend.scope,
+    truthStatus: legend.truthStatus,
+  })
+  if (revealed.has('origin')) Object.assign(base, { origin: legend.origin, era: legend.era })
+  if (revealed.has('deeds')) base.deeds = legend.deeds.filter((deed) => deed.visibility !== 'hidden')
+  if (revealed.has('myths')) Object.assign(base, {
+    disputedClaims: legend.disputedClaims,
+    myths: legend.myths.filter((myth) => myth.visibility !== 'hidden'),
+  })
+  if (revealed.has('legacies')) base.legacies = legend.legacies.filter((legacy) => legacy.visibility !== 'hidden')
+  if (revealed.has('affiliations')) Object.assign(base, {
+    associatedFactionNames: legend.associatedFactionNames,
+    relatedNpcIds: legend.relatedNpcIds,
+    successorNpcIds: legend.successorNpcIds,
+  })
+  const currentState: Record<string, unknown> = {}
+  if (revealed.has('whereabouts')) Object.assign(currentState, {
+    activity: legend.currentState.activity,
+    locationId: legend.currentState.locationId,
+    mobility: legend.currentState.mobility,
+    signs: legend.currentState.signs,
+    lastConfirmedAt: legend.currentState.lastConfirmedAt,
+  })
+  if (revealed.has('encounter')) Object.assign(currentState, {
+    encounterReadiness: legend.currentState.encounterReadiness,
+    encounterConditions: legend.currentState.encounterConditions,
+    blockers: legend.currentState.blockers,
+    signs: legend.currentState.signs,
+  })
+  if (Object.keys(currentState).length) base.currentState = currentState
+  if (revealed.has('canon')) base.canon = legend.canon
+  return base
 }
 
 function narrativeLaw(law: NonNullable<Campaign['world']['laws']>[number]) {
@@ -452,6 +550,7 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
   const dueThreadQueue = new Set(background ? selected.simulationReview.dueThreadIds : [])
   const dueEventQueue = new Set(background ? selected.simulationReview.dueWorldEventIds : [])
   const dueProcessQueue = new Set(background ? [...selected.simulationReview.dueProcessIds, ...selected.simulationReview.longUnchangedProcessIds] : [])
+  const legendReviewQueue = new Set(background ? selected.simulationReview.legendReviewIds : [])
   const initialPlaceIds = new Set(selectFocused(
     campaign.world.places ?? [], queryTokens,
     (place) => `${place.name} ${place.description} ${place.currentSituation}`,
@@ -488,6 +587,47 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
     causalIds.add(process.id)
     process.scopeIds.forEach((id) => initialPlaceIds.add(id))
   })
+  const worldLegends = selectFocused(
+    campaign.world.legends ?? [],
+    queryTokens,
+    (legend) => [
+      legend.name,
+      legend.aliases.join(' '),
+      legend.titles.join(' '),
+      legend.epithet ?? '',
+      legend.role,
+      legend.summary,
+      legend.origin,
+      legend.era,
+      legend.reputation,
+      legend.knownFeats.join(' '),
+      legend.disputedClaims.join(' '),
+      legend.deeds.map((deed) => `${deed.title} ${deed.summary}`).join(' '),
+      legend.myths.map((myth) => `${myth.title} ${myth.claim}`).join(' '),
+      legend.legacies.map((legacy) => `${legacy.name} ${legacy.description}`).join(' '),
+    ].join(' '),
+    (legend) => (
+      legendReviewQueue.has(legend.id)
+      || Boolean(legend.characterId && seedEntityIds.has(legend.characterId))
+      || legend.relatedNpcIds.some((id) => seedEntityIds.has(id))
+      || legend.successorNpcIds.some((id) => seedEntityIds.has(id))
+      || Boolean(legend.currentState.locationId && initialPlaceIds.has(legend.currentState.locationId))
+      || (background && campaign.turn - legend.lastChangedTurn <= 4)
+    ),
+    background ? 36 : 14,
+  )
+  worldLegends.forEach((legend) => {
+    causalIds.add(legend.id)
+    legend.deeds.forEach((deed) => {
+      causalIds.add(deed.id)
+      deed.scopeIds.forEach((id) => initialPlaceIds.add(id))
+    })
+    legend.legacies.forEach((legacy) => {
+      causalIds.add(legacy.id)
+      legacy.scopeIds.forEach((id) => initialPlaceIds.add(id))
+    })
+    if (legend.currentState.locationId) initialPlaceIds.add(legend.currentState.locationId)
+  })
   pendingWorldEvents.forEach((event) => event.scopeIds?.forEach((id) => initialPlaceIds.add(id)))
   activeThreads.forEach((thread) => thread.scopeIds?.forEach((id) => initialPlaceIds.add(id)))
 
@@ -517,6 +657,12 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
     pressure.targetIds.forEach((id) => relevantEntityIds.add(id))
     if (pressure.sourceNpcId) relevantEntityIds.add(pressure.sourceNpcId)
   })
+  worldLegends.forEach((legend) => {
+    if (legend.characterId) relevantEntityIds.add(legend.characterId)
+    legend.relatedNpcIds.forEach((id) => relevantEntityIds.add(id))
+    legend.successorNpcIds.forEach((id) => relevantEntityIds.add(id))
+    legend.legacies.forEach((legacy) => legacy.holderNpcIds.forEach((id) => relevantEntityIds.add(id)))
+  })
 
   const focusedNpcs = selectFocused(
     campaign.npcs,
@@ -536,6 +682,11 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
   const relevantFactionNames = new Set([
     ...worldProcesses.flatMap((process) => process.involvedFactionNames),
     ...worldPressures.filter((pressure) => pressure.sourceKind !== 'npc').map((pressure) => pressure.sourceName),
+    ...worldLegends.flatMap((legend) => [
+      ...legend.associatedFactionNames,
+      ...legend.deeds.flatMap((deed) => deed.factionNames),
+      ...legend.legacies.flatMap((legacy) => legacy.factionNames),
+    ]),
   ].map((name) => name.toLocaleLowerCase('ru-RU')))
   const factions = selectFocused(
     campaign.world.factions, queryTokens,
@@ -576,6 +727,8 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
     routes: (campaign.world.routes ?? []).filter((route) => background || route.discovered).filter((route) => selectedPlaceNames.has(route.from.toLocaleLowerCase('ru-RU')) || selectedPlaceNames.has(route.to.toLocaleLowerCase('ru-RU')) || textRelevance(queryTokens, `${route.from} ${route.to} ${route.label}`) > 0).slice(0, background ? 32 : 16),
     places: narrative ? worldPlaces.map(narrativePlace).filter(Boolean) : worldPlaces,
     processes: narrative ? worldProcesses.map(narrativeProcess).filter(Boolean) : worldProcesses,
+    legendarium: campaign.world.legendarium,
+    legends: narrative ? worldLegends.map(narrativeLegend).filter(Boolean) : worldLegends,
     laws: narrative ? laws.map(narrativeLaw).filter(Boolean) : laws,
     mechanics: narrative ? mechanics.filter((mechanic) => mechanic.discovered) : mechanics,
     interfaceModules: narrative ? modules.map(narrativeModule).filter(Boolean) : modules,
@@ -619,6 +772,26 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
     .filter((process) => !narrative || process.visibility !== 'hidden')
     .slice(0, background ? 200 : 100)
     .map(({ id, title, status, visibility, scopeIds, dueTurn, lastAdvancedTurn }) => narrative && visibility === 'rumored' ? { id, title, visibility } : ({ id, title, status, visibility, scopeIds, dueTurn, lastAdvancedTurn }))
+  const legendIndex = (campaign.world.legends ?? [])
+    .filter((legend) => !narrative || legend.discovery.visibility !== 'hidden')
+    .slice(0, background ? 240 : 100)
+    .map((legend) => narrative
+      ? {
+          id: legend.id,
+          name: legend.name,
+          stage: legend.discovery.revealedSections.includes('status') ? legend.stage : undefined,
+          lifeStatus: legend.discovery.revealedSections.includes('status') ? legend.lifeStatus : undefined,
+          visibility: legend.discovery.visibility,
+        }
+      : {
+          id: legend.id,
+          characterId: legend.characterId,
+          name: legend.name,
+          stage: legend.stage,
+          lifeStatus: legend.lifeStatus,
+          renown: legend.renown,
+          lastChangedTurn: legend.lastChangedTurn,
+        })
 
   const hiddenFragments = narrative ? hiddenNarrativeFragments(campaign) : []
   const relevantMemories = narrative ? selected.memories.filter((memory) => !containsHiddenNarrativeFact(memory.content, hiddenFragments)) : selected.memories
@@ -655,6 +828,7 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
     dueWorldEventIds: selected.simulationReview.dueWorldEventIds.filter((id) => selectedEventIds.has(id)).slice(0, 48),
     dueProcessIds: selected.simulationReview.dueProcessIds.filter((id) => selectedProcessIds.has(id)).slice(0, 48),
     longUnchangedProcessIds: selected.simulationReview.longUnchangedProcessIds.filter((id) => selectedProcessIds.has(id)).slice(0, 48),
+    legendReviewIds: selected.simulationReview.legendReviewIds.filter((id) => worldLegends.some((legend) => legend.id === id)).slice(0, 48),
     terminalThreadIds: selected.simulationReview.terminalThreadIds.slice(-48),
     terminalWorldEventIds: selected.simulationReview.terminalWorldEventIds.slice(-48),
   } : undefined
@@ -663,6 +837,7 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
     world,
     placeIndex,
     processIndex,
+    legendIndex,
     player,
     abilityIndex: campaign.player.abilities.slice(0, background ? 180 : 120).map(({ id, name, kind, source, mastery }) => ({ id, name, kind, source, mastery })),
     inventory: safeInventory,
@@ -813,6 +988,10 @@ NPC не замирает в ожидании следующей реплики 
 - Для каждой фракции проверяй goals, currentMove, resources, territory, power и статус. Продвигай currentMove только если есть ресурс и возможность; power меняй соразмерно фактической победе, потере, союзу или расколу. Новая фракция возникает лишь когда у группы появились общая идентичность, цель и ресурсы. При расколе или слиянии сохраняй историю: прежнюю фракцию обнови до dormant/dissolved, новую добавь отдельной полной записью. removeFactions используй только для исправления ошибочной сущности, не для произошедшего распада.
 - world.places — не список декораций, а иерархический атлас жизни за пределами героя. Если у старой кампании атлас пуст или охватывает только текущую комнату, при подходящем причинном окне восстанови одну связную вертикаль мира из 2–4 уже существующих уровней: страна/регион/город/район, система/планета/станция, царство/земля/поселение, страна шиноби/скрытая деревня/квартал и т. п. Не добавляй такую пачку каждый ход и не заполняй квоту случайными названиями: каждый новый узел должен объяснять власть, снабжение, путь, культуру или текущий процесс. Не принуждай каждый мир иметь современные страны или корпорации. currentSituation каждого места отражает происходящее там сейчас, даже если герой далеко.
 - world.processes — долгие войны, выборы, миграции, торговые кризисы, исследования, эпидемии, экспансии, заговоры, культурные сдвиги и другие причинные процессы. На каждом ходе проверяй drivers, obstacles, momentum, nextMilestone и dueTurn. Продвигай только при наличии причин; stalled тоже является осмысленным состоянием. Указывай scale, точные scopeIds и causeIds; последствия следующего рубежа храни в consequences. Процесс может породить worldEvent, изменить faction.currentMove, закон или currentSituation места. Локальная сцена не обязана немедленно узнать о скрытом результате.
+- world.legends — отдельный историко-социальный контур. Для legendReviewIds и причинно затронутых фигур проверь: жив ли связанный NPC и что он реально сделал; появились ли свидетели/следы; успел ли рассказ пройти через transmissionChannels; исказили ли его distortionForces; возникло ли наследие; изменились ли currentState, influence, truthStatus, discovery или emergence. Не увеличивай renown за тайное действие, о котором никто не узнал, и не повышай stage из-за числа ходов. Для нового notable/renowned кандидата сначала должны существовать NPC, минимум одно исключительное свершение, последствия и канал известности; legendary/mythic нельзя создавать одним фоновым скачком без накопленной истории.
+- Легендарные фигуры живут независимо от героя. Действующая фигура с characterId преследует собственную цель через состояние героя либо обычные NPC initiative/strategy/knowledge и только затем получает согласованное обновление world.upsertLegends. Исторические dead/ascended не совершают новых действий, но их myths/legacies могут распространяться, оспариваться, присваиваться фракциями или открываться через документы. missing/sealed/dormant не означают доступность: encounterReadiness меняется только при маршруте, посреднике, ритуале, политическом решении или другом конкретном условии.
+- Если у старой кампании ещё нет world.legendarium, один раз восстанови систему памяти мира из уже существующих inspiration, era, rules, lore, canon, NPC, фракций и хроники. Не выдумывай несовместимое прошлое: при недостатке оснований создай только legendarium и оставь legends пустым до появления реальных свидетельств.
+- Если герой или NPC совершил исключительный поступок, не объявляй его легендой автоматически. Зафиксируй deed только после устойчивого результата; renownImpact реализуется лишь когда свидетельство распространилось. Один и тот же факт не должен одновременно создавать несколько дублей deed/myth/worldEvent. Миф может искажать deed, но обязан иметь собственный origin, spread, believers и distortion.
 - Крупное изменение закона, механики или фракции подкрепляй worldEvents, если последствия наступят позже, и обновляй lore только через основного режиссёра, когда открытие доступно герою. Не создавай революцию, новую валюту или магическую школу без участников, ресурса, времени и цепочки причин.
 - interfaceModules и interfaceBlueprint — наблюдаемая панель уже существующего мира, а не источник новых фактов. Элементы с живым binding не переписывай ради нового числа — приложение считывает его само. Если внешний процесс причинно изменил уже существующий custom-элемент, используй локальный interfaceModuleChanges с точным moduleId и полным upsertElements, а не пересобирай модуль целиком.
 - Для каждой world.metrics проверь её updatePolicy. metricDeltas разрешён только если именно сейчас реально выполнен названный триггер; ключ дельты — точный metric.key. Не создавай метрики, модули или blueprint в фоновой симуляции, не меняй их ради атмосферы и не дублируй живое binding-значение.
@@ -828,6 +1007,7 @@ ${snapshotFieldRule}
 ${reputationPatchShapes}
 ${interfacePatchShape}
 ${worldScalePatchShape}
+${legendPatchShape}
 ${pacingPressurePatchShape}
 ${cleanupPatchShape}
 
@@ -897,6 +1077,9 @@ ${runtimeSettingsPrompt(campaign)}
 - Система мира адаптивна. Если события действительно изменили героя или правила игры, используй playerProfile, upsertStats/removeStatKeys, upsertResources/removeResourceKeys. Не переписывай личность героя без явно проявленных решений игрока.
 - Для появления нового NPC используй npcs add и заполни полный NPC с уникальным строковым id. Для развития существующего NPC используй npcs update с его точным targetId: обновляй цель, местоположение, статус, отношение и заметки по фактическим событиям. Поля NPC всегда вкладывай в npc: {"operation":"update","targetId":"точный id","npc":{"currentGoal":"...","notes":[]}}.
 - Для действительно исключительного NPC добавь threatProfile: tier, scope, reputation, whyDangerous, knownFeats, constraints, defeatRequirements, escalationTriggers и visibility. Профиль legendary/mythic допустим только вместе с соответствующими реальными способностями, ресурсами и стратегией; у обычных NPC это поле не нужно. Условия defeatRequirements — не кнопка мгновенной победы, а подтверждённые способы сделать столкновение решаемым.
+- threatProfile и world.legends решают разные задачи: первый описывает реальную опасность действующего NPC, второй — историческую известность, рассказы и наследие. Сильный неизвестный противник не обязан быть легендой, а знаменитый правитель или исследователь не обязан быть лучшим бойцом. Если поступок действительно меняет легендарную запись, верни полный world.upsertLegends и отдельно обнови связанного NPC по его фактическому состоянию.
+- Раскрывай легендарную фигуру постепенно через discovery. Услышанный рассказ может открыть identity/myths, увиденный памятник — legacy/deed, проверенный архив — origin/status/canon, достоверный след — whereabouts, а реальный путь к встрече — encounter. Одно свидетельство не открывает точную цель, место, силу и всю биографию сразу. Когда слух подтверждён или опровергнут, обнови evidence/reliability, truthStatus и соответствующий myth/deed вместо энциклопедической вставки в beats.
+- Не вытаскивай легенду в сцену только потому, что она присутствует в контексте. Встреча требует выполненных encounterConditions, отсутствия blockers, физического пути и мотива обеих сторон. Допустимы косвенные пересечения — наследник, техника, руины, политическое последствие, поддельный миф, запись, знак или спор о наследии. Канонические anchorFacts/continuity запрещено ломать ради камео.
 - Для устойчивых изменений устройства мира используй world: addRules/removeRules, upsertFactions/removeFactions, upsertLocations/removeLocations, upsertPlaces/removePlaceIds, upsertProcesses/retireProcessIds, addMysteries/resolveMysteries, upsertLaws/removeLawIds, upsertMechanics/removeMechanicIds, interfaceBlueprint, upsertInterfaceModules/interfaceModuleChanges/removeInterfaceModuleIds, upsertMetrics/metricDeltas/removeMetricIds, calendarDayDelta/calendarLabel. rules — только истины реальности; общественные законы помещай в upsertLaws, а новые стабильные правила игры — в upsertMechanics. Не меняй мир из-за одной красивой фразы. Новые законы, механики, места, процессы и фракции требуют причины, участника, масштаба, ресурса и последствия; раскол/слияние сохраняет прежнюю фракцию со статусом dormant/dissolved, а не стирает её. Текущая сцена — лишь одна точка атласа: учитывай согласованные события в других городах, странах, мирах, станциях и организациях, если они существуют в этой кампании.
 - Адаптивные interfaceModules должны следовать за реальным состоянием. Элемент с binding обновляется приложением автоматически — не копируй в value новое значение health/ресурса/stat/напряжения/репутации/зарядов. Локальную правку метаданных или элементов существующего модуля делай через interfaceModuleChanges; полный upsertInterfaceModules оставляй для нового модуля или действительно полной переделки. Проверяй каждую world.metrics по её updatePolicy: metricDeltas используй только после фактического причинного триггера и по точному metric.key, без произвольного дрейфа. interfaceBlueprint не перестраивай на каждом ходе; меняй его только когда действительно изменилась структура мира или владелец явно заказал редизайн. Если в старой кампании модулей нет, можешь спроектировать 2–4 модуля и blueprint только при действительно содержательном ходе: выведи их из уже установленных законов, системы сил, фракций и пути героя, а не из названия жанра. Никогда не создавай новый закон мира только ради красивого виджета.
 - Отслеживай связи NPC через socialLinks, обещания/долги/свидетелей/слухи через threads, будущие последствия через worldEvents, отношение фракций через factionReputationDeltas или upsertFactionReputation по канонической форме ниже, спутников через party, дороги через world.upsertRoutes. Поля сюжетной нити всегда вкладывай в thread, а поля мирового события — в event; снаружи оставляй только operation и targetId.
@@ -938,6 +1121,7 @@ ${memoryPatchShape}
 ${entityPatchShapes}
 ${interfacePatchShape}
 ${worldScalePatchShape}
+${legendPatchShape}
 ${pacingPressurePatchShape}
 ${cleanupPatchShape}
 
@@ -1159,9 +1343,9 @@ ${domains.join(', ')}.
 - characters: появление/уход NPC, их цель, местоположение, статус, ресурсы, эффекты, способности, инициатива, стратегический профиль, наблюдённые паттерны, планы/контрпланы и жизнь/смерть; интеллект ограничен knowledge, но обязан влиять на решения;
 - conflict: начало/продолжение/завершение активного противостояния; цели, позиции, готовность, мораль, темп и уязвимости сторон; использованная контрмера меняет strategy.countermeasures, но conflict не заменяет реальные дельты здоровья, ресурсов и эффектов;
 - scene_time: место, присутствующие, погода, время, напряжение, прошедшие ходы/дни;
-- world: фракции и организации, репутация, иерархический атлас, города/страны/станции/миры согласно сеттингу, автономные процессы, маршруты, правила, места, тайны, фоновые и отложенные события;
+- world: фракции и организации, репутация, иерархический атлас, города/страны/станции/миры согласно сеттингу, автономные процессы, маршруты, правила, места, тайны, фоновые и отложенные события, а также легендарные личности, их подтверждённые deeds, распространяющиеся myths, действующее legacies и причинное emergence;
 - world_pressure: причинный ответ мира и темп сцены; pacing обязан совпадать с фактической сценой, а внешнее давление — иметь источник, канал знания, цель, ресурсы, стадию, признаки, ограничения и counterplay. Если участник организации пострадал и подтверждённая информация действительно дошла до неё, отсутствие соразмерной реакции или подготовки — пропуск. Если информация не дошла, сама реакция была бы ошибкой. Завершённое давление переводится в resolved и очищается, а не висит вечно;
-- knowledge: кто именно узнал, заподозрил или опроверг конкретный факт; никаких телепатических знаний. Если герой в финальной сцене действительно узнал факт об NPC, dossier обязан открыть только соответствующую секцию/key/abilityId и добавить evidence; если не узнал, любое раскрытие dossier является утечкой.
+- knowledge: кто именно узнал, заподозрил или опроверг конкретный факт; никаких телепатических знаний. Если герой в финальной сцене действительно узнал факт об NPC, dossier обязан открыть только соответствующую секцию/key/abilityId и добавить evidence; если он получил сведения о легендарной фигуре, world.upsertLegends обязан сохранить прежний discovery, добавить конкретное evidence и открыть только доказанную секцию. Если герой не узнал факт, любое раскрытие dossier/discovery является утечкой.
 
 ПРАВИЛА:
 0. Отдельно проверь верность прозы вводу игрока. Для actionType=story явно заданные автором события, числа, ранения, траты, появления и условия считаются УЖЕ ПРОИЗОШЕДШИМИ обязательными фактами. Их нельзя заменить более интересным событием из фоновой симуляции. Для do проверяй исход заявленного действия по check/плану, для say — дословную реплику, для continue — отсутствие выдуманного решения героя. narrativePass=false, если финальная сцена пропустила, отменила или подменила хотя бы один такой факт; тогда narrativeIssues обязан дать точные инструкции для переписывания, сохраняя уместные детали.
@@ -1187,6 +1371,7 @@ ${techniquePatchShapes}
 ${memoryPatchShape}
 ${entityPatchShapes}
 ${worldScalePatchShape}
+${legendPatchShape}
 ${pacingPressurePatchShape}
 ${cleanupPatchShape}
 
@@ -1383,6 +1568,16 @@ export function worldArchitectPrompt(input: WorldConceptInput, concept?: Concept
 
 Создай столько автономных processes, сколько уже причинно действует на старте. Обширному политическому, шиноби- или киберпанковскому миру обычно нужны несколько процессов разных масштабов (часто 3 и более), чтобы он жил без героя; камерная история может иметь 0–1. Не выдумывай войну, выборы или эпидемию ради числа. Каждый созданный process имеет scale, область scopeNames из точных places[].name, участвующие фракции, материальные/социальные drivers, obstacles, текущую стадию, momentum, direction, следующий проверяемый рубеж и последствия. causeTitles содержит только точные названия уже созданных причинных записей; если устойчивой предшествующей причины ещё нет, верни пустой массив. В мире без фракций involvedFactionNames=[]; иначе каждое имя буквально совпадает с factions[].name. В богатом мире хотя бы часть процессов должна сталкивать внешние силы между собой и не иметь героя обязательным участником.
 
+СОЗДАЙ ИСТОРИЧЕСКУЮ ГЛУБИНУ ЧЕРЕЗ ЛЕГЕНДАРИУМ:
+- Сначала определи, кого и за что именно общество этого мира считает исключительным. Создай world.legendarium как уникальную культурную систему: в шиноби-мире известность могут сохранять кланы, архивы миссий, памятники и устная память деревень; в киберпанке — утечки, корпоративные архивы, подпольные записи и переписанная сеть; в камерной истории — семейное предание, судебное дело или вообще очень узкий круг памяти. Не используй слово «легенда» как обязательный местный термин.
+- world.legends содержит столько фигур, сколько действительно нужно истории мира. В обширной существующей цивилизации обычно есть несколько разных функций: живой деятель или современник, историческая фигура, источник школы/закона/артефакта/титула, спорный герой, забытая личность и т. п. В молодом, изолированном, лишённом памяти или намеренно безличном мире legends=[] допустим, если это прямо следует из концепта. Не создавай одинаковых сверхсильных бойцов ради числа.
+- В faithful-каноне включи главных известных фигур выбранной вселенной, уместных ТОЧНОЙ continuity и эпохе. Например, в мире Naruto статус Мадары зависит от конкретного исторического момента: он не становится живым встречаемым NPC только потому, что пользователь знает его имя. Canon.continuity, anchorFacts и forbiddenContradictions фиксируют эпоху. Исторический dead/sealed/unknown персонаж может влиять через наследие, культ, технику, политическую память и слухи.
+- Живая и потенциально действующая фигура должна быть связана через characterName с героем или также создана полным NPC. Если фигура историческая, мёртвая или недоступная, characterName не требуется. Для живой notable/renowned characterName обязателен. Нельзя обещать возможную встречу с отсутствующим действующим персонажем.
+- legendary/mythic запись имеет минимум два конкретных knownFeats, минимум два deeds и суммарно минимум два myths+legacies. Каждый deed указывает consequences, witnesses, renownImpact и точные scopeNames/factionNames. Миф не дублирует факт: он показывает claim, origin, spread, believers и distortion. Legacy — реальная продолжающаяся вещь: техника, артефакт, школа, кровь, институт, закон, место, пророчество, титул или иная форма.
+- currentState соответствует lifeStatus. У living/returned есть реальное activity/objective/locationName и физически правдоподобная mobility. У dead активность описывает отсутствие прямого действия и состояние останков/памяти; objective может отражать незавершённую волю лишь если она реально действует через механизм мира. sealed/dormant имеют конкретные blockers и encounterConditions. encounterReadiness не является вероятностью случайного камео.
+- discovery описывает знания героя на первой сцене. visibility=hidden скрывает саму фигуру; rumored обычно открывает identity и myths с доказательством-слухом; known открывает только те sections, которые герой действительно получил из предыстории, культуры или opening. Evidence содержит конкретный источник и reliability. Секретные whereabouts, точные цели, условия встречи, спорные истины и канонические якоря не копируются автоматически.
+- emergence у исторической завершившейся легенды может иметь momentum=0 и milestone, связанный с изменением общественной памяти, наследия или возвращением влияния. У живого кандидата momentum отражает накопление реальной известности, а nextMilestone — проверяемое будущее свершение или распространение уже совершённого; не объявляй его легендой заранее.
+
 МИР ДОЛЖЕН УМЕТЬ РАЗВИВАТЬСЯ БЕЗ ГЕРОЯ:
 - Создавай фракции только если в мире действительно есть устойчивые коллективные действующие силы. Для каждой созданной фракции опиши visibility, тип kind, штаб/центр headquarters, географический или социальный reach, реальную силу 0–100, сферу влияния, территорию, доступные ресурсы, цели, текущий самостоятельный ход, публичный образ, происхождение и секреты. known означает достоверно известную герою силу, rumored — лишь слух о ней, hidden — полностью скрытую на старте. В мире одиночества, природы, абстрактных сущностей или личной камерной драмы factions=[] допустим. Государства, корпорации, кланы, армии, гильдии, религии и институты выбирай по устройству мира, а не по квоте.
 - Каждый NPC получает уже на старте конкретные initiative.intent/nextMove/trigger/urgency/blockedBy и strategy, выведенные из его личности, знаний, роли и реального положения. Не делай их одинаковыми и не своди все currentGoal/nextMove к знакомству, слежке или ожиданию решения героя: у части NPC есть обязательства и конфликты с другими NPC, фракциями, работой, семьёй или местом. Opening показывает только тех, кто причинно присутствует, но остальные уже находятся в своих местах и способны действовать за кадром.
@@ -1392,7 +1587,7 @@ export function worldArchitectPrompt(input: WorldConceptInput, concept?: Concept
 
 Верни только JSON, строго соответствующий структуре. Все перечисленные поля-массивы должны присутствовать; когда сущность неуместна, верни [] и не трать ответ на искусственные заполнители. У каждой реально созданной записи должны быть все показанные обязательные поля:
 title;
-world{name,tagline,inspiration,genre,tone,era,overview,rules[],factions[{name,kind,visibility,description,attitude,status,power,influence,territory[],resources[],goals[],currentMove,publicFace,origin,headquarters,reach,secrets[]}],locations[{name,description,danger}],places[{name,kind,parentName?,description,scale,population?,government?,economy?,culture[],notableFacts[],currentSituation,visibility}],processes[{title,description,scopeNames[],involvedFactionNames[],drivers[],obstacles[],stage,momentum,direction,status,visibility,nextMilestone,dueTurn?,consequences[],scale,causeTitles[]}],mysteries[],routes[{id,from,to,label,travelTime,distance,danger,discovered}],laws[{title,description,scope,authority,status,visibility,consequences[]}],mechanics[{name,description,category,trigger,effects[],source,discovered,status}],interfaceBlueprint?{title,subtitle,defaultTab,tabs[{id,label,visible}],dashboardSections[],reason},metrics[{id,key,label,description,value,min,max,unit?,visibility,source,updatePolicy}],interfaceModules[{id,title,subtitle?,description,placement,visual,icon,accent,secondary,priority,visibility,reason,updatePolicy,collapsible,collapsedByDefault,pinned?,density?,emphasis?,elements[{id,label,description?,kind,value?,min?,max?,unit?,state,stateRules?{dangerBelow?,warningBelow?,positiveBelow?,positiveAbove?,warningAbove?,dangerAbove?},binding?{domain,key?,target?},links[]}]}],system{name,summary,progression,conflictResolution,consequences,equipmentSlots[{key,label,accepts[]}]},presentation{accent,accentStrong,secondary,surface,motif,labels{scene,character,inventory,world,quests,abilities,lore,memories,stats,resources,conditions,level,chapter,turn,action,speech,direction,continue},categoryLabels{weapon,armor,consumable,artifact,quest,material,other},rarityLabels{common,uncommon,rare,epic,legendary}}};
+world{name,tagline,inspiration,genre,tone,era,overview,rules[],factions[{name,kind,visibility,description,attitude,status,power,influence,territory[],resources[],goals[],currentMove,publicFace,origin,headquarters,reach,secrets[]}],locations[{name,description,danger}],places[{name,kind,parentName?,description,scale,population?,government?,economy?,culture[],notableFacts[],currentSituation,visibility}],processes[{title,description,scopeNames[],involvedFactionNames[],drivers[],obstacles[],stage,momentum,direction,status,visibility,nextMilestone,dueTurn?,consequences[],scale,causeTitles[]}],legendarium{name,summary,recognitionRules[],transmissionChannels[],distortionForces[],memoryKeepers[],erasureForces[],successionRules[],encounterRules[],thresholds[{stage:"notable|renowned|legendary|mythic",minRenown,requirements[]}]},legends[{characterName?,name,aliases[],titles[],epithet?,role,summary,origin,era,stage:"notable|renowned|legendary|mythic",lifeStatus:"living|dead|missing|sealed|dormant|returned|ascended|unknown",scope:"personal|local|regional|national|continental|global|cosmic",truthStatus:"confirmed|partly_true|distorted|fabricated|unknown",renown,influence,reputation,knownFeats[],disputedClaims[],associatedFactionNames[],relatedNpcNames[],successorNpcNames[],deeds[{title,summary,era,scale,scopeNames[],factionNames[],witnesses[],consequences[],truth,visibility,renownImpact}],myths[{title,claim,origin,spread,believers[],distortion,truth,visibility}],legacies[{name,kind:"technique|artifact|bloodline|school|faction|cult|law|place|prophecy|title|other",description,status,holderNpcNames[],scopeNames[],factionNames[],accessConditions[],consequences[],visibility}],currentState{activity,objective,locationName?,mobility,encounterReadiness,encounterConditions[],blockers[],signs[],lastConfirmedAt},emergence{momentum,nextMilestone,qualifyingSigns[],disqualifiers[]},canon{status:"canonical|derived|original",source,continuity,anchorFacts[],forbiddenContradictions[],divergenceNotes[]},discovery{visibility,awareness,revealedSections:["identity|summary|status|origin|deeds|myths|legacies|affiliations|whereabouts|encounter|canon"],evidence[{section,summary,source,reliability}]}}],mysteries[],routes[{id,from,to,label,travelTime,distance,danger,discovered}],laws[{title,description,scope,authority,status,visibility,consequences[]}],mechanics[{name,description,category,trigger,effects[],source,discovered,status}],interfaceBlueprint?{title,subtitle,defaultTab,tabs[{id,label,visible}],dashboardSections[],reason},metrics[{id,key,label,description,value,min,max,unit?,visibility,source,updatePolicy}],interfaceModules[{id,title,subtitle?,description,placement,visual,icon,accent,secondary,priority,visibility,reason,updatePolicy,collapsible,collapsedByDefault,pinned?,density?,emphasis?,elements[{id,label,description?,kind,value?,min?,max?,unit?,state,stateRules?{dangerBelow?,warningBelow?,positiveBelow?,positiveAbove?,warningAbove?,dangerAbove?},binding?{domain,key?,target?},links[]}]}],system{name,summary,progression,conflictResolution,consequences,equipmentSlots[{key,label,accepts[]}]},presentation{accent,accentStrong,secondary,surface,motif,labels{scene,character,inventory,world,quests,abilities,lore,memories,stats,resources,conditions,level,chapter,turn,action,speech,direction,continue},categoryLabels{weapon,armor,consumable,artifact,quest,material,other},rarityLabels{common,uncommon,rare,epic,legendary}}};
 player{name,archetype,appearance,personality,backstory,goal,stats[{key,label,value,max?,description?,aliases?[]}],resources[{key,label,value,max,color?,kind,criticalBelow?,aliases?[]}],abilities[{name,description,rank,source,cooldown?,kind,mastery,costs[{resource,amount}],effects[],limitations[],requirements[],progression,evolutionPaths[{name,description,requirement,unlocked}],history[{title,description}],tags[],category,scale,activation,capabilities[],synergies[],counters[],examples[],${generatedTechniqueShape},canonStatus,canonReference?}],currency{}};
 inventory[{name,description,category,quantity,rarity,rarityProfile{basis,scarcity,knownCopies?,recognition,marketImpact,acquisitionRisk},equipped,equippedSlot?,effects[],origin?,weight?,durability?,maxDurability?,charges?,maxCharges?,state?,history[{title,description}],artifact?{sentient,awakened,attunement,bond,personality?,desire?,taboo?,mood?,voice?,classification,powerSource,operatingPrinciple,scale,canonStatus,canonReference?,requirements[],passiveEffects[],combinedEffects[],failureModes[],components[{name,description,role,status,capabilities[],required}],powers[{name,description,mastery,costs[{resource,amount}],trigger?,limitations[],category,scale,activation,capabilities[],synergies[],counters[],examples[],${generatedTechniqueShape},canonStatus,canonReference?}],drawbacks[],evolutionPaths[{name,description,requirement,unlocked}],secrets[]}}];
 npcs[{name,role,description,personality,disposition,relationship,currentGoal,lastSeen,notes[],stats[{key,label,value,max?,description?,aliases?[]}],resources[{key,label,value,max,color?,kind,criticalBelow?,aliases?[]}],abilities[{name,description,rank,source,cooldown?,kind,mastery,costs[{resource,amount}],effects[],limitations[],requirements[],progression,evolutionPaths[{name,description,requirement,unlocked}],history[{title,description}],tags[],category,scale,activation,capabilities[],synergies[],counters[],examples[],${generatedTechniqueShape},canonStatus,canonReference?}],knowledge[{subject,statement,status,confidence,source,secret}],relationshipDimensions{trust,respect,affection,fear,suspicion,dependence},initiative{intent,nextMove,trigger,urgency,blockedBy[],visibility},strategy{intelligence,tacticalSkill,strategicSkill,predictionSkill,adaptability,deceptionSkill,riskTolerance,planningHorizon,decisionStyle,currentPlan,observedPlayerPatterns[],strengths[],blindSpots[],contingencies[],combatDoctrine,preferredRange,teamworkStyle,moraleProfile,retreatConditions[],ethicalLimits[],learnedAdaptations[],countermeasures[{name,against,response,requirements[],tradeoffs[],status,visibility}],visibility},threatProfile?{tier,scope,reputation,whyDangerous[],knownFeats[],constraints[],defeatRequirements[],escalationTriggers[],visibility},recruitment{status,willingness,reason,requirements[]},dossier{familiarity,revealedSections[],revealedStatKeys[],revealedResourceKeys[],revealedAbilityNames[],evidence[{section,summary,source}]},voice{style,patterns[],avoids[]}}];
@@ -1404,7 +1599,7 @@ worldPressures[{sourceKind,sourceName,sourceNpcName?,cause,objective,tier,stage,
 influenceAssets[{kind,title,description,holderName,targetName?,value,status,source,secret}];
 quests[{title,description,objectives[],reward?,giver?}]; lore[{title,type,content,keys[],alwaysOn,secret,discovered,priority}]; opening{scene{title,location,time,weather,tension,presentNpcNames[]},pacing{beat,intensity,challengeTier,reason},narrative,suggestions[]}.
 
-Допустимые resource.kind: health, stamina, mana, energy, focus, sanity, morale, hunger, ammo, charges, custom. Допустимые item.state: intact, damaged, broken, depleted, sealed. Допустимые ability.kind: active, passive, reaction, ritual, transformation, other. Допустимые countermeasures.status: available, prepared, spent, broken. Допустимые category сил: ${powerCategoryValues}. Допустимые canonStatus: canonical, derived, original. Допустимые component.status: active, dormant, missing, damaged, destroyed. Допустимые characterArcs.status: active, completed, broken. Допустимые mysteryCases.status на старте не указывай — приложение установит open. Допустимые antagonistPlans.status: active, completed, failed, abandoned; steps.status: pending, active, completed, failed, abandoned. Допустимые influenceAssets.kind: favor, debt, leverage, contact, access, reputation, oath, other; status: active, spent, repaid, lost. Допустимые faction.kind: government, corporation, guild, military, religion, criminal, clan, movement, institution, other; faction.status: active, dormant, dissolved. Допустимые places.kind: continent, country, region, city, district, settlement, wilderness, realm, planet, system, station, dimension, other. Допустимые world scale: personal, local, regional, national, continental, global, cosmic. Допустимые processes.direction: rising, stable, declining; processes.status: active, stalled, resolved, failed. Допустимые law.status: proposed, active, contested, repealed; law.visibility: known, rumored, hidden. Допустимые mechanic.category: power, social, economic, travel, crafting, survival, political, other; mechanic.status: emerging, active, obsolete. Допустимые visibility: known, rumored, hidden. Допустимые threatProfile.tier: minor, capable, dangerous, elite, legendary, mythic. Допустимые pacing.beat: respite, setup, exploration, rising, challenge, aftermath, climax; pacing.challengeTier: none, light, standard, hard, severe, legendary, mythic. Допустимые worldPressures.sourceKind: npc, faction, authority, corporation, deity, cosmic, environment, other; tier: trace, local, serious, critical, legendary, mythic; stage: watching, investigating, preparing, acting, cooling, resolved; measures.status: considered, preparing, active, spent, foiled. Допустимые interfaceBlueprint tab.id/defaultTab: dashboard, scene, hero, inventory, changes, world; dashboardSections: scene, stakes, modules, worldPulse, openLoops, mechanics, interfaceHealth. Допустимые interfaceModules.placement: dashboard, scene, hero, inventory, world; visual: meters, nodes, slots, track, ledger, signals, radar, cards; density: compact, comfortable; emphasis: quiet, standard, prominent; icon: spark, eye, shield, network, pulse, compass, crown, rune, gear, flame, star, moon; element.kind: meter, value, badge, node, slot, step, text; element.state: normal, positive, warning, danger, locked, inactive; binding.domain: custom, player.level, player.resource, player.stat, player.currency, player.condition-count, player.ability-mastery, scene.tension, conflict.round, conflict.participant-readiness, conflict.participant-morale, world.day, world.metric, world.location-danger, world.process-momentum, world.pressure, faction.reputation, faction.power, inventory.category-count, inventory.item-charges, inventory.item-quantity, inventory.item-durability, artifact.mastery, artifact.attunement, artifact.bond, artifact.power-mastery, quest.active-count, quest.objective-progress, mystery.progress, party.size, npc.stat, npc.resource, npc.initiative-urgency, npc.relationship-dimension, npc.relationship. Машинные enum не переводи на русский и не подменяй синонимами. stateRules, metric.value/min/max, mastery, attunement, urgency, progress, pressure, momentum, power, priority, intensity, intelligence, tacticalSkill, strategicSkill, predictionSkill, adaptability, deceptionSkill и riskTolerance — JSON-числа; bond и грани отношений — числа от -100 до 100. costs всегда массив объектов, даже когда пуст.
+Допустимые resource.kind: health, stamina, mana, energy, focus, sanity, morale, hunger, ammo, charges, custom. Допустимые item.state: intact, damaged, broken, depleted, sealed. Допустимые ability.kind: active, passive, reaction, ritual, transformation, other. Допустимые countermeasures.status: available, prepared, spent, broken. Допустимые category сил: ${powerCategoryValues}. Допустимые canonStatus: canonical, derived, original. Допустимые component.status: active, dormant, missing, damaged, destroyed. Допустимые characterArcs.status: active, completed, broken. Допустимые mysteryCases.status на старте не указывай — приложение установит open. Допустимые antagonistPlans.status: active, completed, failed, abandoned; steps.status: pending, active, completed, failed, abandoned. Допустимые influenceAssets.kind: favor, debt, leverage, contact, access, reputation, oath, other; status: active, spent, repaid, lost. Допустимые faction.kind: government, corporation, guild, military, religion, criminal, clan, movement, institution, other; faction.status: active, dormant, dissolved. Допустимые places.kind: continent, country, region, city, district, settlement, wilderness, realm, planet, system, station, dimension, other. Допустимые world scale: personal, local, regional, national, continental, global, cosmic. Допустимые processes.direction: rising, stable, declining; processes.status: active, stalled, resolved, failed. Допустимые legend.stage: notable, renowned, legendary, mythic; legend.lifeStatus: living, dead, missing, sealed, dormant, returned, ascended, unknown; legend.truthStatus/deed.truth/myth.truth: confirmed, partly_true, distorted, fabricated, unknown; legend legacy.kind: technique, artifact, bloodline, school, faction, cult, law, place, prophecy, title, other; legend discovery sections: identity, summary, status, origin, deeds, myths, legacies, affiliations, whereabouts, encounter, canon. Допустимые law.status: proposed, active, contested, repealed; law.visibility: known, rumored, hidden. Допустимые mechanic.category: power, social, economic, travel, crafting, survival, political, other; mechanic.status: emerging, active, obsolete. Допустимые visibility: known, rumored, hidden. Допустимые threatProfile.tier: minor, capable, dangerous, elite, legendary, mythic. Допустимые pacing.beat: respite, setup, exploration, rising, challenge, aftermath, climax; pacing.challengeTier: none, light, standard, hard, severe, legendary, mythic. Допустимые worldPressures.sourceKind: npc, faction, authority, corporation, deity, cosmic, environment, other; tier: trace, local, serious, critical, legendary, mythic; stage: watching, investigating, preparing, acting, cooling, resolved; measures.status: considered, preparing, active, spent, foiled. Допустимые interfaceBlueprint tab.id/defaultTab: dashboard, scene, hero, inventory, changes, world; dashboardSections: scene, stakes, modules, worldPulse, openLoops, mechanics, interfaceHealth. Допустимые interfaceModules.placement: dashboard, scene, hero, inventory, world; visual: meters, nodes, slots, track, ledger, signals, radar, cards; density: compact, comfortable; emphasis: quiet, standard, prominent; icon: spark, eye, shield, network, pulse, compass, crown, rune, gear, flame, star, moon; element.kind: meter, value, badge, node, slot, step, text; element.state: normal, positive, warning, danger, locked, inactive; binding.domain: custom, player.level, player.resource, player.stat, player.currency, player.condition-count, player.ability-mastery, scene.tension, conflict.round, conflict.participant-readiness, conflict.participant-morale, world.day, world.metric, world.location-danger, world.process-momentum, world.pressure, faction.reputation, faction.power, inventory.category-count, inventory.item-charges, inventory.item-quantity, inventory.item-durability, artifact.mastery, artifact.attunement, artifact.bond, artifact.power-mastery, quest.active-count, quest.objective-progress, mystery.progress, party.size, npc.stat, npc.resource, npc.initiative-urgency, npc.relationship-dimension, npc.relationship. Машинные enum не переводи на русский и не подменяй синонимами. stateRules, metric.value/min/max, mastery, attunement, urgency, progress, pressure, momentum, power, priority, intensity, intelligence, tacticalSkill, strategicSkill, predictionSkill, adaptability, deceptionSkill и riskTolerance — JSON-числа; bond и грани отношений — числа от -100 до 100. costs всегда массив объектов, даже когда пуст.
 
 Допустимые category и equipmentSlots.accepts: weapon, armor, consumable, artifact, quest, material, other. Допустимые rarity: common, uncommon, rare, epic, legendary. Редкость — не ранг силы: она совпадает с rarityProfile.knownCopies по шкале 1=legendary, 2–9=epic, 10–99=rare, 100–999=uncommon, 1000+=common. Если точное число неизвестно, опусти knownCopies и дай конкретную scarcity. Допустимые recruitment.status: unavailable, possible, invited, member, left. Допустимые lore.type: character, location, faction, object, rule, history, secret. Допустимые presentation.surface: paper, arcane, tech, organic, noir, minimal. Цвета — только шестизначные HEX вида #71d3b1. Все поля с [] являются JSON-массивами, даже если элемент один; не заменяй их объектом, строкой или null. relationship, confidence, score, danger, distance, value, max, quantity, priority и tension — JSON-числа без слов и знака процента. secret, discovered, alwaysOn и equipped — только true/false. player.currency всегда является объектом вида {"название валюты мира": 20}, даже если валюта одна; не возвращай там одиночное число. opening.scene.tension всегда является числом от 0 до 100 без текста и знака процента.`,
     },
@@ -1439,7 +1634,10 @@ export function worldQualityCriticPrompt(input: WorldConceptInput, concept: Conc
 15. Каждый threatProfile подтверждён реальными способностями и ролью NPC. legendary/mythic имеет нужное mastery, конкретные feats, ограничения и условия победы; обычные NPC не объявлены легендарными ради эффекта.
 16. Каждое worldPressure причинно: source и targets существуют, knowledge получено объяснимым способом, stage и меры соответствуют доступным ресурсам и времени, active не появилось задним числом, а counterplay/tradeoffs/escalationTrigger/deescalationConditions конкретны. Организация или божество не всеведущи.
 17. Стартовое dossier каждого NPC содержит только то, что герой реально знает из предыстории или opening. Точные характеристики, ресурсы, способности, отношение, цель, стратегия, слабости и контрмеры не скопированы из внутреннего профиля без конкретного evidence и источника; revealedAbilityNames буквально совпадают с abilities[].name.
-17. opening.pacing совпадает с реальной первой сценой. Высокая сложность не случайна и имеет telegraphs/пути выживания; мир способен давать и спокойные, и трудные сцены, а легендарные/мифические сущности появляются только из канона и сюжета, не по квоте.
+18. legendarium уникален для культуры мира и объясняет признание, передачу, искажение, хранение, стирание, наследование и возможность встречи. Каждая legends[] запись нужна истории мира, не является шаблонной знаменитостью и соответствует порогу stage. legendary/mythic имеют несколько конкретных deeds и реальное myths/legacies; renown не смешан с боевой силой.
+19. Канонические легендарные фигуры соответствуют точной continuity и эпохе: lifeStatus/currentState не делают мёртвого живым, запечатанного свободным или ещё не рождённого действующим. Любая потенциально активная живая фигура связана с героем или полным NPC через characterName. Canon.anchorFacts и forbiddenContradictions конкретны, оригинальные фигуры не подменяют канон.
+20. discovery не раскрывает лишнее: revealedSections и evidence соответствуют предыстории/opening, rumors не открывают точные deeds/whereabouts/encounter/canon без доказательств. currentState.encounterReadiness опирается на условия, blockers, географию и статус, а не обещает случайное камео. emergence основан на свершениях, свидетелях и распространении, не на квоте или числе ходов.
+21. opening.pacing совпадает с реальной первой сценой. Высокая сложность не случайна и имеет telegraphs/пути выживания; мир способен давать и спокойные, и трудные сцены, а легендарные/мифические сущности появляются только из канона и сюжета, не по квоте.
 
 Составь coverageAudit для КАЖДОГО capabilityChecklist: укажи covered/partial/missing и точный путь вроде inventory[0].artifact.powers[2].capabilities. Затем составь constraintAudit для КАЖДОГО ограничения во всех канонических abilities и artifact: costs, cooldown, limitations, requirements, drawbacks, failureModes, отрицательные effects и условия evolution. canonical допустим только при прямой опоре на canonicalConstraints выбранной continuity; consistent — нейтральное следствие, которое не меняет каноническую силу; unsupported — выдуманный баланс; wrong-continuity — свойство другой версии. Не пропускай ограничения, объединяя их в одну общую строку аудита.
 
@@ -1466,7 +1664,7 @@ export function worldRewritePrompt(
     { role: 'assistant' as const, content: JSON.stringify(world) },
     {
       role: 'user' as const,
-      content: `Контроль качества отклонил результат:\n${JSON.stringify(review)}\n\nПересобери ВЕСЬ JSON мира целиком. Сохрани удачные сюжетные детали, но выполни каждое rewriteInstructions и каждый missingCapabilities. Все coverageAudit со status partial/missing доведи до covered. Все constraintAudit с verdict unsupported/wrong-continuity удали из механики полностью — не заменяй их новым выдуманным штрафом. Добавь недостающие силы, компоненты, пассивные и совместные эффекты без удаления уже верных возможностей. Углуби фракции, laws, mechanics, иерархический places-атлас и автономные processes, если они не прошли причинную проверку живого мира. Полностью исправь interfaceBlueprint, metrics и interfaceModules: сохрани строгие enum, честные binding/stateRules, причинные source/updatePolicy и мироспецифичную архитектуру dashboard без жанровых заглушек. Исправь worldPressures без канала знания, ресурсов, counterplay или условий снижения; убери необоснованные legendary/mythic threatProfile либо подкрепи их полноценной механикой и ролью; согласуй opening.pacing с реальной сценой. Исправь ложные ограничения, чужие имена адаптаций, искусственно малый масштаб и общие формулировки. Не отвечай патчем, пояснением или сокращённым объектом — верни полный JSON по исходному контракту.`,
+      content: `Контроль качества отклонил результат:\n${JSON.stringify(review)}\n\nПересобери ВЕСЬ JSON мира целиком. Сохрани удачные сюжетные детали, но выполни каждое rewriteInstructions и каждый missingCapabilities. Все coverageAudit со status partial/missing доведи до covered. Все constraintAudit с verdict unsupported/wrong-continuity удали из механики полностью — не заменяй их новым выдуманным штрафом. Добавь недостающие силы, компоненты, пассивные и совместные эффекты без удаления уже верных возможностей. Углуби фракции, laws, mechanics, иерархический places-атлас и автономные processes, если они не прошли причинную проверку живого мира. Полностью исправь legendarium и legends: сохрани точную эпоху/continuity, свяжи действующих живых фигур с полными NPC, отдели deeds от myths, дай реальное legacies, причинное emergence, правдоподобные encounterConditions/blockers и постепенный discovery без спойлеров. Не превращай историческую фигуру в случайное камео и не повышай stage без свидетелей, последствий и распространения. Полностью исправь interfaceBlueprint, metrics и interfaceModules: сохрани строгие enum, честные binding/stateRules, причинные source/updatePolicy и мироспецифичную архитектуру dashboard без жанровых заглушек. Исправь worldPressures без канала знания, ресурсов, counterplay или условий снижения; убери необоснованные legendary/mythic threatProfile либо подкрепи их полноценной механикой и ролью; согласуй opening.pacing с реальной сценой. Исправь ложные ограничения, чужие имена адаптаций, искусственно малый масштаб и общие формулировки. Не отвечай патчем, пояснением или сокращённым объектом — верни полный JSON по исходному контракту.`,
     },
   ]
 }
@@ -1482,7 +1680,7 @@ export function campaignEditorPrompt(campaign: Campaign, instruction: string) {
 
 campaignPatch поддерживает только title. settingsPatch поддерживает responseLength, playerAgency, difficulty, canonMode, contentBoundaries, authorsNote, resolutionMode, contextProfile, qualityMode, scenePace, proseStyle, dialogueDensity, npcAutonomy, worldDynamics.
 
-Через statePatch можно редактировать героя, характеристики и ресурсы, способности, эффекты, предметы и артефакты, NPC и их личности/способности/знания/стратегии/контрмеры/threatProfile/готовность к отряду, связи, задания, лор, сцену, активное противостояние, pacing, worldPressures, события, фракции, маршруты, иерархический атлас, автономные процессы, тайны, законы, механики, адаптивный пульт, память, планы и прочее постоянное состояние. Профиль мира поддерживает world.name/tagline/inspiration/genre/tone/overview/era/system/presentation. Для world.system можно менять name, summary, progression, conflictResolution, consequences, equipmentSlots. Для world.presentation — цвета HEX, surface, motif и подписи интерфейса. Политические законы меняй через world.upsertLaws/removeLawIds, устойчивые правила игры — через world.upsertMechanics/removeMechanicIds, географию — через world.upsertPlaces/removePlaceIds, долгие внешние процессы — через world.upsertProcesses/retireProcessIds, фракции — через полные причинные upsertFactions. Адаптивный пульт поддерживает world.interfaceBlueprint, world.upsertInterfaceModules, world.interfaceModuleChanges, world.removeInterfaceModuleIds, world.upsertMetrics, world.metricDeltas и world.removeMetricIds. Сохраняй прежний id изменяемой сущности.
+Через statePatch можно редактировать героя, характеристики и ресурсы, способности, эффекты, предметы и артефакты, NPC и их личности/способности/знания/стратегии/контрмеры/threatProfile/готовность к отряду, связи, задания, лор, сцену, активное противостояние, pacing, worldPressures, события, фракции, маршруты, иерархический атлас, автономные процессы, легендариум, легендарных личностей, их подвиги/мифы/наследие/раскрытие, тайны, законы, механики, адаптивный пульт, память, планы и прочее постоянное состояние. Профиль мира поддерживает world.name/tagline/inspiration/genre/tone/overview/era/system/presentation. Для world.system можно менять name, summary, progression, conflictResolution, consequences, equipmentSlots. Для world.presentation — цвета HEX, surface, motif и подписи интерфейса. Политические законы меняй через world.upsertLaws/removeLawIds, устойчивые правила игры — через world.upsertMechanics/removeMechanicIds, географию — через world.upsertPlaces/removePlaceIds, долгие внешние процессы — через world.upsertProcesses/retireProcessIds, легендариум — через world.legendarium, легендарные фигуры — через полные world.upsertLegends/removeLegendIds, фракции — через полные причинные upsertFactions. Адаптивный пульт поддерживает world.interfaceBlueprint, world.upsertInterfaceModules, world.interfaceModuleChanges, world.removeInterfaceModuleIds, world.upsertMetrics, world.metricDeltas и world.removeMetricIds. Сохраняй прежний id изменяемой сущности.
 
 В контексте редактора переданы ВСЕ структурированные lore, memories, archives, threads и worldEvents, полный npcDirectory, а также documentCatalog с id/keys/размером частей. recentMessageIndex содержит только метаданные последних сообщений: полного массива художественной прозы здесь намеренно нет. Используй весь структурированный канон для проверки ссылок и противоречий. archives и documentCatalog являются справочным каталогом: не выдумывай неподдерживаемые statePatch-ключи для прямого редактирования документов или архивов; корректируй доступные первичные сущности, lore, memories, threads и worldEvents.
 
@@ -1501,6 +1699,7 @@ ${progressionPatchShapes}
 ${techniquePatchShapes}
 ${interfacePatchShape}
 ${worldScalePatchShape}
+${legendPatchShape}
 ${pacingPressurePatchShape}
 ${cleanupPatchShape}
 ${memoryPatchShape}`,

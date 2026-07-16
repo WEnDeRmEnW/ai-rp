@@ -10,6 +10,37 @@ const worldRequest = {
 }
 
 describe('global DeepSeek output normalization', () => {
+  it('canonicalizes Russian legendary-world enums without inventing missing legend data', () => {
+    const normalized = normalizeModelOutput({
+      world: {
+        upsertLegends: [{
+          id: 'legend-sealed',
+          stage: 'легендарный',
+          lifeStatus: 'запечатан',
+          truthStatus: 'частично',
+          relatedNpcIds: 'npc-keeper',
+          deeds: [{ title: 'Свершение', truth: 'подтверждено', visibility: 'известно' }],
+          myths: [{ title: 'Предание', truth: 'искажено', visibility: 'слухи' }],
+          legacies: [{ name: 'Реликвия', kind: 'артефакт', visibility: 'скрыто' }],
+          discovery: { visibility: 'слухи' },
+        }],
+      },
+    }) as any
+
+    const legend = normalized.world.upsertLegends[0]
+    expect(legend).toMatchObject({
+      stage: 'legendary',
+      lifeStatus: 'sealed',
+      truthStatus: 'partly_true',
+      relatedNpcIds: ['npc-keeper'],
+      deeds: [{ truth: 'confirmed', visibility: 'known' }],
+      myths: [{ truth: 'distorted', visibility: 'rumored' }],
+      legacies: [{ kind: 'artifact', visibility: 'hidden' }],
+      discovery: { visibility: 'rumored' },
+    })
+    expect(legend).not.toHaveProperty('currentState')
+  })
+
   it('flattens DeepSeek grouped mutations without turning update into an NPC name', () => {
     const parsed = turnPatchSchema.parse({
       npcs: {

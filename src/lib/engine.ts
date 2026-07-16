@@ -30,6 +30,9 @@ import type {
   WorldMetric,
   WorldChronicleEntry,
   WorldScale,
+  LegendaryFigure,
+  LegendStage,
+  WorldPatch,
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
@@ -52,6 +55,7 @@ const WORLD_LOCATION_LIMIT = 240
 const WORLD_ROUTE_LIMIT = 1_000
 const WORLD_LAW_LIMIT = 200
 const WORLD_MECHANIC_LIMIT = 200
+const WORLD_LEGEND_LIMIT = 500
 
 const WORLD_SCALE_IMPORTANCE: Record<WorldScale, number> = {
   personal: 45,
@@ -585,6 +589,104 @@ function normalizeThreatProfile(profile: NonNullable<Campaign['npcs'][number]['t
   }
 }
 
+const LEGEND_STAGE_RANK: Record<LegendStage, number> = { notable: 0, renowned: 1, legendary: 2, mythic: 3 }
+
+function normalizeLegend(
+  incoming: NonNullable<WorldPatch['upsertLegends']>[number],
+  turn: number,
+  existing?: LegendaryFigure,
+): LegendaryFigure {
+  const unique = (values: string[], limit: number) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(0, limit)
+  const mergeRecords = <T extends { id: string }>(previous: T[] | undefined, incomingValues: T[], limit: number) => {
+    const records = new Map((previous ?? []).map((entry) => [entry.id, structuredClone(entry)]))
+    incomingValues.forEach((entry) => records.set(entry.id, structuredClone(entry)))
+    return [...records.values()].slice(-limit)
+  }
+  const deeds = mergeRecords(existing?.deeds, incoming.deeds, 40)
+  const myths = mergeRecords(existing?.myths, incoming.myths, 40)
+  const legacies = mergeRecords(existing?.legacies, incoming.legacies, 40)
+  const discoveryEvidence = mergeRecords(existing?.discovery.evidence, incoming.discovery.evidence.map((entry) => ({
+    ...entry,
+    learnedTurn: entry.learnedTurn ?? existing?.discovery.evidence.find((known) => known.id === entry.id)?.learnedTurn ?? turn,
+  })), 80)
+  const discoveryChanged = !existing || JSON.stringify({
+    ...existing.discovery,
+    updatedTurn: undefined,
+  }) !== JSON.stringify({
+    ...incoming.discovery,
+    evidence: discoveryEvidence,
+    updatedTurn: undefined,
+  })
+  return {
+    ...structuredClone(incoming),
+    id: existing?.id ?? incoming.id,
+    characterId: incoming.characterId,
+    aliases: unique(incoming.aliases, 16),
+    titles: unique(incoming.titles, 16),
+    renown: clamp(incoming.renown, 0, 100),
+    influence: clamp(incoming.influence, 0, 100),
+    knownFeats: unique(incoming.knownFeats, 20),
+    disputedClaims: unique(incoming.disputedClaims, 20),
+    associatedFactionNames: unique(incoming.associatedFactionNames, 20),
+    relatedNpcIds: [...new Set(incoming.relatedNpcIds)].slice(0, 24),
+    successorNpcIds: [...new Set(incoming.successorNpcIds)].slice(0, 24),
+    deeds: deeds.map((deed) => ({
+      ...deed,
+      scopeIds: [...new Set(deed.scopeIds)].slice(0, 24),
+      factionNames: unique(deed.factionNames, 20),
+      witnesses: unique(deed.witnesses, 20),
+      consequences: unique(deed.consequences, 20),
+      renownImpact: clamp(deed.renownImpact, -100, 100),
+    })),
+    myths: myths.map((myth) => ({
+      ...myth,
+      believers: unique(myth.believers, 20),
+    })),
+    legacies: legacies.map((legacy) => ({
+      ...legacy,
+      holderNpcIds: [...new Set(legacy.holderNpcIds)].slice(0, 20),
+      scopeIds: [...new Set(legacy.scopeIds)].slice(0, 24),
+      factionNames: unique(legacy.factionNames, 20),
+      accessConditions: unique(legacy.accessConditions, 16),
+      consequences: unique(legacy.consequences, 16),
+    })),
+    currentState: {
+      ...incoming.currentState,
+      encounterReadiness: clamp(incoming.currentState.encounterReadiness, 0, 100),
+      encounterConditions: unique(incoming.currentState.encounterConditions, 16),
+      blockers: unique(incoming.currentState.blockers, 16),
+      signs: unique(incoming.currentState.signs, 16),
+      lastUpdatedTurn: turn,
+    },
+    emergence: {
+      ...incoming.emergence,
+      momentum: clamp(incoming.emergence.momentum, -100, 100),
+      qualifyingSigns: unique(incoming.emergence.qualifyingSigns, 16),
+      disqualifiers: unique(incoming.emergence.disqualifiers, 16),
+      lastEvaluatedTurn: turn,
+    },
+    canon: {
+      ...incoming.canon,
+      anchorFacts: unique(incoming.canon.anchorFacts, 24),
+      forbiddenContradictions: unique(incoming.canon.forbiddenContradictions, 24),
+      divergenceNotes: unique(incoming.canon.divergenceNotes, 24),
+    },
+    discovery: {
+      ...incoming.discovery,
+      awareness: clamp(incoming.discovery.awareness, 0, 100),
+      revealedSections: [...new Set(incoming.discovery.revealedSections)].slice(0, 16),
+      evidence: discoveryEvidence.map((entry) => ({
+        ...entry,
+        reliability: clamp(entry.reliability, 0, 100),
+        learnedTurn: clamp(Math.round(entry.learnedTurn), 0, turn),
+      })),
+      updatedTurn: discoveryChanged ? turn : existing?.discovery.updatedTurn ?? turn,
+    },
+    createdTurn: existing?.createdTurn ?? incoming.createdTurn ?? turn,
+    lastChangedTurn: turn,
+  }
+}
+
 function createSnapshot(campaign: Campaign): CampaignSnapshot {
   return {
     turn: campaign.turn,
@@ -678,6 +780,7 @@ export function describePatch(patch: TurnPatch): string[] {
   patch.upsertWorldPressures?.forEach((pressure) => changes.push(`Ответ мира: ${pressure.sourceName}`))
   if (patch.pacing) changes.push(`Ритм сцены: ${patch.pacing.beat} · ${patch.pacing.challengeTier}`)
   patch.upsertInfluenceAssets?.forEach((asset) => changes.push(`Влияние: ${asset.title}`))
+  patch.world?.upsertLegends?.forEach((legend) => changes.push(`Легенда мира: ${legend.name}`))
   if (patch.conflict) changes.push(patch.conflict.operation === 'start' ? 'Началось противостояние' : patch.conflict.operation === 'resolve' ? 'Противостояние завершилось' : 'Обстановка противостояния изменилась')
   return changes.slice(0, 14)
 }
@@ -731,6 +834,7 @@ export function applyPatch(
   campaign.influenceAssets ??= []
   campaign.world.places ??= []
   campaign.world.processes ??= []
+  campaign.world.legends ??= []
   campaign.world.chronicle ??= []
 
   type ChronicleDraft = Omit<WorldChronicleEntry, 'id' | 'createdAt' | 'endTurn' | 'importance'> & {
@@ -776,6 +880,7 @@ export function applyPatch(
   }
   const knownCausalIds = new Set([
     ...(campaign.world.processes ?? []).map((entry) => entry.id),
+    ...(campaign.world.legends ?? []).flatMap((entry) => [entry.id, ...entry.deeds.map((deed) => deed.id), ...entry.legacies.map((legacy) => legacy.id)]),
     ...(campaign.world.chronicle ?? []).flatMap((entry) => [entry.id, entry.sourceId]),
     ...(campaign.threads ?? []).map((entry) => entry.id),
     ...(campaign.worldEvents ?? []).map((entry) => entry.id),
@@ -783,6 +888,7 @@ export function applyPatch(
     ...(campaign.antagonistPlans ?? []).map((entry) => entry.id),
     ...(campaign.worldPressures ?? []).map((entry) => entry.id),
     ...(patch.world?.upsertProcesses ?? []).map((entry) => entry.id),
+    ...(patch.world?.upsertLegends ?? []).flatMap((entry) => [entry.id, ...entry.deeds.map((deed) => deed.id), ...entry.legacies.map((legacy) => legacy.id)]),
     ...(patch.threads ?? []).flatMap((entry) => entry.operation === 'add' && entry.thread?.id ? [entry.thread.id] : []),
     ...(patch.worldEvents ?? []).flatMap((entry) => entry.operation === 'add' && entry.event?.id ? [entry.event.id] : []),
     ...(patch.upsertAntagonistPlans ?? []).map((entry) => entry.id),
@@ -1679,6 +1785,9 @@ export function applyPatch(
     worldPatch.retireProcessIds?.forEach((processId, index) => {
       if (!(campaign.world.processes ?? []).some((process) => process.id === processId)) rejectedReference(diagnostics, `statePatch.world.retireProcessIds[${index}]`, processId, 'внешний процесс не найден')
     })
+    worldPatch.removeLegendIds?.forEach((legendId, index) => {
+      if (!(campaign.world.legends ?? []).some((legend) => legend.id === legendId)) rejectedReference(diagnostics, `statePatch.world.removeLegendIds[${index}]`, legendId, 'легендарная личность не найдена')
+    })
     worldPatch.removeLawIds?.forEach((lawId, index) => {
       if (!(campaign.world.laws ?? []).some((law) => law.id === lawId)) rejectedReference(diagnostics, `statePatch.world.removeLawIds[${index}]`, lawId, 'закон мира не найден')
     })
@@ -1815,6 +1924,78 @@ export function applyPatch(
       endTurn: process.lastAdvancedTurn,
     }))
     campaign.world.processes = remainingProcesses.filter((process) => !['resolved', 'failed'].includes(process.status) || retainedTerminalIds.has(process.id))
+
+    if (worldPatch.legendarium) {
+      const incoming = worldPatch.legendarium
+      const unique = (values: string[], limit: number) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(0, limit)
+      campaign.world.legendarium = {
+        ...structuredClone(incoming),
+        recognitionRules: unique(incoming.recognitionRules, 16),
+        transmissionChannels: unique(incoming.transmissionChannels, 16),
+        distortionForces: unique(incoming.distortionForces, 16),
+        memoryKeepers: unique(incoming.memoryKeepers, 16),
+        erasureForces: unique(incoming.erasureForces, 16),
+        successionRules: unique(incoming.successionRules, 16),
+        encounterRules: unique(incoming.encounterRules, 16),
+        thresholds: incoming.thresholds
+          .map((threshold) => ({ ...threshold, minRenown: clamp(threshold.minRenown, 0, 100), requirements: unique(threshold.requirements, 12) }))
+          .sort((left, right) => LEGEND_STAGE_RANK[left.stage] - LEGEND_STAGE_RANK[right.stage]),
+        updatedTurn: turn,
+      }
+    }
+
+    const removedLegendIds = new Set(worldPatch.removeLegendIds ?? [])
+    const legends = (campaign.world.legends ?? []).filter((legend) => !removedLegendIds.has(legend.id)).map((legend) => structuredClone(legend))
+    const characterIds = new Set([campaign.player.id, ...campaign.npcs.map((npc) => npc.id)])
+    const legendPlaceIds = new Set((campaign.world.places ?? []).map((place) => place.id))
+    const legendFactionNames = new Set(campaign.world.factions.map((faction) => normalizedName(faction.name)))
+    const legendThresholds = new Map((campaign.world.legendarium?.thresholds ?? []).map((threshold) => [threshold.stage, threshold.minRenown]))
+    ;(worldPatch.upsertLegends ?? []).forEach((incoming, legendIndex) => {
+      const existing = legends.find((legend) => legend.id === incoming.id || normalizedName(legend.name) === normalizedName(incoming.name))
+      const referencedCharacterIds = [
+        ...(incoming.characterId ? [incoming.characterId] : []),
+        ...incoming.relatedNpcIds,
+        ...incoming.successorNpcIds,
+        ...incoming.legacies.flatMap((legacy) => legacy.holderNpcIds),
+      ]
+      const unknownCharacterId = referencedCharacterIds.find((characterId) => !characterIds.has(characterId))
+      const referencedPlaceIds = [
+        ...(incoming.currentState.locationId ? [incoming.currentState.locationId] : []),
+        ...incoming.deeds.flatMap((deed) => deed.scopeIds),
+        ...incoming.legacies.flatMap((legacy) => legacy.scopeIds),
+      ]
+      const unknownPlaceId = referencedPlaceIds.find((placeId) => !legendPlaceIds.has(placeId))
+      const referencedFactions = [
+        ...incoming.associatedFactionNames,
+        ...incoming.deeds.flatMap((deed) => deed.factionNames),
+        ...incoming.legacies.flatMap((legacy) => legacy.factionNames),
+      ]
+      const unknownFaction = referencedFactions.find((name) => !legendFactionNames.has(normalizedName(name)))
+      const minimumRenown = legendThresholds.get(incoming.stage)
+      const insufficientEvidence = ['legendary', 'mythic'].includes(incoming.stage)
+        && (incoming.knownFeats.length < 2 || incoming.deeds.length < 2 || incoming.myths.length + incoming.legacies.length < 2)
+      const missingLivingCharacter = ['living', 'returned'].includes(incoming.lifeStatus)
+        && !incoming.characterId
+      const impossibleEncounter = ['dead', 'sealed', 'dormant'].includes(incoming.lifeStatus)
+        && incoming.currentState.encounterReadiness > 0
+        && incoming.currentState.encounterConditions.length === 0
+      if (unknownCharacterId || unknownPlaceId || unknownFaction || (minimumRenown !== undefined && incoming.renown < minimumRenown) || insufficientEvidence || missingLivingCharacter || impossibleEncounter) {
+        const reason = unknownCharacterId ? 'связанный персонаж не найден'
+          : unknownPlaceId ? 'связанное место не найдено'
+            : unknownFaction ? 'связанная фракция не найдена'
+              : minimumRenown !== undefined && incoming.renown < minimumRenown ? `известность ниже порога ${minimumRenown} для ступени ${incoming.stage}`
+                : insufficientEvidence ? 'легендарный статус не подкреплён несколькими подвигами, мифами или наследием'
+                  : missingLivingCharacter ? 'живая легендарная фигура не связана с симулируемым героем или NPC'
+                    : 'встреча с недоступной фигурой не имеет причинных условий'
+        rejectedReference(diagnostics, `statePatch.world.upsertLegends[${legendIndex}]`, incoming.name, reason)
+        return
+      }
+      const normalized = normalizeLegend(incoming, turn, existing)
+      if (existing) Object.assign(existing, normalized, { id: existing.id, createdTurn: existing.createdTurn })
+      else if (legends.length < WORLD_LEGEND_LIMIT) legends.push(normalized)
+      else rejectedReference(diagnostics, `statePatch.world.upsertLegends[${legendIndex}]`, incoming.name, `превышен лимит ${WORLD_LEGEND_LIMIT} легендарных записей`)
+    })
+    campaign.world.legends = legends
 
     const removedLawIds = new Set(worldPatch.removeLawIds ?? [])
     const laws = (campaign.world.laws ?? []).filter((law) => !removedLawIds.has(law.id))

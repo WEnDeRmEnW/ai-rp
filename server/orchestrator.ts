@@ -47,6 +47,7 @@ function repairContractHints(issues: Array<{ path: PropertyKey[]; message: strin
 - upsertWorldPressures содержит полные причинные реакции мира с id,sourceKind,sourceName,sourceNpcId?,targetIds[],cause,objective,tier,stage,reach,knowledge[],signs[],measures[],counterplay[],escalationTrigger,deescalationConditions[],visibility,createdTurn,lastAdvancedTurn.
 - duration статусного эффекта имеет форму {"unit":"turns|scenes|days|until|indefinite","remaining"?:number,"condition"?:string}; ключи amount/count/value запрещены.
 - world.upsertPlaces содержит полные места с id,name,kind,description,scale,culture[],notableFacts[],currentSituation,visibility и необязательным точным parentId; world.upsertProcesses содержит полные процессы с id,title,description,scopeIds[],involvedFactionNames[],drivers[],obstacles[],stage,momentum,direction,status,visibility,nextMilestone,consequences[].
+- world.legendarium — полный объект с name,summary,recognitionRules[],transmissionChannels[],distortionForces[],memoryKeepers[],erasureForces[],successionRules[],encounterRules[],thresholds[ровно notable,renowned,legendary,mythic]. world.upsertLegends содержит ПОЛНЫЕ легендарные записи с id,characterId?,name,stage,lifeStatus,scope,truthStatus,renown,influence,knownFeats[],disputedClaims[],associatedFactionNames[],relatedNpcIds[],successorNpcIds[],deeds[],myths[],legacies[],currentState,emergence,canon,discovery. characterId может быть точным id героя или NPC; для living/returned обязателен. Не возвращай серверные turn-поля; deeds/legacies используют только точные placeId/id персонажей/имена фракций.
 - cleanup — объект с массивами threads/worldEvents/quests/antagonistPlans/worldPressures/memories; каждый элемент имеет только targetId и reason. Активную сущность сначала переведи в терминальный статус соответствующей мутацией.
 Любой ключ, названный валидатором Unrecognized, УДАЛИ из прежнего места после переноса его содержимого в каноническое поле. Не возвращай одновременно старый alias и новый ключ.`
 }
@@ -353,6 +354,51 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     ensureCompleteNewObject('voice', existingNpc.voice, ['style', 'patterns', 'avoids'], ['characters'])
     return mutation
   })
+  if (plan.statePatch.world) {
+    const worldPatch = plan.statePatch.world
+    const finalCharacterIds = new Set([
+      campaign.player.id,
+      ...knownNpcs,
+      ...(plan.statePatch.npcs ?? []).flatMap((mutation) => mutation.operation === 'add' ? [mutation.npc.id] : []),
+    ])
+    const knownLegendIds = new Set((campaign.world.legends ?? []).map((legend) => legend.id))
+    const removedLegendCount = worldPatch.removeLegendIds?.length ?? 0
+    worldPatch.removeLegendIds = worldPatch.removeLegendIds?.filter((legendId) => knownLegendIds.has(legendId))
+    if ((worldPatch.removeLegendIds?.length ?? 0) < removedLegendCount) reject('Отклонено удаление неизвестной легендарной личности.', ['world', 'characters', 'knowledge'])
+
+    const thresholds = new Map((worldPatch.legendarium?.thresholds ?? campaign.world.legendarium?.thresholds ?? []).map((threshold) => [threshold.stage, threshold.minRenown]))
+    const legendMutationCount = worldPatch.upsertLegends?.length ?? 0
+    worldPatch.upsertLegends = worldPatch.upsertLegends?.filter((legend) => {
+      const characterReferences = [
+        ...(legend.characterId ? [legend.characterId] : []),
+        ...legend.relatedNpcIds,
+        ...legend.successorNpcIds,
+        ...legend.legacies.flatMap((legacy) => legacy.holderNpcIds),
+      ]
+      if (characterReferences.some((characterId) => !finalCharacterIds.has(characterId))) return false
+      const placeReferences = [
+        ...(legend.currentState.locationId ? [legend.currentState.locationId] : []),
+        ...legend.deeds.flatMap((deed) => deed.scopeIds),
+        ...legend.legacies.flatMap((legacy) => legacy.scopeIds),
+      ]
+      if (placeReferences.some((placeId) => !knownPlaceIds.has(placeId))) return false
+      const factionReferences = [
+        ...legend.associatedFactionNames,
+        ...legend.deeds.flatMap((deed) => deed.factionNames),
+        ...legend.legacies.flatMap((legacy) => legacy.factionNames),
+      ]
+      if (factionReferences.some((name) => !knownFactions.has(name.toLocaleLowerCase('ru-RU')))) return false
+      const minimumRenown = thresholds.get(legend.stage)
+      if (minimumRenown !== undefined && legend.renown < minimumRenown) return false
+      if (['legendary', 'mythic'].includes(legend.stage) && (legend.knownFeats.length < 2 || legend.deeds.length < 2 || legend.myths.length + legend.legacies.length < 2)) return false
+      if (['living', 'returned'].includes(legend.lifeStatus) && !legend.characterId) return false
+      if (['dead', 'sealed', 'dormant'].includes(legend.lifeStatus) && legend.currentState.encounterReadiness > 0 && legend.currentState.encounterConditions.length === 0) return false
+      return true
+    })
+    if ((worldPatch.upsertLegends?.length ?? 0) < legendMutationCount) {
+      reject('Отклонено непричинное или повреждённое изменение легендарной личности.', ['world', 'characters', 'knowledge'])
+    }
+  }
   const absoluteRelationshipIds = new Set((plan.statePatch.npcs ?? []).flatMap((mutation) => mutation.operation === 'update' && mutation.npc.relationship !== undefined ? [mutation.targetId] : []))
   if (absoluteRelationshipIds.size && plan.statePatch.relationships?.some((change) => absoluteRelationshipIds.has(change.npcId))) {
     plan.statePatch.relationships = plan.statePatch.relationships.filter((change) => !absoluteRelationshipIds.has(change.npcId))
@@ -545,6 +591,11 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   }
   const knownCausalIds = new Set([
     ...(campaign.world.processes ?? []).map((entry) => entry.id),
+    ...(campaign.world.legends ?? []).flatMap((entry) => [
+      entry.id,
+      ...entry.deeds.map((deed) => deed.id),
+      ...entry.legacies.map((legacy) => legacy.id),
+    ]),
     ...(campaign.world.chronicle ?? []).flatMap((entry) => [entry.id, entry.sourceId]),
     ...(campaign.threads ?? []).map((entry) => entry.id),
     ...(campaign.worldEvents ?? []).map((entry) => entry.id),
@@ -552,6 +603,11 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     ...(campaign.antagonistPlans ?? []).map((entry) => entry.id),
     ...(campaign.worldPressures ?? []).map((entry) => entry.id),
     ...(plan.statePatch.world?.upsertProcesses ?? []).map((entry) => entry.id),
+    ...(plan.statePatch.world?.upsertLegends ?? []).flatMap((entry) => [
+      entry.id,
+      ...entry.deeds.map((deed) => deed.id),
+      ...entry.legacies.map((legacy) => legacy.id),
+    ]),
     ...(plan.statePatch.threads ?? []).flatMap((entry) => entry.operation === 'add' && entry.thread?.id ? [entry.thread.id] : []),
     ...(plan.statePatch.worldEvents ?? []).flatMap((entry) => entry.operation === 'add' && entry.event?.id ? [entry.event.id] : []),
     ...(plan.statePatch.quests ?? []).flatMap((entry) => entry.operation === 'add' && entry.quest.id ? [entry.quest.id] : []),
@@ -946,6 +1002,9 @@ export function mergePatches(backgroundInput: TurnPatch | null | undefined, fore
     removePlaceIds: unique(background.world?.removePlaceIds, foreground.world?.removePlaceIds),
     upsertProcesses: concat(background.world?.upsertProcesses, foreground.world?.upsertProcesses),
     retireProcessIds: unique(background.world?.retireProcessIds, foreground.world?.retireProcessIds),
+    legendarium: foreground.world?.legendarium ?? background.world?.legendarium,
+    upsertLegends: concat(background.world?.upsertLegends, foreground.world?.upsertLegends),
+    removeLegendIds: unique(background.world?.removeLegendIds, foreground.world?.removeLegendIds),
     upsertLaws: concat(background.world?.upsertLaws, foreground.world?.upsertLaws),
     removeLawIds: unique(background.world?.removeLawIds, foreground.world?.removeLawIds),
     upsertMechanics: concat(background.world?.upsertMechanics, foreground.world?.upsertMechanics),
@@ -1405,6 +1464,8 @@ export function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditIn
     additional.world.upsertRoutes = onlyNewEntities(base.world.upsertRoutes, additional.world.upsertRoutes)
     additional.world.upsertPlaces = onlyNewEntities(base.world.upsertPlaces, additional.world.upsertPlaces)
     additional.world.upsertProcesses = onlyNewEntities(base.world.upsertProcesses, additional.world.upsertProcesses)
+    if (base.world.legendarium) additional.world.legendarium = undefined
+    additional.world.upsertLegends = onlyNewEntities(base.world.upsertLegends, additional.world.upsertLegends)
     additional.world.upsertLaws = onlyNewEntities(base.world.upsertLaws, additional.world.upsertLaws)
     additional.world.upsertMechanics = onlyNewEntities(base.world.upsertMechanics, additional.world.upsertMechanics)
 

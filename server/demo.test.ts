@@ -28,6 +28,9 @@ describe('demo storyteller contract', () => {
     expect(parsed.world.presentation.accent).toMatch(/^#[0-9a-f]{6}$/i)
     expect(parsed.world.places.length).toBeGreaterThanOrEqual(8)
     expect(parsed.world.processes.length).toBeGreaterThanOrEqual(3)
+    expect(parsed.world.legendarium.thresholds.map((threshold) => threshold.stage)).toEqual(['notable', 'renowned', 'legendary', 'mythic'])
+    expect(parsed.world.legends).toHaveLength(3)
+    expect(parsed.world.legends.every((legend) => legend.deeds.length >= 2 && legend.myths.length + legend.legacies.length >= 2)).toBe(true)
     expect(parsed.world.factions.every((faction) => Boolean(faction.kind && faction.headquarters && faction.reach))).toBe(true)
     const campaign = normalizeWorld(parsed, request)
     expect(campaign.player.abilities.flatMap((ability) => ability.techniques ?? [])).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Вопрос памяти', id: expect.any(String) })]))
@@ -35,6 +38,11 @@ describe('demo storyteller contract', () => {
     const child = campaign.world.places?.find((place) => place.name === 'Пограничный квартал')
     expect(campaign.world.places?.find((place) => place.id === child?.parentId)?.name).toBe('Столица Семи')
     expect(campaign.world.processes?.every((process) => process.scopeIds.every((scopeId) => campaign.world.places?.some((place) => place.id === scopeId)))).toBe(true)
+    expect(campaign.world.legends?.every((legend) => legend.deeds.every((deed) => deed.scopeIds.every((scopeId) => campaign.world.places?.some((place) => place.id === scopeId))))).toBe(true)
+    expect(campaign.world.legends?.find((legend) => legend.name === 'Архивариус Лет')).toMatchObject({
+      relatedNpcIds: [campaign.npcs.find((npc) => npc.name === 'Рин Астэр')?.id],
+      discovery: { visibility: 'rumored', updatedTurn: 0 },
+    })
     expect(campaign.world.chronicle).toEqual([])
     expect(campaign.settings.responseLength).toBe('adaptive')
   })
@@ -51,6 +59,7 @@ describe('demo storyteller contract', () => {
     raw.world.locations = []
     raw.world.places = []
     raw.world.processes = []
+    raw.world.legends = []
     raw.world.mysteries = []
     raw.world.routes = []
     raw.world.laws = []

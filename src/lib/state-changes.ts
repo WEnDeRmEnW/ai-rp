@@ -22,6 +22,8 @@ const storyBeatLabels = { respite: 'передышка', setup: 'завязка'
 const challengeTierLabels = { none: 'без испытания', light: 'лёгкая', standard: 'обычная', hard: 'сложная', severe: 'крайне опасная', legendary: 'легендарная', mythic: 'мифическая' } as const
 const pressureTierLabels = { trace: 'слабый след', local: 'местное', serious: 'серьёзное', critical: 'критическое', legendary: 'легендарное', mythic: 'мифическое' } as const
 const pressureStageLabels = { watching: 'наблюдение', investigating: 'расследование', preparing: 'подготовка', acting: 'действие', cooling: 'ослабление', resolved: 'завершено' } as const
+const legendStageLabels = { notable: 'заметная фигура', renowned: 'прославленная фигура', legendary: 'легендарная личность', mythic: 'фигура эпохи' } as const
+const legendLifeLabels = { living: 'жив', dead: 'мёртв', missing: 'пропал', sealed: 'запечатан', dormant: 'неактивен', returned: 'вернулся', ascended: 'покинул смертную жизнь', unknown: 'судьба неизвестна' } as const
 
 function byId<T extends { id: string }>(values: T[] | undefined): Map<string, T> {
   return new Map((values ?? []).map((value) => [value.id, value]))
@@ -563,6 +565,19 @@ export function diffCampaignState(before: Campaign, after: Campaign): StateChang
   collectionChanges(changes, before.world.routes, after.world.routes, 'world', (route) => `Маршрут: ${route.label}`, (route) => route.discovered ? 'открыт' : 'скрыт')
   collectionChanges(changes, before.world.places, after.world.places, 'world', (place) => `Атлас: ${place.name}`, (place) => place.currentSituation)
   collectionChanges(changes, before.world.processes, after.world.processes, 'world', (process) => `Внешний процесс: ${process.title}`, (process) => `${process.status} · ${Math.round(process.momentum)}%`)
+  if (!same(before.world.legendarium, after.world.legendarium) && after.world.legendarium) {
+    changes.push({ kind: 'world', label: `Память мира: ${after.world.legendarium.name}`, detail: 'Правила признания и сохранения легенд обновлены', tone: 'neutral', source: 'state-engine' })
+  }
+  collectionChanges(
+    changes,
+    before.world.legends,
+    after.world.legends,
+    'world',
+    (legend) => legend.discovery.visibility === 'hidden' ? 'Скрытая историческая линия' : `Легендарная фигура: ${legend.name}`,
+    (legend) => legend.discovery.visibility === 'hidden'
+      ? 'Скрытое состояние изменилось'
+      : `${legendStageLabels[legend.stage]} · ${legendLifeLabels[legend.lifeStatus]} · изучено ${Math.round(legend.discovery.awareness)}%`,
+  )
   collectionChanges(changes, before.world.laws, after.world.laws, 'world', (law) => `Закон: ${law.title}`, (law) => law.status)
   collectionChanges(changes, before.world.mechanics, after.world.mechanics, 'world', (mechanic) => `Механика: ${mechanic.name}`, (mechanic) => mechanic.status)
   collectionChanges(changes, before.world.interfaceModules, after.world.interfaceModules, 'world', (module) => `Интерфейс мира: ${module.title}`, (module) => module.elements.length)

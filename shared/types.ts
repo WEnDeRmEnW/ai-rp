@@ -1002,6 +1002,166 @@ export interface WorldProcess {
   causeIds?: ID[]
 }
 
+export type LegendStage = 'notable' | 'renowned' | 'legendary' | 'mythic'
+export type LegendLifeStatus = 'living' | 'dead' | 'missing' | 'sealed' | 'dormant' | 'returned' | 'ascended' | 'unknown'
+export type LegendTruthStatus = 'confirmed' | 'partly_true' | 'distorted' | 'fabricated' | 'unknown'
+export type LegendLegacyKind = 'technique' | 'artifact' | 'bloodline' | 'school' | 'faction' | 'cult' | 'law' | 'place' | 'prophecy' | 'title' | 'other'
+export type LegendDiscoverySection =
+  | 'identity'
+  | 'summary'
+  | 'status'
+  | 'origin'
+  | 'deeds'
+  | 'myths'
+  | 'legacies'
+  | 'affiliations'
+  | 'whereabouts'
+  | 'encounter'
+  | 'canon'
+
+export interface LegendThreshold {
+  stage: LegendStage
+  minRenown: number
+  requirements: string[]
+}
+
+/** How this particular culture recognizes, transmits, distorts and preserves legends. */
+export interface Legendarium {
+  name: string
+  summary: string
+  recognitionRules: string[]
+  transmissionChannels: string[]
+  distortionForces: string[]
+  memoryKeepers: string[]
+  erasureForces: string[]
+  successionRules: string[]
+  encounterRules: string[]
+  thresholds: LegendThreshold[]
+  updatedTurn: number
+}
+
+export interface LegendDeed {
+  id: ID
+  title: string
+  summary: string
+  era: string
+  scale: WorldScale
+  scopeIds: ID[]
+  factionNames: string[]
+  witnesses: string[]
+  consequences: string[]
+  truth: LegendTruthStatus
+  visibility: WorldVisibility
+  renownImpact: number
+}
+
+export interface LegendMyth {
+  id: ID
+  title: string
+  claim: string
+  origin: string
+  spread: string
+  believers: string[]
+  distortion: string
+  truth: LegendTruthStatus
+  visibility: WorldVisibility
+}
+
+export interface LegendLegacy {
+  id: ID
+  name: string
+  kind: LegendLegacyKind
+  description: string
+  status: string
+  holderNpcIds: ID[]
+  scopeIds: ID[]
+  factionNames: string[]
+  accessConditions: string[]
+  consequences: string[]
+  visibility: WorldVisibility
+}
+
+export interface LegendDiscoveryEvidence {
+  id: ID
+  section: LegendDiscoverySection
+  summary: string
+  source: string
+  learnedTurn: number
+  reliability: number
+}
+
+export interface LegendDiscovery {
+  visibility: WorldVisibility
+  awareness: number
+  revealedSections: LegendDiscoverySection[]
+  evidence: LegendDiscoveryEvidence[]
+  updatedTurn: number
+}
+
+export interface LegendCurrentState {
+  activity: string
+  objective: string
+  locationId?: ID
+  mobility: string
+  encounterReadiness: number
+  encounterConditions: string[]
+  blockers: string[]
+  signs: string[]
+  lastConfirmedAt: string
+  lastUpdatedTurn: number
+}
+
+export interface LegendCanonProfile {
+  status: 'canonical' | 'derived' | 'original'
+  source: string
+  continuity: string
+  anchorFacts: string[]
+  forbiddenContradictions: string[]
+  divergenceNotes: string[]
+}
+
+/** A real or culturally believed exceptional person, distinct from the stories told about them. */
+export interface LegendaryFigure {
+  id: ID
+  /** Player or NPC whose live state realizes this figure in the current continuity. */
+  characterId?: ID
+  name: string
+  aliases: string[]
+  titles: string[]
+  epithet?: string
+  role: string
+  summary: string
+  origin: string
+  era: string
+  stage: LegendStage
+  lifeStatus: LegendLifeStatus
+  scope: WorldScale
+  truthStatus: LegendTruthStatus
+  renown: number
+  influence: number
+  reputation: string
+  knownFeats: string[]
+  disputedClaims: string[]
+  associatedFactionNames: string[]
+  relatedNpcIds: ID[]
+  successorNpcIds: ID[]
+  deeds: LegendDeed[]
+  myths: LegendMyth[]
+  legacies: LegendLegacy[]
+  currentState: LegendCurrentState
+  emergence: {
+    momentum: number
+    nextMilestone: string
+    qualifyingSigns: string[]
+    disqualifiers: string[]
+    lastEvaluatedTurn: number
+  }
+  canon: LegendCanonProfile
+  discovery: LegendDiscovery
+  createdTurn: number
+  lastChangedTurn: number
+}
+
 export type WorldChronicleKind = 'process' | 'event' | 'thread' | 'quest' | 'pressure' | 'plan'
 
 /**
@@ -1245,6 +1405,8 @@ export interface World {
   routes?: WorldRoute[]
   places?: WorldPlace[]
   processes?: WorldProcess[]
+  legendarium?: Legendarium
+  legends?: LegendaryFigure[]
   chronicle?: WorldChronicleEntry[]
   laws?: WorldLaw[]
   mechanics?: WorldMechanic[]
@@ -1421,6 +1583,20 @@ export interface WorldPatch {
   removePlaceIds?: ID[]
   upsertProcesses?: Array<Omit<WorldProcess, 'createdTurn' | 'lastAdvancedTurn'> & Partial<Pick<WorldProcess, 'createdTurn' | 'lastAdvancedTurn'>>>
   retireProcessIds?: ID[]
+  legendarium?: Omit<Legendarium, 'updatedTurn'> & Partial<Pick<Legendarium, 'updatedTurn'>>
+  upsertLegends?: Array<
+    Omit<LegendaryFigure, 'createdTurn' | 'lastChangedTurn' | 'currentState' | 'emergence' | 'discovery'>
+    & Partial<Pick<LegendaryFigure, 'createdTurn' | 'lastChangedTurn'>>
+    & {
+      currentState: Omit<LegendCurrentState, 'lastUpdatedTurn'> & Partial<Pick<LegendCurrentState, 'lastUpdatedTurn'>>
+      emergence: Omit<LegendaryFigure['emergence'], 'lastEvaluatedTurn'> & Partial<Pick<LegendaryFigure['emergence'], 'lastEvaluatedTurn'>>
+      discovery: Omit<LegendDiscovery, 'updatedTurn' | 'evidence'> & {
+        evidence: Array<Omit<LegendDiscoveryEvidence, 'learnedTurn'> & Partial<Pick<LegendDiscoveryEvidence, 'learnedTurn'>>>
+        updatedTurn?: number
+      }
+    }
+  >
+  removeLegendIds?: ID[]
   upsertLaws?: Array<Omit<WorldLaw, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldLaw, 'createdTurn' | 'lastChangedTurn'>>>
   removeLawIds?: ID[]
   upsertMechanics?: Array<Omit<WorldMechanic, 'createdTurn' | 'lastChangedTurn'> & Partial<Pick<WorldMechanic, 'createdTurn' | 'lastChangedTurn'>>>
