@@ -17,6 +17,12 @@ const turnJobs = new OperationJobs<TurnResponse>()
 const worldJobs = new OperationJobs<Campaign>()
 const editJobs = new OperationJobs<CampaignEditResponse>()
 
+if (process.env.NODE_ENV === 'production') {
+  // Production traffic reaches Express only through the local Nginx proxy.
+  // Trust exactly that hop so rate limiting uses the visitor's real IP.
+  app.set('trust proxy', 1)
+}
+
 function requestId(value: unknown) {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(value)) throw new Error('Некорректный идентификатор запроса.')
   return value
