@@ -543,6 +543,48 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     ))
     if (plan.statePatch.world.upsertProcesses.length < before) reject('Отклонён внешний процесс с неизвестной областью или фракцией.', ['world', 'world_pressure'])
   }
+  const knownCausalIds = new Set([
+    ...(campaign.world.processes ?? []).map((entry) => entry.id),
+    ...(campaign.world.chronicle ?? []).flatMap((entry) => [entry.id, entry.sourceId]),
+    ...(campaign.threads ?? []).map((entry) => entry.id),
+    ...(campaign.worldEvents ?? []).map((entry) => entry.id),
+    ...campaign.quests.map((entry) => entry.id),
+    ...(campaign.antagonistPlans ?? []).map((entry) => entry.id),
+    ...(campaign.worldPressures ?? []).map((entry) => entry.id),
+    ...(plan.statePatch.world?.upsertProcesses ?? []).map((entry) => entry.id),
+    ...(plan.statePatch.threads ?? []).flatMap((entry) => entry.operation === 'add' && entry.thread?.id ? [entry.thread.id] : []),
+    ...(plan.statePatch.worldEvents ?? []).flatMap((entry) => entry.operation === 'add' && entry.event?.id ? [entry.event.id] : []),
+    ...(plan.statePatch.quests ?? []).flatMap((entry) => entry.operation === 'add' && entry.quest.id ? [entry.quest.id] : []),
+    ...(plan.statePatch.upsertAntagonistPlans ?? []).map((entry) => entry.id),
+    ...(plan.statePatch.upsertWorldPressures ?? []).map((entry) => entry.id),
+  ])
+  const sanitizeCausalRefs = (ownerId: string | undefined, causeIds: string[] | undefined, path: string) => {
+    if (!causeIds?.length) return causeIds
+    const accepted = [...new Set(causeIds)].filter((causeId) => causeId !== ownerId && knownCausalIds.has(causeId))
+    if (accepted.length < causeIds.length) reject(`Отклонена неизвестная или циклическая причинная ссылка: ${path}.`, ['world'])
+    return accepted.length ? accepted : undefined
+  }
+  const sanitizeScopeRefs = (scopeIds: string[] | undefined, path: string) => {
+    if (!scopeIds?.length) return scopeIds
+    const accepted = [...new Set(scopeIds)].filter((placeId) => knownPlaceIds.has(placeId))
+    if (accepted.length < scopeIds.length) reject(`Отклонена неизвестная область причинного изменения: ${path}.`, ['world'])
+    return accepted.length ? accepted : undefined
+  }
+  plan.statePatch.world?.upsertProcesses?.forEach((process) => {
+    process.causeIds = sanitizeCausalRefs(process.id, process.causeIds, `world.processes.${process.id}`)
+  })
+  plan.statePatch.threads?.forEach((mutation) => {
+    if (!mutation.thread) return
+    const ownerId = mutation.operation === 'add' ? mutation.thread.id : mutation.targetId
+    mutation.thread.scopeIds = sanitizeScopeRefs(mutation.thread.scopeIds, `threads.${ownerId ?? 'unknown'}`)
+    mutation.thread.causeIds = sanitizeCausalRefs(ownerId, mutation.thread.causeIds, `threads.${ownerId ?? 'unknown'}`)
+  })
+  plan.statePatch.worldEvents?.forEach((mutation) => {
+    if (!mutation.event) return
+    const ownerId = mutation.operation === 'add' ? mutation.event.id : mutation.targetId
+    mutation.event.scopeIds = sanitizeScopeRefs(mutation.event.scopeIds, `worldEvents.${ownerId ?? 'unknown'}`)
+    mutation.event.causeIds = sanitizeCausalRefs(ownerId, mutation.event.causeIds, `worldEvents.${ownerId ?? 'unknown'}`)
+  })
   if (plan.statePatch.world) {
     const worldPatch = plan.statePatch.world
     const keepKnown = <T>(

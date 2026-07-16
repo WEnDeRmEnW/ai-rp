@@ -54,6 +54,180 @@ describe('state engine', () => {
       expect.objectContaining({ title: 'Закрыто: Закрыть ворота', category: 'quest' }),
       expect.objectContaining({ title: 'Закрыто: Обещание у ворот', category: 'story' }),
     ]))
+    expect(next.world.chronicle).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceId: 'quest-done', kind: 'quest', outcome: 'Ворота запечатаны.' }),
+      expect.objectContaining({ sourceId: 'thread-done', kind: 'thread', outcome: 'Обещание исполнено.' }),
+    ]))
+    expect(next.archives).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: 'Закрыть ворота', tags: expect.arrayContaining(['world-chronicle', 'quest']) }),
+    ]))
+  })
+
+  it('keeps explicit causal chains across countries and rejects unknown causal references', () => {
+    const campaign = createDemoCampaign()
+    campaign.world.places = [{
+      id: 'place-north', name: 'Северная держава', kind: 'country', description: 'Союз северных городов.', scale: 'страна',
+      culture: [], notableFacts: [], currentSituation: 'Совет обсуждает границы.', visibility: 'known', createdTurn: 0, lastChangedTurn: 0,
+    }]
+    campaign.world.processes = [{
+      id: 'process-border', title: 'Пограничный кризис', description: 'Соседи стягивают силы.', scopeIds: ['place-north'],
+      involvedFactionNames: [], drivers: ['Спор о границе'], obstacles: ['Дипломатия'], stage: 'Идут переговоры.', momentum: 60,
+      direction: 'rising', status: 'active', visibility: 'rumored', nextMilestone: 'Ответ совета', consequences: ['Закрытие дорог'],
+      createdTurn: 0, lastAdvancedTurn: 0, scale: 'national',
+    }]
+    const diagnostics: StateChange[] = []
+    const next = applyPatch(campaign, {
+      worldEvents: [{ operation: 'add', event: {
+        id: 'event-embargo', title: 'Торговое эмбарго', description: 'Совет закрывает северные дороги.', status: 'scheduled',
+        visibility: 'known', involvedIds: [], createdTurn: 2, scale: 'national', scopeIds: ['place-north', 'place-missing'],
+        causeIds: ['process-border', 'cause-missing'], consequences: ['Рост цен в столице'],
+      } }],
+      threads: [{ operation: 'add', thread: {
+        id: 'thread-smugglers', type: 'rumor', title: 'Путь контрабандистов', detail: 'Купцы ищут обход эмбарго.',
+        participantIds: [campaign.player.id], status: 'active', secret: false, createdTurn: 2, scale: 'regional',
+        scopeIds: ['place-north'], causeIds: ['event-embargo'],
+      } }],
+    }, 2, diagnostics)
+
+    expect(next.worldEvents?.find((event) => event.id === 'event-embargo')).toMatchObject({
+      id: 'event-embargo', scale: 'national', scopeIds: ['place-north'], causeIds: ['process-border'], consequences: ['Рост цен в столице'], lastChangedTurn: 2,
+    })
+    expect(next.threads?.find((thread) => thread.id === 'thread-smugglers')).toMatchObject({ id: 'thread-smugglers', causeIds: ['event-embargo'], scopeIds: ['place-north'], lastChangedTurn: 2 })
+    expect(diagnostics.map((entry) => entry.detail)).toEqual(expect.arrayContaining([
+      expect.stringContaining('place-missing'),
+      expect.stringContaining('cause-missing'),
+    ]))
+  })
+
+  it('compacts only stale terminal world state and never removes active hidden state', () => {
+    const campaign = createDemoCampaign()
+    campaign.world.processes = [
+      {
+        id: 'process-active', title: 'Тихая экспансия', description: 'Сеть агентов растёт.', scopeIds: [], involvedFactionNames: [],
+        drivers: ['Инвестиции'], obstacles: [], stage: 'Вербовка', momentum: 40, direction: 'rising', status: 'active', visibility: 'hidden',
+        nextMilestone: 'Новая ячейка', consequences: ['Рост влияния'], createdTurn: 0, lastAdvancedTurn: 0,
+      },
+      {
+        id: 'process-finished', title: 'Старая блокада', description: 'Порты были закрыты.', scopeIds: [], involvedFactionNames: [],
+        drivers: ['Война'], obstacles: [], stage: 'Блокада снята', momentum: 0, direction: 'declining', status: 'resolved', visibility: 'known',
+        nextMilestone: 'Нет', consequences: ['Торговля восстановлена'], createdTurn: 0, lastAdvancedTurn: 2, scale: 'regional',
+      },
+    ]
+    campaign.worldEvents = [{
+      id: 'event-hidden-active', title: 'Тайная подготовка', description: 'Неизвестная сила готовится.', status: 'scheduled', visibility: 'hidden', involvedIds: [], createdTurn: 0,
+    }]
+
+    const next = applyPatch(campaign, {}, 8)
+
+    expect(next.world.processes?.map((process) => process.id)).toEqual(['process-active'])
+    expect(next.worldEvents?.map((event) => event.id)).toEqual(['event-hidden-active'])
+    expect(next.world.chronicle).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceId: 'process-finished', kind: 'process', outcome: 'Блокада снята', scale: 'regional' }),
+    ]))
+  })
+
+  it('keeps rumored chronicle facts out of the narrator-facing general archive', () => {
+    const campaign = createDemoCampaign()
+    campaign.archives = []
+    campaign.world.processes = [{
+      id: 'process-rumored-finished', title: 'Тайная смена власти', description: 'Совет уже заменил правителя двойником.', scopeIds: [], involvedFactionNames: [],
+      drivers: ['Заговор'], obstacles: [], stage: 'Двойник занял трон', momentum: 0, direction: 'declining', status: 'resolved', visibility: 'rumored',
+      nextMilestone: 'Нет', consequences: ['Неизвестные приказы'], createdTurn: 0, lastAdvancedTurn: 1, scale: 'national',
+    }]
+
+    const next = applyPatch(campaign, {}, 8)
+
+    expect(next.world.chronicle).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceId: 'process-rumored-finished', visibility: 'rumored', outcome: 'Двойник занял трон' }),
+    ]))
+    expect(next.archives?.some((archive) => archive.tags.includes('process-rumored-finished'))).toBe(false)
+  })
+
+  it('treats ability progression history as append-only across empty patches and targeted updates', () => {
+    const campaign = createDemoCampaign()
+    const first = campaign.player.abilities[0]
+    first.history = [{ id: 'history-first', turn: 0, title: 'Первое пробуждение', description: 'Способность впервые проявилась.' }]
+    const second = structuredClone(first)
+    second.id = 'ability-second'
+    second.name = 'Вторая техника'
+    second.history = [{ id: 'history-second', turn: 0, title: 'Обучение', description: 'Герой освоил основу.' }]
+    campaign.player.abilities.push(second)
+
+    const untouched = applyPatch(campaign, {}, 1)
+    expect(untouched.player.abilities.map((ability) => ability.history?.map((entry) => entry.id))).toEqual([
+      ['history-first'], ['history-second'],
+    ])
+
+    const updated = applyPatch(campaign, {
+      addAbilities: [{ ...structuredClone(first), mastery: (first.mastery ?? 0) + 4, history: [] }],
+      abilityChanges: [{ abilityId: first.id, masteryDelta: 1, history: { title: 'Практика', description: 'Техника выдержала нагрузку.' } }],
+    }, 2)
+    expect(updated.player.abilities.find((ability) => ability.id === first.id)?.history).toEqual([
+      expect.objectContaining({ id: 'history-first' }),
+      expect.objectContaining({ title: 'Практика' }),
+    ])
+    expect(updated.player.abilities.find((ability) => ability.id === second.id)?.history).toEqual([
+      expect.objectContaining({ id: 'history-second' }),
+    ])
+  })
+
+  it('treats full ability upserts as authoritative cards while preserving progression history', () => {
+    const campaign = createDemoCampaign()
+    const ability = campaign.player.abilities[0]
+    ability.effects = ['Устаревший одиночный импульс', 'Старый побочный эффект']
+    ability.limitations = ['Требуется старый стабилизатор']
+    ability.capabilities = ['Один рывок']
+    ability.counters = ['Старая помеха']
+    ability.evolutionPaths = [{ id: 'obsolete-path', name: 'Устаревшая ветвь', description: 'Больше не существует.', requirement: 'Нет', unlocked: false }]
+    ability.history = [{ id: 'history-before-rebuild', turn: 1, title: 'Старая версия', description: 'Зафиксирована до перестройки.' }]
+
+    const npc = campaign.npcs[0]
+    const npcAbility = { ...structuredClone(ability), id: 'npc-ability-rebuilt', name: 'Контур противодействия' }
+    npc.abilities = [npcAbility]
+
+    const replacement = {
+      ...structuredClone(ability),
+      description: 'Полностью перестроенная версия способности.',
+      effects: ['Два управляемых импульса'],
+      limitations: [],
+      capabilities: ['Двойной рывок'],
+      counters: ['ЭМИ нового поколения'],
+      evolutionPaths: [],
+      techniques: [],
+      history: [{ title: 'Полная перестройка', description: 'Старые модули и ограничения удалены.' }],
+    }
+    const npcReplacement = { ...replacement, id: npcAbility.id, name: npcAbility.name }
+
+    const next = applyPatch(campaign, {
+      addAbilities: [replacement],
+      npcs: [{ operation: 'update', targetId: npc.id, npc: { upsertAbilities: [npcReplacement] } }],
+    }, 5)
+
+    for (const rebuilt of [
+      next.player.abilities.find((entry) => entry.id === ability.id),
+      next.npcs.find((entry) => entry.id === npc.id)?.abilities?.find((entry) => entry.id === npcAbility.id),
+    ]) {
+      expect(rebuilt).toMatchObject({
+        effects: ['Два управляемых импульса'], limitations: [], capabilities: ['Двойной рывок'], counters: ['ЭМИ нового поколения'], evolutionPaths: [], techniques: [],
+      })
+      expect(rebuilt?.effects).not.toContain('Устаревший одиночный импульс')
+      expect(rebuilt?.history?.map((entry) => entry.title)).toEqual(['Старая версия', 'Полная перестройка'])
+    }
+  })
+
+  it('recovers ability history from a snapshot when an older broken turn already erased the current cards', () => {
+    const campaign = createDemoCampaign()
+    const ability = campaign.player.abilities[0]
+    ability.history = [{ id: 'history-snapshot', turn: 0, title: 'Сохранённый след', description: 'Эта запись осталась в снимке.' }]
+    const snapshotted = commitTurn(campaign, 'Я жду.', 'do', {
+      narrative: 'Проходит несколько спокойных минут.', suggestions: ['Продолжить'], statePatch: {}, activeLoreIds: [], recalledMemoryIds: [],
+    })
+    const damaged = structuredClone(snapshotted)
+    damaged.player.abilities[0].history = []
+
+    const repaired = applyPatch(damaged, {}, 2)
+
+    expect(repaired.player.abilities[0].history).toEqual([expect.objectContaining({ id: 'history-snapshot' })])
   })
 
   it('refuses to clean active obligations', () => {

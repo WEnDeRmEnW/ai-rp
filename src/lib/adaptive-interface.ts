@@ -12,6 +12,8 @@ export interface ResolvedInterfaceElement {
   live: boolean
   /** A live binding exists, but its target/key is no longer present. */
   missing: boolean
+  /** The target exists, but the hero has not learned its exact value yet. */
+  concealed: boolean
 }
 
 export interface AdaptiveInterfaceBindingIssue {
@@ -37,10 +39,11 @@ const entityIdByTarget = (campaign: Campaign, target?: string) => {
   if (same(campaign.player.id, target) || same(campaign.player.name, target)) return campaign.player.id
   return npcByTarget(campaign, target)?.id ?? target
 }
-const bound = (value: string | number | boolean, min?: number, max?: number, unit?: string): ResolvedInterfaceElement => ({ value, min, max, unit, live: true, missing: false })
+const bound = (value: string | number | boolean, min?: number, max?: number, unit?: string): ResolvedInterfaceElement => ({ value, min, max, unit, live: true, missing: false, concealed: false })
+const concealed = (): ResolvedInterfaceElement => ({ value: 'По слухам', live: true, missing: false, concealed: true })
 
 export function resolveAdaptiveInterfaceElement(campaign: Campaign, element: AdaptiveInterfaceElement): ResolvedInterfaceElement {
-  const fallback: ResolvedInterfaceElement = { value: element.value ?? '—', min: element.min, max: element.max, unit: element.unit, live: false, missing: false }
+  const fallback: ResolvedInterfaceElement = { value: element.value ?? '—', min: element.min, max: element.max, unit: element.unit, live: false, missing: false, concealed: false }
   const binding = element.binding
   if (!binding || binding.domain === 'custom') return fallback
   const missing = (): ResolvedInterfaceElement => ({ ...fallback, missing: true })
@@ -75,7 +78,8 @@ export function resolveAdaptiveInterfaceElement(campaign: Campaign, element: Ada
   if (binding.domain === 'conflict.participant-readiness' || binding.domain === 'conflict.participant-morale') {
     const entityId = entityIdByTarget(campaign, binding.target)
     const participant = campaign.activeConflict?.participants.find((entry) => same(entry.entityId, entityId))
-    if (!participant) return missing()
+    if (!participant || participant.visibility === 'hidden') return missing()
+    if (participant.visibility === 'rumored') return concealed()
     const value = binding.domain === 'conflict.participant-readiness' ? participant.readiness : participant.morale
     return bound(value, element.min ?? 0, element.max ?? 100, element.unit ?? '%')
   }
@@ -85,6 +89,7 @@ export function resolveAdaptiveInterfaceElement(campaign: Campaign, element: Ada
     const needle = binding.target ?? binding.key
     const metric = (campaign.world.metrics ?? []).find((entry) => same(entry.id, needle) || same(entry.key, needle) || same(entry.label, needle))
     if (!metric || metric.visibility === 'hidden') return missing()
+    if (metric.visibility === 'rumored') return concealed()
     return bound(metric.value, element.min ?? metric.min, element.max ?? metric.max, element.unit ?? metric.unit)
   }
   if (binding.domain === 'world.location-danger') {
@@ -93,21 +98,27 @@ export function resolveAdaptiveInterfaceElement(campaign: Campaign, element: Ada
   }
   if (binding.domain === 'world.process-momentum') {
     const process = (campaign.world.processes ?? []).find((entry) => same(entry.id, binding.target) || same(entry.title, binding.target))
-    return process ? bound(process.momentum, element.min ?? 0, element.max ?? 100, element.unit ?? '%') : missing()
+    if (!process || process.visibility === 'hidden') return missing()
+    return process.visibility === 'rumored' ? concealed() : bound(process.momentum, element.min ?? 0, element.max ?? 100, element.unit ?? '%')
   }
   if (binding.domain === 'world.pressure') {
     const pressure = (campaign.worldPressures ?? []).find((entry) => same(entry.id, binding.target) || same(entry.sourceName, binding.target))
-    if (!pressure) return missing()
+    if (!pressure || pressure.visibility === 'hidden') return missing()
+    if (pressure.visibility === 'rumored') return concealed()
     const score = { trace: 10, local: 25, serious: 45, critical: 65, legendary: 85, mythic: 100 }[pressure.tier]
     return bound(score, element.min ?? 0, element.max ?? 100, element.unit ?? '%')
   }
   if (binding.domain === 'faction.reputation') {
     const reputation = (campaign.factionReputation ?? []).find((entry) => same(entry.factionName, binding.key ?? binding.target))
-    return reputation ? bound(reputation.value, element.min ?? -100, element.max ?? 100, element.unit) : missing()
+    if (!reputation) return missing()
+    const faction = campaign.world.factions.find((entry) => same(entry.name, reputation.factionName))
+    if (faction?.visibility === 'hidden') return missing()
+    return faction?.visibility === 'rumored' ? concealed() : bound(reputation.value, element.min ?? -100, element.max ?? 100, element.unit)
   }
   if (binding.domain === 'faction.power') {
     const faction = campaign.world.factions.find((entry) => same(entry.id, binding.target) || same(entry.name, binding.target ?? binding.key))
-    return faction?.power !== undefined ? bound(faction.power, element.min ?? 0, element.max ?? 100, element.unit ?? '%') : missing()
+    if (!faction || faction.visibility === 'hidden' || faction.power === undefined) return missing()
+    return faction.visibility === 'rumored' ? concealed() : bound(faction.power, element.min ?? 0, element.max ?? 100, element.unit ?? '%')
   }
 
   if (binding.domain === 'inventory.category-count') {
@@ -152,7 +163,10 @@ export function resolveAdaptiveInterfaceElement(campaign: Campaign, element: Ada
   if (!npc) return missing()
   const disclosure = getNpcDisclosure(npc)
   if (binding.domain === 'npc.relationship') return disclosure.has('relationship') ? bound(npc.relationship, element.min ?? -100, element.max ?? 100, element.unit) : missing()
-  if (binding.domain === 'npc.initiative-urgency') return disclosure.has('initiative') && npc.initiative ? bound(npc.initiative.urgency, element.min ?? 0, element.max ?? 100, element.unit ?? '%') : missing()
+  if (binding.domain === 'npc.initiative-urgency') {
+    if (!disclosure.has('initiative') || !npc.initiative || npc.initiative.visibility === 'hidden') return missing()
+    return npc.initiative.visibility === 'rumored' ? concealed() : bound(npc.initiative.urgency, element.min ?? 0, element.max ?? 100, element.unit ?? '%')
+  }
   if (binding.domain === 'npc.relationship-dimension') {
     const key = normalize(binding.key) as keyof RelationshipDimensions
     const value = npc.relationshipDimensions?.[key]
@@ -170,7 +184,7 @@ export function resolveAdaptiveInterfaceElement(campaign: Campaign, element: Ada
 }
 
 export function resolveAdaptiveElementState(element: AdaptiveInterfaceElement, resolved: ResolvedInterfaceElement): AdaptiveInterfaceElementState {
-  if (typeof resolved.value !== 'number' || !element.stateRules) return element.state
+  if (resolved.concealed || typeof resolved.value !== 'number' || !element.stateRules) return element.state
   const value = resolved.value
   const rules = element.stateRules
   if ((rules.dangerBelow !== undefined && value <= rules.dangerBelow) || (rules.dangerAbove !== undefined && value >= rules.dangerAbove)) return 'danger'

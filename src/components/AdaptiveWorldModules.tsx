@@ -42,11 +42,13 @@ const stateLabels: Record<AdaptiveInterfaceElementState, string> = {
 
 const textValue = (resolved: ResolvedInterfaceElement) => {
   if (resolved.missing) return 'Нет связи'
+  if (resolved.concealed) return 'Точное значение пока неизвестно'
   if (typeof resolved.value === 'boolean') return resolved.value ? 'Да' : 'Нет'
   return `${resolved.value}${resolved.unit ?? ''}`
 }
 
 const progressValue = (resolved: ResolvedInterfaceElement) => {
+  if (resolved.concealed) return undefined
   if (typeof resolved.value !== 'number') return undefined
   const min = resolved.min ?? 0
   const max = resolved.max
@@ -58,7 +60,7 @@ function MeterElement({ campaign, element }: { campaign: Campaign; element: Adap
   const resolved = resolveAdaptiveInterfaceElement(campaign, element)
   const state = resolveAdaptiveElementState(element, resolved)
   const progress = progressValue(resolved)
-  return <div className={`adaptive-meter element-${state} ${resolved.missing ? 'binding-missing' : ''}`} title={resolved.missing ? 'Источник данных больше не найден' : element.description}>
+  return <div className={`adaptive-meter element-${state} ${resolved.missing ? 'binding-missing' : ''} ${resolved.concealed ? 'binding-concealed' : ''}`} title={resolved.missing ? 'Источник данных больше не найден' : resolved.concealed ? 'Герой пока располагает только слухами' : element.description}>
     <div><span>{element.label}</span><strong>{textValue(resolved)}</strong></div>
     {progress !== undefined && <div className="adaptive-progress" role="progressbar" aria-label={element.label} aria-valuemin={resolved.min} aria-valuemax={resolved.max} aria-valuenow={typeof resolved.value === 'number' ? resolved.value : undefined}><i style={{ width: `${progress}%` }} /></div>}
     {element.description && <small>{element.description}</small>}
@@ -68,7 +70,7 @@ function MeterElement({ campaign, element }: { campaign: Campaign; element: Adap
 function ValueElement({ campaign, element }: { campaign: Campaign; element: AdaptiveInterfaceElement }) {
   const resolved = resolveAdaptiveInterfaceElement(campaign, element)
   const state = resolveAdaptiveElementState(element, resolved)
-  return <div className={`adaptive-value element-${state} ${resolved.missing ? 'binding-missing' : ''}`} title={resolved.missing ? 'Источник данных больше не найден' : stateLabels[state]}>
+  return <div className={`adaptive-value element-${state} ${resolved.missing ? 'binding-missing' : ''} ${resolved.concealed ? 'binding-concealed' : ''}`} title={resolved.missing ? 'Источник данных больше не найден' : resolved.concealed ? 'Герой пока располагает только слухами' : stateLabels[state]}>
     <span>{element.label}</span><strong>{state === 'locked' && <LockKeyhole size={12} />}{textValue(resolved)}</strong>
     {element.description && <small>{element.description}</small>}
   </div>
@@ -86,7 +88,7 @@ function Nodes({ campaign, module }: { campaign: Campaign; module: AdaptiveInter
     const resolved = resolveAdaptiveInterfaceElement(campaign, element)
     const state = resolveAdaptiveElementState(element, resolved)
     const links = (element.links ?? []).map((id) => byId.get(id)?.label).filter(Boolean)
-    return <div className={`adaptive-node element-${state} ${resolved.missing ? 'binding-missing' : ''}`} key={element.id}>
+    return <div className={`adaptive-node element-${state} ${resolved.missing ? 'binding-missing' : ''} ${resolved.concealed ? 'binding-concealed' : ''}`} key={element.id}>
       <span className="adaptive-node-orbit"><i /></span>
       <div><strong>{element.label}</strong><b>{textValue(resolved)}</b>{element.description && <small>{element.description}</small>}{links.length > 0 && <em><Waypoints size={11} /> {links.join(' · ')}</em>}</div>
     </div>
@@ -97,7 +99,7 @@ function Slots({ campaign, module }: { campaign: Campaign; module: AdaptiveInter
   return <div className="adaptive-slot-grid">{module.elements.map((element) => {
     const resolved = resolveAdaptiveInterfaceElement(campaign, element)
     const state = resolveAdaptiveElementState(element, resolved)
-    return <div className={`adaptive-slot element-${state} ${resolved.missing ? 'binding-missing' : ''}`} key={element.id}>
+    return <div className={`adaptive-slot element-${state} ${resolved.missing ? 'binding-missing' : ''} ${resolved.concealed ? 'binding-concealed' : ''}`} key={element.id}>
       <span>{state === 'locked' ? <LockKeyhole size={15} /> : <Orbit size={15} />}</span><strong>{element.label}</strong><b>{textValue(resolved)}</b>{element.description && <small>{element.description}</small>}
     </div>
   })}</div>
@@ -107,7 +109,7 @@ function Track({ campaign, module }: { campaign: Campaign; module: AdaptiveInter
   return <div className="adaptive-track">{module.elements.map((element, index) => {
     const resolved = resolveAdaptiveInterfaceElement(campaign, element)
     const state = resolveAdaptiveElementState(element, resolved)
-    return <div className={`adaptive-step element-${state} ${resolved.missing ? 'binding-missing' : ''}`} key={element.id}><span>{index + 1}</span><div><strong>{element.label}</strong><b>{textValue(resolved)}</b>{element.description && <small>{element.description}</small>}</div></div>
+    return <div className={`adaptive-step element-${state} ${resolved.missing ? 'binding-missing' : ''} ${resolved.concealed ? 'binding-concealed' : ''}`} key={element.id}><span>{index + 1}</span><div><strong>{element.label}</strong><b>{textValue(resolved)}</b>{element.description && <small>{element.description}</small>}</div></div>
   })}</div>
 }
 
@@ -119,7 +121,7 @@ function Signals({ campaign, module }: { campaign: Campaign; module: AdaptiveInt
   return <div className="adaptive-signals">{module.elements.map((element) => {
     const resolved = resolveAdaptiveInterfaceElement(campaign, element)
     const state = resolveAdaptiveElementState(element, resolved)
-    return <div className={`adaptive-signal element-${state} ${resolved.missing ? 'binding-missing' : ''}`} key={element.id}><i /><div><strong>{element.label}</strong><span>{textValue(resolved)}</span>{element.description && <small>{element.description}</small>}</div></div>
+    return <div className={`adaptive-signal element-${state} ${resolved.missing ? 'binding-missing' : ''} ${resolved.concealed ? 'binding-concealed' : ''}`} key={element.id}><i /><div><strong>{element.label}</strong><span>{textValue(resolved)}</span>{element.description && <small>{element.description}</small>}</div></div>
   })}</div>
 }
 
@@ -128,7 +130,7 @@ function Cards({ campaign, module }: { campaign: Campaign; module: AdaptiveInter
     const resolved = resolveAdaptiveInterfaceElement(campaign, element)
     const state = resolveAdaptiveElementState(element, resolved)
     const progress = progressValue(resolved)
-    return <article className={`adaptive-data-card element-${state} ${resolved.missing ? 'binding-missing' : ''}`} key={element.id}>
+    return <article className={`adaptive-data-card element-${state} ${resolved.missing ? 'binding-missing' : ''} ${resolved.concealed ? 'binding-concealed' : ''}`} key={element.id}>
       <header><span>{element.label}</span><i /></header><strong>{textValue(resolved)}</strong>
       {progress !== undefined && <div className="adaptive-card-progress"><i style={{ width: `${progress}%` }} /></div>}
       {element.description && <p>{element.description}</p>}
@@ -137,7 +139,7 @@ function Cards({ campaign, module }: { campaign: Campaign; module: AdaptiveInter
 }
 
 function Radar({ campaign, module }: { campaign: Campaign; module: AdaptiveInterfaceModule }) {
-  const numeric = module.elements.map((element) => ({ element, resolved: resolveAdaptiveInterfaceElement(campaign, element) })).filter((entry) => typeof entry.resolved.value === 'number')
+  const numeric = module.elements.map((element) => ({ element, resolved: resolveAdaptiveInterfaceElement(campaign, element) })).filter((entry) => !entry.resolved.concealed && typeof entry.resolved.value === 'number')
   if (numeric.length < 3) return <Meters campaign={campaign} module={module} />
   const size = 184
   const center = size / 2

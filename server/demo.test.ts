@@ -35,6 +35,75 @@ describe('demo storyteller contract', () => {
     const child = campaign.world.places?.find((place) => place.name === 'Пограничный квартал')
     expect(campaign.world.places?.find((place) => place.id === child?.parentId)?.name).toBe('Столица Семи')
     expect(campaign.world.processes?.every((process) => process.scopeIds.every((scopeId) => campaign.world.places?.some((place) => place.id === scopeId)))).toBe(true)
+    expect(campaign.world.chronicle).toEqual([])
+    expect(campaign.settings.responseLength).toBe('adaptive')
+  })
+
+  it('accepts a concept-valid minimal world without synthetic factions, powers or plot quotas', () => {
+    const raw: any = demoWorld({
+      inspiration: 'Одинокий смотритель на необитаемом маяке', genre: 'Камерная драма', tone: 'Созерцательный', characterName: 'Мирон',
+      characterConcept: 'Обычный человек без сверхъестественных сил', opening: 'Рассвет после шторма', canonMode: 'original', contentBoundaries: '',
+      provider: { provider: 'demo', model: 'demo', baseUrl: '', temperature: 0.8 },
+    })
+
+    raw.world.rules = []
+    raw.world.factions = []
+    raw.world.locations = []
+    raw.world.places = []
+    raw.world.processes = []
+    raw.world.mysteries = []
+    raw.world.routes = []
+    raw.world.laws = []
+    raw.world.mechanics = []
+    raw.world.interfaceModules = []
+    raw.world.metrics = []
+    raw.world.system.equipmentSlots = []
+    delete raw.world.interfaceBlueprint
+    raw.player.stats = []
+    raw.player.resources = []
+    raw.player.abilities = []
+    raw.player.currency = {}
+    raw.inventory = []
+    raw.npcs = []
+    raw.socialLinks = []
+    raw.worldEvents = []
+    raw.factionReputation = []
+    raw.threads = []
+    raw.characterArcs = []
+    raw.mysteryCases = []
+    raw.antagonistPlans = []
+    raw.worldPressures = []
+    raw.influenceAssets = []
+    raw.quests = []
+    raw.lore = []
+    raw.opening.scene.presentNpcNames = []
+
+    const parsed = generatedWorldSchema.parse(raw)
+    expect(parsed.world.factions).toEqual([])
+    expect(parsed.world.places).toEqual([])
+    expect(parsed.player.abilities).toEqual([])
+    expect(parsed.mysteryCases).toEqual([])
+    expect(parsed.antagonistPlans).toEqual([])
+    expect(parsed.worldPressures).toEqual([])
+    delete raw.worldPressures
+    expect(generatedWorldSchema.safeParse(raw).success).toBe(false)
+  })
+
+  it('requires visibility and complete fields for every newly generated faction', () => {
+    const raw: any = demoWorld({
+      inspiration: 'Городская республика', genre: 'Драма', tone: 'Сдержанный', characterName: 'Ина',
+      characterConcept: 'Посредник', opening: 'Заседание совета', canonMode: 'original', contentBoundaries: '',
+      provider: { provider: 'demo', model: 'demo', baseUrl: '', temperature: 0.8 },
+    })
+    raw.world.factions[1].visibility = 'слухи'
+    const parsed = generatedWorldSchema.parse(raw)
+    expect(parsed.world.factions[0].visibility).toBe('known')
+    expect(parsed.world.factions[1].visibility).toBe('rumored')
+    delete raw.world.factions[0].visibility
+    expect(generatedWorldSchema.safeParse(raw).success).toBe(false)
+    raw.world.factions[0].visibility = 'known'
+    delete raw.world.factions[0].currentMove
+    expect(generatedWorldSchema.safeParse(raw).success).toBe(false)
   })
 
   it('lets the AI create a world without sentient items and omits mental fields from inert relics', () => {
@@ -55,6 +124,26 @@ describe('demo storyteller contract', () => {
 
     const parsed = generatedWorldSchema.parse(raw)
     expect(parsed.inventory.some((item) => item.artifact?.sentient)).toBe(false)
+  })
+
+  it('materializes generated causal titles into stable ids for the long-lived world graph', () => {
+    const request = {
+      inspiration: 'Две страны на пороге торговой войны', genre: 'Политическое фэнтези', tone: 'Напряжённый', characterName: 'Лиан',
+      characterConcept: 'Посланник', opening: 'Пограничный порт', canonMode: 'original', contentBoundaries: '',
+      provider: { provider: 'demo', model: 'demo', baseUrl: '', temperature: 0.8 },
+    } as const
+    const raw: any = demoWorld(request)
+    raw.world.processes[1].causeTitles = [raw.world.processes[0].title]
+    raw.world.processes[1].scale = 'региональный'
+    raw.worldEvents[0].causeTitles = [raw.world.processes[1].title]
+    raw.worldEvents[0].scopeNames = [raw.world.places[0].name]
+    raw.worldEvents[0].scale = 'национальный'
+
+    const campaign = normalizeWorld(generatedWorldSchema.parse(raw), request)
+    const firstProcess = campaign.world.processes?.find((process) => process.title === raw.world.processes[0].title)
+    const secondProcess = campaign.world.processes?.find((process) => process.title === raw.world.processes[1].title)
+    expect(secondProcess).toMatchObject({ scale: 'regional', causeIds: [firstProcess?.id] })
+    expect(campaign.worldEvents?.[0]).toMatchObject({ scale: 'national', causeIds: [secondProcess?.id], scopeIds: [campaign.world.places?.[0].id] })
   })
 
   it('rejects personality fields when the AI marks an item as non-sentient', () => {
@@ -102,7 +191,7 @@ describe('demo storyteller contract', () => {
     expect(parsed.opening.scene.tension).toBe(68)
   })
 
-  it('preserves world-specific relationship and thread labels while translating visibility', () => {
+  it('preserves world-specific relationship labels while canonicalizing thread state and visibility', () => {
     const raw: any = demoWorld({
       inspiration: 'Политический мир шиноби', genre: 'Драма', tone: 'Серьёзный', characterName: 'Акира',
       characterConcept: 'Дипломат', opening: 'Совет кланов', canonMode: 'flexible', contentBoundaries: '',
@@ -118,7 +207,7 @@ describe('demo storyteller contract', () => {
     const parsed = generatedWorldSchema.parse(raw)
     expect(parsed.socialLinks[0].kind).toBe('деловые')
     expect(parsed.worldEvents[0].visibility).toBe('rumored')
-    expect(parsed.threads[0]).toMatchObject({ type: 'quest', status: 'активно' })
+    expect(parsed.threads[0]).toMatchObject({ type: 'promise', status: 'active' })
   })
 
   it('rejects ability costs that cannot be paid by any generated resource', () => {

@@ -814,16 +814,24 @@ export interface SocialLink {
   notes: string[]
 }
 
+export type StoryThreadType = 'promise' | 'debt' | 'witness' | 'rumor'
+export type StoryThreadStatus = 'active' | 'fulfilled' | 'broken' | 'resolved'
+
 export interface StoryThread {
   id: ID
-  type: string
+  type: StoryThreadType
   title: string
   detail: string
   participantIds: ID[]
-  status: string
+  status: StoryThreadStatus
   dueTurn?: number
   secret: boolean
   createdTurn: number
+  /** Optional spatial and causal metadata used by the autonomous world simulator. */
+  scale?: WorldScale
+  scopeIds?: ID[]
+  causeIds?: ID[]
+  lastChangedTurn?: number
 }
 
 export interface ScheduledWorldEvent {
@@ -836,6 +844,12 @@ export interface ScheduledWorldEvent {
   visibility: 'known' | 'rumored' | 'hidden'
   involvedIds: ID[]
   createdTurn: number
+  /** Where the event propagates and which persistent records caused it. */
+  scale?: WorldScale
+  scopeIds?: ID[]
+  causeIds?: ID[]
+  consequences?: string[]
+  lastChangedTurn?: number
 }
 
 export interface FactionReputation {
@@ -921,6 +935,7 @@ export interface WorldFaction {
   id?: ID
   name: string
   kind?: 'government' | 'corporation' | 'guild' | 'military' | 'religion' | 'criminal' | 'clan' | 'movement' | 'institution' | 'other'
+  visibility?: WorldVisibility
   description: string
   attitude: string
   status?: 'active' | 'dormant' | 'dissolved'
@@ -961,6 +976,7 @@ export interface WorldPlace {
 
 export type WorldProcessStatus = 'active' | 'stalled' | 'resolved' | 'failed'
 export type WorldProcessDirection = 'rising' | 'stable' | 'declining'
+export type WorldScale = 'personal' | 'local' | 'regional' | 'national' | 'continental' | 'global' | 'cosmic'
 
 /** A causal off-screen process that can develop without the player being present. */
 export interface WorldProcess {
@@ -981,6 +997,33 @@ export interface WorldProcess {
   consequences: string[]
   createdTurn: number
   lastAdvancedTurn: number
+  /** Explicit causal links prevent the simulator from treating off-screen changes as isolated flavor. */
+  scale?: WorldScale
+  causeIds?: ID[]
+}
+
+export type WorldChronicleKind = 'process' | 'event' | 'thread' | 'quest' | 'pressure' | 'plan'
+
+/**
+ * Compact, durable result of a finished world-state record. The active arrays stay small while
+ * causeIds preserve long-running causal chains across cities, countries and eras.
+ */
+export interface WorldChronicleEntry {
+  id: ID
+  sourceId: ID
+  kind: WorldChronicleKind
+  title: string
+  summary: string
+  outcome: string
+  scale: WorldScale
+  scopeIds: ID[]
+  causeIds: ID[]
+  entityIds: ID[]
+  visibility: WorldVisibility
+  startTurn: number
+  endTurn: number
+  importance: number
+  createdAt: string
 }
 
 export type WorldPressureSourceKind = 'npc' | 'faction' | 'authority' | 'corporation' | 'deity' | 'cosmic' | 'environment' | 'other'
@@ -1029,6 +1072,8 @@ export interface Quest {
   objectives: Array<{ id: ID; text: string; completed: boolean }>
   reward?: string
   giver?: string
+  createdTurn?: number
+  lastChangedTurn?: number
 }
 
 export interface LoreEntry {
@@ -1200,6 +1245,7 @@ export interface World {
   routes?: WorldRoute[]
   places?: WorldPlace[]
   processes?: WorldProcess[]
+  chronicle?: WorldChronicleEntry[]
   laws?: WorldLaw[]
   mechanics?: WorldMechanic[]
   interfaceModules?: AdaptiveInterfaceModule[]
@@ -1210,7 +1256,7 @@ export interface World {
 }
 
 export interface CampaignSettings {
-  responseLength: 'compact' | 'balanced' | 'detailed'
+  responseLength: 'compact' | 'balanced' | 'detailed' | 'adaptive'
   playerAgency: 'strict' | 'cinematic'
   difficulty: 'story' | 'balanced' | 'harsh'
   canonMode: 'faithful' | 'flexible' | 'original'

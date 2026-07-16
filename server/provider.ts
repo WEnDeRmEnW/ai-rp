@@ -5,6 +5,55 @@ export interface ChatMessage {
   content: string
 }
 
+export type CompletionStage = 'service' | 'turn' | 'world' | 'narrative'
+
+export interface CompletionOptions {
+  stage?: CompletionStage
+  maxOutputTokens?: number
+}
+
+interface CompletionResult {
+  content: string
+  finishReason?: string
+  truncated: boolean
+}
+
+const outputTokensByStage: Record<CompletionStage, number> = {
+  service: 12_288,
+  turn: 32_768,
+  world: 65_536,
+  narrative: 16_384,
+}
+
+const truncationReasons = new Set(['length', 'max_tokens', 'max_output_tokens', 'token_limit'])
+type TokenLimitFallback = 'reduce' | 'omit' | 'none'
+
+function inferStage(messages: ChatMessage[], jsonMode: boolean): CompletionStage {
+  if (!jsonMode) return 'narrative'
+  const instructions = messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n').toLocaleLowerCase('ru-RU')
+  if (/архитектор[^.\n]{0,48}мир/u.test(instructions) || instructions.includes('перепиши весь мир') || instructions.includes('пересобери весь мир')) return 'world'
+  if (instructions.includes('режиссёр') || instructions.includes('аудитор причин и последствий') || instructions.includes('редактор постоянного состояния')) return 'turn'
+  return 'service'
+}
+
+function outputLimit(messages: ChatMessage[], jsonMode: boolean, options?: CompletionOptions): number {
+  const requested = options?.maxOutputTokens ?? outputTokensByStage[options?.stage ?? inferStage(messages, jsonMode)]
+  return Math.max(1_024, Math.min(131_072, Math.round(requested)))
+}
+
+function expandedOutputLimit(current: number): number {
+  return Math.min(131_072, Math.max(current + 4_096, Math.ceil(current * 1.5)))
+}
+
+function reducedProviderLimit(detail: string, current: number): number {
+  const normalized = detail.replace(/[,_]/g, '')
+  const explicitCeiling = [
+    /max[_ -]?tokens.{0,100}?(?:<=|at most|maximum(?: of)?|less than(?: or equal to)?)\D*(\d{4,6})/i,
+    /(?:maximum|max)(?: output)? tokens?\D*(\d{4,6})/i,
+  ].map((pattern) => Number(normalized.match(pattern)?.[1])).find((value) => Number.isFinite(value) && value >= 1_024 && value < current)
+  return explicitCeiling ?? Math.max(1_024, Math.floor(current / 2))
+}
+
 function resolveConfig(input: ProviderConfig): ProviderConfig {
   if (input.provider === 'openai') {
     return {
@@ -69,7 +118,14 @@ async function fetchProvider(endpoint: string, init: Omit<RequestInit, 'signal'>
   throw new Error(`${detail} Выполнены три автоматические попытки; повторите ход, когда связь стабилизируется.`)
 }
 
-async function requestCompletion(configInput: ProviderConfig, messages: ChatMessage[], jsonMode: boolean, retryWithoutJson = true) {
+async function requestCompletion(
+  configInput: ProviderConfig,
+  messages: ChatMessage[],
+  jsonMode: boolean,
+  maxOutputTokens: number | undefined,
+  retryWithoutJson = true,
+  tokenLimitFallback: TokenLimitFallback = 'reduce',
+): Promise<CompletionResult> {
   const config = resolveConfig(configInput)
   const endpoint = endpointFor(config.baseUrl)
   assertSafeEndpoint(endpoint)
@@ -81,7 +137,10 @@ async function requestCompletion(configInput: ProviderConfig, messages: ChatMess
     model: config.model,
     messages,
     temperature: jsonMode ? 0 : config.temperature,
+    // DeepSeek Flash through Ollama Cloud exposes an OpenAI-compatible endpoint and accepts
+    // max_tokens. Explicit stage limits avoid the provider's much smaller default output cap.
   }
+  if (maxOutputTokens !== undefined) body.max_tokens = maxOutputTokens
   if (jsonMode) body.response_format = { type: 'json_object' }
 
   const response = await fetchProvider(endpoint, {
@@ -96,8 +155,17 @@ async function requestCompletion(configInput: ProviderConfig, messages: ChatMess
 
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 800)
+    const explicitlyTokenRelated = /max[_ -]?(?:completion[_ -]?)?tokens?|context[_ -]?(?:window|length)|token limit|too many tokens/i.test(detail)
+    if (response.status === 400 && explicitlyTokenRelated && tokenLimitFallback !== 'none') {
+      const unsupportedParameter = /not supported|unsupported|unknown (?:field|parameter)|unrecognized|not permitted|extra inputs?/i.test(detail)
+      if (unsupportedParameter || maxOutputTokens === undefined || tokenLimitFallback === 'omit') {
+        return requestCompletion(config, messages, jsonMode, undefined, retryWithoutJson, 'none')
+      }
+      const reduced = reducedProviderLimit(detail, maxOutputTokens)
+      return requestCompletion(config, messages, jsonMode, reduced, retryWithoutJson, 'omit')
+    }
     if (jsonMode && retryWithoutJson && response.status === 400 && /response_format|json/i.test(detail)) {
-      return requestCompletion({ ...config, temperature: 0 }, messages, false, false)
+      return requestCompletion({ ...config, temperature: 0 }, messages, false, maxOutputTokens, false, tokenLimitFallback)
     }
     if (response.status === 401 || response.status === 403) throw new Error('API отклонил ключ. Проверьте ключ и выбранного провайдера.')
     if (response.status === 429) throw new Error('Провайдер временно ограничил частоту запросов. Попробуйте чуть позже.')
@@ -105,9 +173,16 @@ async function requestCompletion(configInput: ProviderConfig, messages: ChatMess
   }
 
   const data = await response.json() as any
-  const content = data?.choices?.[0]?.message?.content
+  const choice = data?.choices?.[0]
+  const content = choice?.message?.content ?? data?.message?.content
+  const rawFinishReason = choice?.finish_reason ?? choice?.finishReason ?? data?.done_reason ?? data?.finish_reason
+  const finishReason = typeof rawFinishReason === 'string' ? rawFinishReason.trim().toLocaleLowerCase('en-US') : undefined
   if (typeof content !== 'string' || !content.trim()) throw new Error('Провайдер вернул пустой ответ.')
-  return content.trim()
+  return {
+    content: content.trim(),
+    finishReason,
+    truncated: Boolean(finishReason && truncationReasons.has(finishReason)),
+  }
 }
 
 function extractJson(text: string): unknown {
@@ -122,12 +197,27 @@ function extractJson(text: string): unknown {
   }
 }
 
-export async function completeJson(config: ProviderConfig, messages: ChatMessage[]): Promise<unknown> {
+export async function completeJson(config: ProviderConfig, messages: ChatMessage[], options?: CompletionOptions): Promise<unknown> {
   let repairMessages = messages
   let lastError: unknown
+  let maxOutputTokens = outputLimit(messages, true, options)
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const raw = await requestCompletion(config, repairMessages, true)
+    const completion = await requestCompletion(config, repairMessages, true, maxOutputTokens)
+    const raw = completion.content
+    if (completion.truncated) {
+      lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
+      maxOutputTokens = expandedOutputLimit(maxOutputTokens)
+      repairMessages = [
+        ...messages,
+        { role: 'assistant', content: raw },
+        {
+          role: 'user',
+          content: `Предыдущий JSON был ОБРЕЗАН провайдером по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}). Верни заново весь объект целиком, от первой до последней закрывающей скобки. Не продолжай с места обрыва, не сокращай массивы и вложенные объекты, не добавляй Markdown или пояснения.`,
+        },
+      ]
+      continue
+    }
     try {
       return extractJson(raw)
     } catch (error) {
@@ -146,6 +236,25 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   throw lastError instanceof Error ? lastError : new Error('Модель не вернула корректный JSON после автоматического восстановления.')
 }
 
-export async function completeText(config: ProviderConfig, messages: ChatMessage[]): Promise<string> {
-  return requestCompletion(config, messages, false)
+export async function completeText(config: ProviderConfig, messages: ChatMessage[], options?: CompletionOptions): Promise<string> {
+  let retryMessages = messages
+  let maxOutputTokens = outputLimit(messages, false, options)
+  let finishReason = 'length'
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const completion = await requestCompletion(config, retryMessages, false, maxOutputTokens)
+    if (!completion.truncated) return completion.content
+    finishReason = completion.finishReason ?? finishReason
+    maxOutputTokens = expandedOutputLimit(maxOutputTokens)
+    retryMessages = [
+      ...messages,
+      { role: 'assistant', content: completion.content },
+      {
+        role: 'user',
+        content: `Предыдущий текст был ОБРЕЗАН провайдером (finish_reason=${finishReason}). Перепиши весь ответ целиком, сохрани все важные факты, закончи сцену естественно и не обрывай последнюю фразу.`,
+      },
+    ]
+  }
+
+  throw new Error(`Провайдер трижды обрезал ответ по лимиту вывода (finish_reason=${finishReason}). История не применена, чтобы не сохранить незавершённую сцену.`)
 }

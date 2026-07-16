@@ -3,7 +3,7 @@ import {
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldPresentation } from '../../shared/types'
+import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
 import { readCanonDocument } from '../lib/canon'
@@ -19,6 +19,15 @@ import { WorldCockpit } from './WorldCockpit'
 export type InspectorTab = InspectorTabId
 type ChangeFilter = 'all' | 'character' | 'inventory' | 'social' | 'world'
 
+const chronicleKindLabels: Record<WorldChronicleKind, string> = {
+  process: 'Процесс', event: 'Событие', thread: 'Линия', quest: 'Задание', pressure: 'Давление', plan: 'План',
+}
+
+const worldScaleLabels: Record<WorldScale, string> = {
+  personal: 'личный масштаб', local: 'местный масштаб', regional: 'региональный масштаб', national: 'уровень страны',
+  continental: 'континентальный масштаб', global: 'мировой масштаб', cosmic: 'космический масштаб',
+}
+
 interface InspectorProps {
   campaign: Campaign
   open: boolean
@@ -30,8 +39,8 @@ interface InspectorProps {
   designingInterface?: boolean
 }
 
-function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  const [expanded, setExpanded] = useState(true)
+function Section({ title, action, children, defaultExpanded = true }: { title: string; action?: React.ReactNode; children: React.ReactNode; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   return <section className={`inspector-section ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
     <div className="section-heading"><button className="section-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}><ChevronDown size={14} /><span className="section-title">{title}</span></button>{action && <div className="section-action">{action}</div>}</div>
     {expanded && <div className="section-content">{children}</div>}
@@ -191,7 +200,7 @@ function NpcCard({ npc, expanded, expandedAbilityId, onToggle, onToggleAbility }
       {disclosure.has('relationshipDimensions') && npc.relationshipDimensions && <div className="bond-dimensions" aria-label={`Известные грани отношений: ${npc.name}`}><i>Доверие {npc.relationshipDimensions.trust}</i><i>Уважение {npc.relationshipDimensions.respect}</i><i>Привязанность {npc.relationshipDimensions.affection}</i><i>Страх {npc.relationshipDimensions.fear}</i><i>Подозрение {npc.relationshipDimensions.suspicion}</i><i>Зависимость {npc.relationshipDimensions.dependence}</i></div>}
       {!!disclosure.resources.length && <div className="bond-dimensions" aria-label={`Известные ресурсы: ${npc.name}`}>{disclosure.resources.map((resource) => <i key={resource.key}>{resource.label} {resource.value}/{resource.max ?? '∞'}</i>)}</div>}
       {!!disclosure.conditions.length && <small><ShieldAlert size={11} /> {disclosure.conditions.map((effect) => effect.name).join(' · ')}</small>}
-      {disclosure.has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && <p className="npc-initiative"><strong>Намерение:</strong> {npc.initiative.visibility === 'rumored' ? 'Возможно, ' : ''}{npc.initiative.nextMove}</p>}
+      {disclosure.has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && <p className="npc-initiative"><strong>Намерение:</strong> {npc.initiative.visibility === 'rumored' ? 'Замечены признаки самостоятельной активности, но следующий шаг пока неизвестен.' : npc.initiative.nextMove}</p>}
     </div>
     <button className="npc-expand" aria-label={`${expanded ? 'Свернуть' : 'Подробнее'}: ${npc.name}`} onClick={onToggle}><ChevronDown size={14} /></button>
     {expanded && <div className="npc-details">
@@ -221,7 +230,7 @@ function ConflictParticipantCard({ campaign, participant }: {
 }) {
   const npc = campaign.npcs.find((candidate) => candidate.id === participant.entityId)
   const disclosure = npc ? getNpcDisclosure(npc) : undefined
-  const exactStateKnown = !npc || participant.side === 'ally' || disclosure?.has('resources') || disclosure?.has('strategyMetrics')
+  const exactStateKnown = participant.visibility === 'known' && (!npc || participant.side === 'ally' || disclosure?.has('resources') || disclosure?.has('strategyMetrics'))
   const intentKnown = participant.visibility === 'known' && (!npc || participant.side === 'ally' || disclosure?.has('initiative') || disclosure?.has('strategyPlan'))
   const qualitative = (value: number) => value >= 75 ? 'высокая' : value >= 45 ? 'средняя' : value >= 20 ? 'низкая' : 'критическая'
   return <article>
@@ -358,6 +367,10 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
     return places.filter((place) => place.visibility !== 'hidden').sort((left, right) => depth(left.id) - depth(right.id) || left.name.localeCompare(right.name, 'ru'))
   }, [campaign.world.places])
   const visibleProcesses = (campaign.world.processes ?? []).filter((process) => process.visibility !== 'hidden' && ['active', 'stalled'].includes(process.status))
+  const visibleFactions = campaign.world.factions.filter((faction) => faction.visibility !== 'hidden')
+  const visibleChronicle = useMemo(() => [...(campaign.world.chronicle ?? [])]
+    .filter((entry) => entry.visibility !== 'hidden')
+    .sort((left, right) => right.endTurn - left.endTurn || right.importance - left.importance), [campaign.world.chronicle])
   const presentation = getWorldPresentation(campaign.world)
   const interfaceBlueprint = getWorldInterfaceBlueprint(campaign.world)
   const system = getWorldSystem(campaign.world)
@@ -368,7 +381,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const changeMessages = useMemo(() => [...campaign.messages].reverse().filter((message) => message.role === 'assistant' && ((message.stateChanges?.some((change) => changeMatchesFilter(change, changeFilter))) || (!message.stateChanges?.length && changeFilter === 'all' && message.changeSummary?.length))), [campaign.messages, changeFilter])
 
   useEffect(() => {
-    inspectorBody.current?.scrollTo({ top: 0, behavior: 'auto' })
+    inspectorBody.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     if (tab === 'changes') setChangeLimit(30)
   }, [tab, campaign.id])
 
@@ -452,7 +465,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
             <Section title="Обещания и последствия" action={<Clock3 size={15} />}>
               <div className="quest-list">
                 {(campaign.threads ?? []).filter((thread) => !['fulfilled', 'broken', 'resolved'].includes(thread.status.toLocaleLowerCase('ru-RU')) && !thread.secret).map((thread) => <div className="quest-card" key={thread.id}><strong>{thread.title}</strong><p>{thread.detail}</p><small>{uiLabel(thread.type, 'Сюжетная линия')} · {uiLabel(thread.status, 'В процессе')}{thread.dueTurn ? ` · до хода ${thread.dueTurn}` : ''}</small></div>)}
-                {(campaign.worldEvents ?? []).filter((event) => event.status !== 'resolved' && event.visibility !== 'hidden').map((event) => <div className="quest-card" key={event.id}><strong>{event.title}</strong><p>{event.description}</p><small>{event.status === 'due' ? 'Уже назрело' : event.dueTurn ? `Ожидается к ходу ${event.dueTurn}` : 'Срок неизвестен'}</small></div>)}
+                {(campaign.worldEvents ?? []).filter((event) => event.status !== 'resolved' && event.visibility !== 'hidden').map((event) => <div className="quest-card" key={event.id}><strong>{event.title}</strong>{event.visibility === 'rumored' ? <><p>Сведения пока не подтверждены.</p><small>Точный срок неизвестен</small></> : <><p>{event.description}</p><small>{event.status === 'due' ? 'Уже назрело' : event.dueTurn ? `Ожидается к ходу ${event.dueTurn}` : 'Срок неизвестен'}</small></>}</div>)}
                 {!(campaign.threads ?? []).some((thread) => !['fulfilled', 'broken', 'resolved'].includes(thread.status.toLocaleLowerCase('ru-RU')) && !thread.secret) && !(campaign.worldEvents ?? []).some((event) => event.status !== 'resolved' && event.visibility !== 'hidden') && <EmptyMini>Открытых обязательств пока нет.</EmptyMini>}
               </div>
             </Section>
@@ -644,15 +657,19 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
             <AdaptiveWorldModules campaign={campaign} placement="world" onDesign={onDesignInterface} designing={designingInterface} />
             <Section title="Пульс живого мира" action={<Activity size={15} />}>
               <div className="world-pulse">
-                {visibleInitiatives.slice(0, 8).map((npc) => <div className="world-pulse-card" key={npc.id}><header><strong>{npc.name}</strong><span>импульс {npc.initiative!.urgency}%</span></header><p>{npc.initiative!.intent}</p><small>{npc.initiative!.visibility === 'rumored' ? 'Слух: ' : 'Следующий шаг: '}{npc.initiative!.nextMove}</small></div>)}
-                {visibleWorldEvents.slice(0, 8).map((event) => <div className={`world-pulse-card event-${event.status}`} key={event.id}><header><strong>{event.title}</strong><span>{event.status === 'due' ? 'созрело' : event.dueTurn ? `к ходу ${event.dueTurn}` : event.dueDay ? `ко дню ${event.dueDay}` : 'развивается'}</span></header><p>{event.description}</p><small>{event.visibility === 'rumored' ? 'Ходят слухи' : 'Известно герою'}</small></div>)}
+                {visibleInitiatives.slice(0, 8).map((npc) => npc.initiative!.visibility === 'rumored'
+                  ? <div className="world-pulse-card is-rumored" key={npc.id}><header><strong>{npc.name}</strong><span>по слухам</span></header><p>Замечены признаки самостоятельной активности.</p><small>Точные намерения и следующий шаг пока неизвестны</small></div>
+                  : <div className="world-pulse-card" key={npc.id}><header><strong>{npc.name}</strong><span>импульс {npc.initiative!.urgency}%</span></header><p>{npc.initiative!.intent}</p><small>Следующий шаг: {npc.initiative!.nextMove}</small></div>)}
+                {visibleWorldEvents.slice(0, 8).map((event) => event.visibility === 'rumored'
+                  ? <div className="world-pulse-card is-rumored" key={event.id}><header><strong>{event.title}</strong><span>по слухам</span></header><p>Причины, точный срок и последствия пока не подтверждены.</p><small>Требуется проверка</small></div>
+                  : <div className={`world-pulse-card event-${event.status}`} key={event.id}><header><strong>{event.title}</strong><span>{event.status === 'due' ? 'созрело' : event.dueTurn ? `к ходу ${event.dueTurn}` : event.dueDay ? `ко дню ${event.dueDay}` : 'развивается'}</span></header><p>{event.description}</p><small>Известно герою</small></div>)}
                 {!visibleInitiatives.length && !visibleWorldEvents.length && <EmptyMini>Внешние процессы пока не дали заметных сигналов.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Давление мира" action={<ShieldAlert size={15} />}>
+            <Section title="Давление мира" action={<ShieldAlert size={15} />} defaultExpanded={false}>
               <div className="world-pressure-list">
-                {visibleWorldPressures.map((pressure) => <article className={`world-pressure-card pressure-${pressure.tier} stage-${pressure.stage}`} key={pressure.id}>
-                  <header><div><span>{pressureStageLabels[pressure.stage]}</span><strong>{pressure.sourceName}</strong></div><b>{pressureTierLabels[pressure.tier]}</b></header>
+                {visibleWorldPressures.map((pressure) => <article className={pressure.visibility === 'rumored' ? 'world-pressure-card is-rumored' : `world-pressure-card pressure-${pressure.tier} stage-${pressure.stage}`} key={pressure.id}>
+                  <header><div><span>{pressure.visibility === 'rumored' ? 'Неподтверждённые признаки' : pressureStageLabels[pressure.stage]}</span><strong>{pressure.sourceName}</strong></div>{pressure.visibility === 'known' && <b>{pressureTierLabels[pressure.tier]}</b>}</header>
                   {pressure.visibility === 'known' ? <><p>{pressure.objective}</p><small><b>Причина:</b> {pressure.cause}</small></> : <p>Намерения источника ещё неясны; доступны только отдельные признаки.</p>}
                   {!!pressure.signs.length && <div className="pressure-signs"><b>Что уже заметно</b>{pressure.signs.map((sign) => <span key={sign}>{sign}</span>)}</div>}
                   {pressure.visibility === 'known' && <>
@@ -661,66 +678,75 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                     <DetailList title="Что усилит давление" values={[pressure.escalationTrigger]} />
                     <DetailList title="Что его ослабит" values={pressure.deescalationConditions} />
                   </>}
-                  <footer><span>Цели: {pressure.targetIds.map((id) => entityName(id)).join(', ')}</span><span>{pressure.visibility === 'rumored' ? 'Сведения по слухам' : `Последнее изменение: ход ${pressure.lastAdvancedTurn}`}</span></footer>
+                  <footer>{pressure.visibility === 'known' && <span>Цели: {pressure.targetIds.map((id) => entityName(id)).join(', ')}</span>}<span>{pressure.visibility === 'rumored' ? 'Масштаб, цель и планы пока неизвестны' : `Последнее изменение: ход ${pressure.lastAdvancedTurn}`}</span></footer>
                 </article>)}
                 {!visibleWorldPressures.length && <EmptyMini>Сейчас герой не замечает устойчивой слежки, охоты или давления извне.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Что происходит вдали" action={<Globe2 size={15} />}>
+            <Section title="Что происходит вдали" action={<Globe2 size={15} />} defaultExpanded={false}>
               <div className="world-process-list">
-                {visibleProcesses.map((process) => <article className={`world-process-card process-${process.direction}`} key={process.id}>
-                  <header><div><strong>{process.title}</strong><span>{process.status === 'stalled' ? 'приостановлено' : process.direction === 'rising' ? 'усиливается' : process.direction === 'declining' ? 'ослабевает' : 'развивается стабильно'}</span></div><b>{Math.round(process.momentum)}<small>/100</small></b></header>
-                  <div className="world-process-meter" role="progressbar" aria-label={`Движение процесса ${Math.round(process.momentum)} из 100`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(process.momentum)}><i style={{ width: `${process.momentum}%` }} /></div>
-                  <p>{process.description}</p>
-                  <div className="process-stage"><small>Сейчас</small><span>{process.stage}</span></div>
-                  <div className="process-stage is-next"><small>Следующий рубеж{process.dueTurn ? ` · ход ${process.dueTurn}` : ''}</small><span>{process.nextMilestone}</span></div>
-                  <div className="world-tag-row">{process.scopeIds.map((scopeId) => <span key={scopeId}>{placeName(scopeId)}</span>)}</div>
-                  {!!process.involvedFactionNames.length && <footer>{process.involvedFactionNames.join(' · ')}</footer>}
-                  <details className="process-details"><summary>Причины и возможные последствия</summary><div><b>Движущие силы</b>{process.drivers.map((entry) => <span key={entry}>{entry}</span>)}{!!process.obstacles.length && <><b>Что мешает</b>{process.obstacles.map((entry) => <span key={entry}>{entry}</span>)}</>}{!!process.consequences.length && <><b>К чему ведёт</b>{process.consequences.map((entry) => <span key={entry}>{entry}</span>)}</>}</div></details>
-                  {process.visibility === 'rumored' && <small className="rumor-mark">Герою доступны только слухи об этом процессе</small>}
+                {visibleProcesses.map((process) => <article className={process.visibility === 'rumored' ? 'world-process-card is-rumored' : `world-process-card process-${process.direction}`} key={process.id}>
+                  {process.visibility === 'rumored' ? <>
+                    <header><div><strong>{process.title}</strong><span>по слухам</span></div></header>
+                    <p>Герой слышал об этом процессе, но его масштаб, участники, текущий этап и возможный исход пока не установлены.</p>
+                    <small className="rumor-mark">Подробности откроются после проверки сведений</small>
+                  </> : <>
+                    <header><div><strong>{process.title}</strong><span>{process.status === 'stalled' ? 'приостановлено' : process.direction === 'rising' ? 'усиливается' : process.direction === 'declining' ? 'ослабевает' : 'развивается стабильно'}</span></div><b>{Math.round(process.momentum)}<small>/100</small></b></header>
+                    <div className="world-process-meter" role="progressbar" aria-label={`Движение процесса ${Math.round(process.momentum)} из 100`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(process.momentum)}><i style={{ width: `${process.momentum}%` }} /></div>
+                    <p>{process.description}</p>
+                    <div className="process-stage"><small>Сейчас</small><span>{process.stage}</span></div>
+                    <div className="process-stage is-next"><small>Следующий рубеж{process.dueTurn ? ` · ход ${process.dueTurn}` : ''}</small><span>{process.nextMilestone}</span></div>
+                    <div className="world-tag-row">{process.scopeIds.map((scopeId) => <span key={scopeId}>{placeName(scopeId)}</span>)}</div>
+                    {!!process.involvedFactionNames.length && <footer>{process.involvedFactionNames.join(' · ')}</footer>}
+                    <details className="process-details"><summary>Причины и возможные последствия</summary><div><b>Движущие силы</b>{process.drivers.map((entry) => <span key={entry}>{entry}</span>)}{!!process.obstacles.length && <><b>Что мешает</b>{process.obstacles.map((entry) => <span key={entry}>{entry}</span>)}</>}{!!process.consequences.length && <><b>К чему ведёт</b>{process.consequences.map((entry) => <span key={entry}>{entry}</span>)}</>}</div></details>
+                  </>}
                 </article>)}
                 {!visibleProcesses.length && <EmptyMini>Заметные внешние процессы ещё не сформировались. Симулятор будет добавлять их по мере развития мира.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Атлас большого мира" action={<MapPin size={15} />}>
+            <Section title="Атлас большого мира" action={<MapPin size={15} />} defaultExpanded={false}>
               <div className="world-atlas-list">
-                {visiblePlaces.map((place) => <article className={`world-place-card place-${place.kind}`} key={place.id}>
-                  <header><div><span>{placeKindLabels[place.kind]}{place.parentId ? ` · ${placeName(place.parentId)}` : ''}</span><strong>{place.name}</strong></div><small>{place.scale}</small></header>
-                  <p>{place.description}</p>
-                  <div className="place-situation"><small>Жизнь сейчас</small><span>{place.currentSituation}</span></div>
-                  <dl>{place.population && <div><dt>Население</dt><dd>{place.population}</dd></div>}{place.government && <div><dt>Устройство</dt><dd>{place.government}</dd></div>}{place.economy && <div><dt>Экономика</dt><dd>{place.economy}</dd></div>}</dl>
-                  {!!place.culture.length && <div className="world-tag-row">{place.culture.slice(0, 3).map((entry) => <span key={entry}>{entry}</span>)}</div>}
-                  {place.visibility === 'rumored' && <small className="rumor-mark">Подробности известны по слухам</small>}
+                {visiblePlaces.map((place) => <article className={`world-place-card place-${place.kind} ${place.visibility === 'rumored' ? 'is-rumored' : ''}`} key={place.id}>
+                  <header><div><span>{placeKindLabels[place.kind]}{place.visibility === 'known' && place.parentId ? ` · ${placeName(place.parentId)}` : ''}</span><strong>{place.name}</strong></div>{place.visibility === 'known' && <small>{place.scale}</small>}</header>
+                  {place.visibility === 'rumored' ? <><p>Герой знает лишь название и общую природу этого места. Устройство, население и происходящее там пока неизвестны.</p><small className="rumor-mark">Место известно по слухам</small></> : <>
+                    <p>{place.description}</p>
+                    <div className="place-situation"><small>Жизнь сейчас</small><span>{place.currentSituation}</span></div>
+                    <dl>{place.population && <div><dt>Население</dt><dd>{place.population}</dd></div>}{place.government && <div><dt>Устройство</dt><dd>{place.government}</dd></div>}{place.economy && <div><dt>Экономика</dt><dd>{place.economy}</dd></div>}</dl>
+                    {!!place.culture.length && <div className="world-tag-row">{place.culture.slice(0, 3).map((entry) => <span key={entry}>{entry}</span>)}</div>}
+                  </>}
                 </article>)}
                 {!visiblePlaces.length && <EmptyMini>Атлас старой кампании пока пуст. На следующем ходе ИИ начнёт расширять его по правилам именно этого мира.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Фракции в движении" action={<Users size={15} />}>
+            <Section title="Фракции в движении" action={<Users size={15} />} defaultExpanded={false}>
               <div className="faction-dynamics-list">
-                {campaign.world.factions.map((faction) => <article className={`faction-dynamics-card faction-${faction.status ?? 'active'}`} key={faction.id ?? faction.name}>
-                  <header><div><strong>{faction.name}</strong><span>{faction.kind ? `${factionKindLabels[faction.kind]} · ` : ''}{faction.status === 'dissolved' ? 'распалась' : faction.status === 'dormant' ? 'затаилась' : 'действует'}</span></div>{faction.power !== undefined && <b>{Math.round(faction.power)}<small>/100</small></b>}</header>
-                  {faction.power !== undefined && <div className="faction-power" aria-label={`Сила фракции ${Math.round(faction.power)} из 100`}><i style={{ width: `${faction.power}%` }} /></div>}
-                  <p>{faction.currentMove || faction.description}</p>
-                  {faction.currentMove && <small className="faction-attitude">К герою: {faction.attitude}</small>}
-                  {!!faction.goals?.length && <div className="world-tag-row">{faction.goals.slice(0, 3).map((goal) => <span key={goal}>{goal}</span>)}</div>}
-                  {Boolean(faction.territory?.length || faction.resources?.length || faction.headquarters || faction.reach) && <footer><span>{faction.headquarters ? `Центр: ${faction.headquarters}` : faction.territory?.length ? `Территория: ${faction.territory.slice(0, 3).join(', ')}` : 'Без закреплённого центра'}</span><span>{faction.reach ? `Охват: ${faction.reach}` : faction.resources?.length ? `Опора: ${faction.resources.slice(0, 2).join(', ')}` : 'Ресурсы не установлены'}</span></footer>}
+                {visibleFactions.map((faction) => <article className={`faction-dynamics-card faction-${faction.status ?? 'active'} ${faction.visibility === 'rumored' ? 'is-rumored' : ''}`} key={faction.id ?? faction.name}>
+                  {faction.visibility === 'rumored' ? <>
+                    <header><div><strong>{faction.name}</strong><span>{faction.kind ? `${factionKindLabels[faction.kind]} · ` : ''}по слухам</span></div></header>
+                    <p>{faction.publicFace || 'Существование и влияние этой силы пока не подтверждены.'}</p>
+                    <small className="rumor-mark">Ресурсы, цели, численность и текущие действия неизвестны</small>
+                  </> : <>
+                    <header><div><strong>{faction.name}</strong><span>{faction.kind ? `${factionKindLabels[faction.kind]} · ` : ''}{faction.status === 'dissolved' ? 'распалась' : faction.status === 'dormant' ? 'затаилась' : 'действует'}</span></div>{faction.power !== undefined && <b>{Math.round(faction.power)}<small>/100</small></b>}</header>
+                    {faction.power !== undefined && <div className="faction-power" aria-label={`Сила фракции ${Math.round(faction.power)} из 100`}><i style={{ width: `${faction.power}%` }} /></div>}
+                    <p>{faction.currentMove || faction.description}</p>
+                    {faction.currentMove && <small className="faction-attitude">К герою: {faction.attitude}</small>}
+                    {!!faction.goals?.length && <div className="world-tag-row">{faction.goals.slice(0, 3).map((goal) => <span key={goal}>{goal}</span>)}</div>}
+                    {Boolean(faction.territory?.length || faction.resources?.length || faction.headquarters || faction.reach) && <footer><span>{faction.headquarters ? `Центр: ${faction.headquarters}` : faction.territory?.length ? `Территория: ${faction.territory.slice(0, 3).join(', ')}` : 'Без закреплённого центра'}</span><span>{faction.reach ? `Охват: ${faction.reach}` : faction.resources?.length ? `Опора: ${faction.resources.slice(0, 2).join(', ')}` : 'Ресурсы не установлены'}</span></footer>}
+                  </>}
                 </article>)}
-                {!campaign.world.factions.length && <EmptyMini>Устойчивые фракции ещё не сформировались.</EmptyMini>}
+                {!visibleFactions.length && <EmptyMini>Герой пока не знает ни одной устойчивой фракции.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Действующие законы" action={<Shield size={15} />}>
+            <Section title="Действующие законы" action={<Shield size={15} />} defaultExpanded={false}>
               <div className="world-law-list">
-                {(campaign.world.laws ?? []).filter((law) => law.visibility !== 'hidden').map((law) => <article className={`world-law-card law-${law.status}`} key={law.id}>
-                  <header><strong>{law.title}</strong><span>{law.status === 'proposed' ? 'проект' : law.status === 'contested' ? 'оспаривается' : law.status === 'repealed' ? 'отменён' : 'действует'}</span></header>
-                  <p>{law.description}</p>
-                  <dl><div><dt>Власть</dt><dd>{law.authority}</dd></div><div><dt>Область</dt><dd>{law.scope}</dd></div></dl>
-                  {!!law.consequences.length && <div className="world-consequences"><b>Последствия</b>{law.consequences.map((entry) => <span key={entry}>{entry}</span>)}</div>}
-                  {law.visibility === 'rumored' && <small className="rumor-mark">Сведения пока известны как слух</small>}
+                {(campaign.world.laws ?? []).filter((law) => law.visibility !== 'hidden').map((law) => <article className={`world-law-card law-${law.status} ${law.visibility === 'rumored' ? 'is-rumored' : ''}`} key={law.id}>
+                  <header><strong>{law.title}</strong><span>{law.visibility === 'rumored' ? 'по слухам' : law.status === 'proposed' ? 'проект' : law.status === 'contested' ? 'оспаривается' : law.status === 'repealed' ? 'отменён' : 'действует'}</span></header>
+                  {law.visibility === 'rumored' ? <><p>Герой пока не знает точной формулировки, области действия и последствий этого закона.</p><small className="rumor-mark">Сведения требуют проверки</small></> : <><p>{law.description}</p><dl><div><dt>Власть</dt><dd>{law.authority}</dd></div><div><dt>Область</dt><dd>{law.scope}</dd></div></dl>{!!law.consequences.length && <div className="world-consequences"><b>Последствия</b>{law.consequences.map((entry) => <span key={entry}>{entry}</span>)}</div>}</>}
                 </article>)}
                 {!(campaign.world.laws ?? []).some((law) => law.visibility !== 'hidden') && <EmptyMini>Известные законы пока не оформлены отдельно.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Механики мира" action={<CircleGauge size={15} />}>
+            <Section title="Механики мира" action={<CircleGauge size={15} />} defaultExpanded={false}>
               <div className="world-mechanic-list">
                 {(campaign.world.mechanics ?? []).filter((mechanic) => mechanic.discovered).map((mechanic) => <article className={`world-mechanic-card mechanic-${mechanic.status}`} key={mechanic.id}>
                   <header><div><span>{uiLabel(mechanic.category)}</span><strong>{mechanic.name}</strong></div><b>{mechanic.status === 'emerging' ? 'формируется' : mechanic.status === 'obsolete' ? 'утратила силу' : 'активна'}</b></header>
@@ -732,51 +758,51 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                 {!(campaign.world.mechanics ?? []).some((mechanic) => mechanic.discovered) && <EmptyMini>Устойчивые механики ещё предстоит открыть.</EmptyMini>}
               </div>
             </Section>
-            <Section title={system.name}>
+            <Section title={system.name} defaultExpanded={false}>
               <div className="world-system-card"><p>{localizeTechnicalText(system.summary)}</p><dl><div><dt>Развитие</dt><dd>{localizeTechnicalText(system.progression)}</dd></div><div><dt>Конфликты</dt><dd>{localizeTechnicalText(system.conflictResolution)}</dd></div><div><dt>Последствия</dt><dd>{localizeTechnicalText(system.consequences)}</dd></div></dl></div>
             </Section>
-            <Section title="Карта путей" action={<Route size={15} />}>
+            <Section title="Карта путей" action={<Route size={15} />} defaultExpanded={false}>
               <div className="route-map">
                 <div className="route-nodes">{campaign.world.locations.map((location) => <span className={location.name === campaign.scene.location ? 'is-current' : ''} key={location.name}><MapPin size={12} />{location.name}<i>{location.danger}%</i></span>)}</div>
                 <div className="route-list">{(campaign.world.routes ?? []).filter((route) => route.discovered).map((route) => <div key={route.id}><strong>{route.from} → {route.to}</strong><span>{route.label} · {route.travelTime} · риск {route.danger}%</span></div>)}</div>
               </div>
             </Section>
-            <Section title="Связи персонажей" action={<Network size={15} />}>
+            <Section title="Связи персонажей" action={<Network size={15} />} defaultExpanded={false}>
               <div className="social-list">{(campaign.socialLinks ?? []).filter((link) => !link.secret).map((link) => {
                 const from = campaign.npcs.find((npc) => npc.id === link.fromNpcId)?.name ?? link.fromNpcId
                 const to = campaign.npcs.find((npc) => npc.id === link.toNpcId)?.name ?? link.toNpcId
                 return <div key={link.id}><strong>{from} ↔ {to}</strong><span>{link.label} · {link.score > 0 ? '+' : ''}{link.score}</span></div>
               })}{!(campaign.socialLinks ?? []).some((link) => !link.secret) && <EmptyMini>Открытые связи ещё не проявились.</EmptyMini>}</div>
             </Section>
-            <Section title="Персональные арки" action={<Target size={15} />}>
+            <Section title="Персональные арки" action={<Target size={15} />} defaultExpanded={false}>
               <div className="arc-list">{(campaign.characterArcs ?? []).filter((arc) => arc.ownerId !== campaign.player.id && !arc.secret && campaign.npcs.some((npc) => npc.id === arc.ownerId && getNpcDisclosure(npc).has('goal'))).map((arc) => <div className="arc-card" key={arc.id}><div><strong>{arc.title}</strong><span>{entityName(arc.ownerId)} · {arc.progress}%</span></div><p>{arc.currentStage}</p><div className="mini-progress"><i style={{ width: `${arc.progress}%` }} /></div><small>{arc.theme}</small></div>)}
                 {!(campaign.characterArcs ?? []).some((arc) => arc.ownerId !== campaign.player.id && !arc.secret && campaign.npcs.some((npc) => npc.id === arc.ownerId && getNpcDisclosure(npc).has('goal'))) && <EmptyMini>Чужие личные линии пока не стали понятны герою.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Честные расследования" action={<Search size={15} />}>
+            <Section title="Честные расследования" action={<Search size={15} />} defaultExpanded={false}>
               <div className="mystery-list">{(campaign.mysteryCases ?? []).map((mystery) => {
                 const discovered = mystery.clues.filter((clue) => clue.discovered)
-                return <div className="mystery-card" key={mystery.id}><div><strong>{mystery.title}</strong><span>{mystery.status === 'solved' ? 'Раскрыто' : `${discovered.length}/${mystery.clues.length} улик`}</span></div><p>{mystery.premise}</p>
+                return <div className="mystery-card" key={mystery.id}><div><strong>{mystery.title}</strong><span>{mystery.status === 'solved' ? 'Раскрыто' : discovered.length ? `Известных улик: ${discovered.length}` : 'Улик пока нет'}</span></div><p>{mystery.premise}</p>
                   {!!discovered.length && <ul>{discovered.map((clue) => <li key={clue.id}><b>{clue.title}</b><span>{clue.detail}</span><small>{clue.location} · {clue.source}</small></li>)}</ul>}
                   {mystery.status === 'solved' && <div className="mystery-truth"><b>Установленная истина</b><p>{mystery.truth}</p>{mystery.conclusion && <small>{mystery.conclusion}</small>}</div>}
                 </div>
               })}{!(campaign.mysteryCases ?? []).length && <EmptyMini>Активных расследований нет.</EmptyMini>}</div>
             </Section>
-            <Section title="Известные планы противников" action={<Swords size={15} />}>
+            <Section title="Известные планы противников" action={<Swords size={15} />} defaultExpanded={false}>
               <div className="plan-list">{(campaign.antagonistPlans ?? []).filter((plan) => !plan.secret && campaign.npcs.some((npc) => npc.id === plan.ownerNpcId && getNpcDisclosure(npc).has('strategyPlan'))).map((plan) => <div className="plan-card" key={plan.id}><div><strong>{plan.title}</strong><span>Давление {plan.pressure}%</span></div><p>{plan.objective}</p><small>{entityName(plan.ownerNpcId)} · этап {Math.min(plan.steps.length, plan.currentStep + 1)} из {plan.steps.length}</small></div>)}
                 {!(campaign.antagonistPlans ?? []).some((plan) => !plan.secret && campaign.npcs.some((npc) => npc.id === plan.ownerNpcId && getNpcDisclosure(npc).has('strategyPlan'))) && <EmptyMini>Планы противников ещё не раскрыты.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Услуги и влияние" action={<HeartHandshake size={15} />}>
+            <Section title="Услуги и влияние" action={<HeartHandshake size={15} />} defaultExpanded={false}>
               <div className="influence-list">{(campaign.influenceAssets ?? []).filter((asset) => !asset.secret && asset.status === 'active').map((asset) => <div className="influence-card" key={asset.id}><div><strong>{asset.title}</strong><span>{uiLabel(asset.kind, 'Влияние')} · ценность {asset.value}</span></div><p>{asset.description}</p><small>{entityName(asset.holderId)}{asset.targetId ? ` → ${entityName(asset.targetId)}` : ''} · {asset.source}</small></div>)}
                 {!(campaign.influenceAssets ?? []).some((asset) => !asset.secret && asset.status === 'active') && <EmptyMini>Доступных услуг, долгов или рычагов пока нет.</EmptyMini>}
               </div>
             </Section>
-            <Section title="Канон-документы" action={<button className="text-action" onClick={() => canonInput.current?.click()}><FileUp size={14} /> Загрузить</button>}>
+            <Section title="Канон-документы" action={<button className="text-action" onClick={() => canonInput.current?.click()}><FileUp size={14} /> Загрузить</button>} defaultExpanded={false}>
               <input ref={canonInput} className="visually-hidden" type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" onChange={(event) => { void importCanon(event.target.files?.[0]); event.currentTarget.value = '' }} />
               <div className="document-list">{(campaign.documents ?? []).map((document) => <div key={document.id}><span><strong>{document.title}</strong><small>{document.chunks.length} фрагментов</small></span><button aria-label={`Удалить ${document.title}`} onClick={() => mutate((next) => { next.documents = (next.documents ?? []).filter((item) => item.id !== document.id) })}><Trash2 size={13} /></button></div>)}{!(campaign.documents ?? []).length && <EmptyMini>Загрузите TXT, Markdown или JSON — нужные фрагменты будут подбираться по сцене.</EmptyMini>}{canonError && <p className="field-error">{canonError}</p>}</div>
             </Section>
-            <Section title="Рентген контекста" action={<Brain size={15} />}>
+            <Section title="Рентген контекста" action={<Brain size={15} />} defaultExpanded={false}>
               <div className="context-xray">
                 <div className="context-meter"><span style={{ width: `${Math.min(100, contextPreview.estimatedChars / contextPreview.budgetChars * 100)}%` }} /></div>
                 <p>{uiLabel(contextPreview.profileName)} · примерно {Math.round(contextPreview.estimatedChars / 1000)} тыс. знаков из бюджета {Math.round(contextPreview.budgetChars / 1000)} тыс.</p>
@@ -784,10 +810,13 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                 {!!lastAssistant?.continuityNotes?.length && <div className="continuity-notes"><strong>Последняя проверка</strong>{lastAssistant.continuityNotes.map((note) => <span key={note}>{localizeTechnicalText(note)}</span>)}</div>}
               </div>
             </Section>
-            <Section title="Архив сцен и глав" action={<span className="count-badge">{(campaign.archives ?? []).length}</span>}>
+            <Section title="Архив сцен и глав" action={<span className="count-badge">{(campaign.archives ?? []).length}</span>} defaultExpanded={false}>
               <div className="memory-list">{[...(campaign.archives ?? [])].reverse().slice(0, 30).map((archive) => <div className="memory-card" key={archive.id}><div><span>{uiLabel(archive.kind)} · ходы {archive.startTurn}–{archive.endTurn}</span><strong>{archive.title}</strong><p>{archive.summary}</p></div></div>)}{!(campaign.archives ?? []).length && <EmptyMini>Архивы сцен появятся после четвёртого хода.</EmptyMini>}</div>
             </Section>
-            <Section title={labels.lore} action={<button className="text-action" onClick={() => setLoreEditor(true)}><Plus size={14} /> Запись</button>}>
+            <Section title="Летопись большого мира" action={<span className="count-badge">{visibleChronicle.length}</span>} defaultExpanded={false}>
+              <div className="memory-list">{visibleChronicle.slice(0, 40).map((entry) => <div className="memory-card" key={entry.id}><div>{entry.visibility === 'rumored' ? <><span>{chronicleKindLabels[entry.kind]} · по слухам</span><strong>{entry.title}</strong><p>Точный ход и итог этих событий пока не подтверждены.</p></> : <><span>{chronicleKindLabels[entry.kind]} · {worldScaleLabels[entry.scale]} · ходы {entry.startTurn}–{entry.endTurn}</span><strong>{entry.title}</strong><p>{entry.summary}</p><small>{entry.outcome}</small></>}</div></div>)}{!visibleChronicle.length && <EmptyMini>Завершённые процессы мира появятся здесь, не перегружая активную сцену.</EmptyMini>}</div>
+            </Section>
+            <Section title={labels.lore} action={<button className="text-action" onClick={() => setLoreEditor(true)}><Plus size={14} /> Запись</button>} defaultExpanded={false}>
               <div className="lore-list">
                 {visibleLore.map((entry) => <div className={`lore-card ${activeLoreIds.has(entry.id) ? 'is-active-context' : ''}`} key={entry.id}>
                   <button className="lore-main" onClick={() => setExpandedLore(expandedLore === entry.id ? undefined : entry.id)}>
@@ -800,12 +829,12 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                 </div>)}
               </div>
             </Section>
-            <Section title={labels.memories} action={<span className="count-badge">{campaign.memories.length}</span>}>
+            <Section title={labels.memories} action={<span className="count-badge">{campaign.memories.length}</span>} defaultExpanded={false}>
               <div className="memory-list">
                 {[...campaign.memories].reverse().slice(0, 20).map((memory) => <div className={`memory-card ${memory.pinned ? 'is-pinned' : ''}`} key={memory.id}><button className="memory-pin" aria-label="Закрепить воспоминание" onClick={() => mutate((next) => { const target = next.memories.find((item) => item.id === memory.id); if (target) { target.pinned = !target.pinned; target.importance = target.pinned ? 100 : Math.min(90, target.importance) } })}><BookMarked size={14} /></button><div><span>{uiLabel(memory.kind)} · ход {memory.turn}</span><p>{memory.content}</p></div></div>)}
               </div>
             </Section>
-            <Section title="Правила мира"><ol className="world-rules">{campaign.world.rules.map((rule) => <li key={rule}>{rule}</li>)}</ol></Section>
+            <Section title="Правила мира" defaultExpanded={false}><ol className="world-rules">{campaign.world.rules.map((rule) => <li key={rule}>{rule}</li>)}</ol></Section>
           </>}
         </div>
       </aside>

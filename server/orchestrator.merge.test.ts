@@ -229,6 +229,44 @@ describe('turn patch merging', () => {
     ]))
   })
 
+  it('keeps only valid spatial and causal links for autonomous world changes', () => {
+    const campaign = createDemoCampaign()
+    campaign.world.places = [{
+      id: 'place-existing', name: 'Северная страна', kind: 'country', description: 'Северная держава.', scale: 'страна',
+      culture: [], notableFacts: [], currentSituation: 'Граница напряжена.', visibility: 'known', createdTurn: 0, lastChangedTurn: 0,
+    }]
+    campaign.world.processes = [{
+      id: 'process-existing', title: 'Пограничный спор', description: 'Державы спорят о земле.', scopeIds: ['place-existing'], involvedFactionNames: [],
+      drivers: ['Старая карта'], obstacles: ['Переговоры'], stage: 'Обмен нотами', momentum: 40, direction: 'rising', status: 'active',
+      visibility: 'rumored', nextMilestone: 'Ответ посла', consequences: ['Закрытие границы'], createdTurn: 0, lastAdvancedTurn: 0,
+    }]
+    const parsed = turnPlanSchema.parse({
+      outcome: 'Спор начинает влиять на торговлю.', beats: ['Совет готовит эмбарго.'], suggestions: ['Узнать новости', 'Продолжить путь'],
+      statePatch: {
+        world: { upsertProcesses: [{
+          ...campaign.world.processes[0], scale: 'national', causeIds: ['process-missing'],
+        }] },
+        worldEvents: [{ operation: 'add', event: {
+          id: 'event-embargo', title: 'Северное эмбарго', description: 'Совет перекрывает торговые пути.', status: 'scheduled', visibility: 'known', involvedIds: [],
+          scale: 'national', scopeIds: ['place-existing', 'place-missing'], causeIds: ['process-existing', 'cause-missing'], consequences: ['Рост цен'],
+        } }],
+        threads: [{ operation: 'add', thread: {
+          id: 'thread-smuggling', type: 'rumor', title: 'Контрабандный путь', detail: 'Купцы ищут обход.', participantIds: [campaign.player.id],
+          status: 'active', secret: false, scale: 'regional', scopeIds: ['place-existing'], causeIds: ['event-embargo'],
+        } }],
+      },
+    })
+
+    const sanitized = sanitizePlan(campaign, parsed)
+    expect(sanitized.plan.statePatch.world?.upsertProcesses?.[0].causeIds).toBeUndefined()
+    expect(sanitized.plan.statePatch.worldEvents?.[0]).toMatchObject({ event: { scopeIds: ['place-existing'], causeIds: ['process-existing'] } })
+    expect(sanitized.plan.statePatch.threads?.[0]).toMatchObject({ thread: { causeIds: ['event-embargo'] } })
+    expect(sanitized.rejections.map((entry) => entry.message)).toEqual(expect.arrayContaining([
+      expect.stringContaining('причинная ссылка'),
+      expect.stringContaining('область причинного изменения'),
+    ]))
+  })
+
   it('sanitizes granular module and metric references in the same order in which the engine applies them', () => {
     const campaign = createDemoCampaign()
     campaign.world.interfaceModules = [{ ...interfaceModule('module-existing', 'След угрозы', 'element-existing'), createdTurn: 0, lastChangedTurn: 0 }]

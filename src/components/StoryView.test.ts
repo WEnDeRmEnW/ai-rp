@@ -5,6 +5,7 @@ import { createElement } from 'react'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { StoryMessage } from '../../shared/types'
 import { createDemoCampaign } from '../lib/demo'
+import { buildStoryWaypoints } from '../lib/story-format'
 import { selectStoryWindow } from '../lib/story-window'
 import { StoryView } from './StoryView'
 
@@ -48,6 +49,14 @@ describe('long story window', () => {
     expect(complete.messages).toEqual(messages)
   })
 
+  it('builds a bounded set of navigation waypoints that always includes both ends', () => {
+    const waypoints = buildStoryWaypoints(Array.from({ length: 1_000 }, (_, index) => index + 1), 18)
+    expect(waypoints).toHaveLength(18)
+    expect(waypoints[0]).toBe(1)
+    expect(waypoints.at(-1)).toBe(1_000)
+    expect(waypoints).toEqual([...waypoints].sort((left, right) => left - right))
+  })
+
   it('reveals earlier history through accessible controls without deleting any turn', () => {
     const campaign = createDemoCampaign()
     campaign.messages = messages
@@ -61,6 +70,55 @@ describe('long story window', () => {
     expect(container.querySelectorAll('.story-turn')).toHaveLength(88)
     fireEvent.click(screen.getByRole('button', { name: 'Показать всё' }))
     expect(container.querySelectorAll('.story-turn')).toHaveLength(120)
+  })
+
+  it('reveals and scrolls to an older turn selected from the compact navigator', () => {
+    const campaign = createDemoCampaign()
+    campaign.messages = messages
+    campaign.turn = 60
+    const { container } = render(createElement(StoryView, {
+      campaign, generating: false, onSuggestion: vi.fn(), onPin: vi.fn(), onUndo: vi.fn(), onRetry: vi.fn(), onBranch: vi.fn(),
+    }))
+    scrollIntoView.mockClear()
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Перейти к ходу' }), { target: { value: '1' } })
+
+    expect(container.querySelectorAll('.story-turn')).toHaveLength(120)
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(container.querySelector('[data-story-turn="1"][data-story-role="assistant"]')).not.toBeNull()
+  })
+
+  it('renders narration, dialogue, thoughts and scene transitions as distinct semantic blocks', () => {
+    const campaign = createDemoCampaign()
+    campaign.messages = [{
+      ...message(1, 'assistant'),
+      content: 'Коридор остаётся пустым.\n\nХаруки: — Не оглядывайся.\n\n*Он уже рядом.*\n\n***\n\nСвет гаснет.',
+    }]
+    const { container } = render(createElement(StoryView, {
+      campaign, generating: false, onSuggestion: vi.fn(), onPin: vi.fn(), onUndo: vi.fn(), onRetry: vi.fn(), onBranch: vi.fn(),
+    }))
+
+    expect(container.querySelector('.story-narration')?.textContent).toBe('Коридор остаётся пустым.')
+    expect(container.querySelector('blockquote.story-dialogue cite')?.textContent).toBe('Харуки')
+    expect(container.querySelector('.story-thought')?.getAttribute('aria-label')).toBe('Мысль персонажа')
+    expect(container.querySelector('.story-transition')?.getAttribute('aria-label')).toBe('Смена сцены')
+  })
+
+  it('keeps old mechanical details folded while leaving the latest turn result visible', () => {
+    const campaign = createDemoCampaign()
+    campaign.messages = [
+      { ...message(1, 'assistant'), changeSummary: ['Здоровье: 10 → 8'] },
+      { ...message(2, 'user') },
+      { ...message(2, 'assistant'), changeSummary: ['Напряжение: 20 → 30'] },
+    ]
+    const { container } = render(createElement(StoryView, {
+      campaign, generating: false, onSuggestion: vi.fn(), onPin: vi.fn(), onUndo: vi.fn(), onRetry: vi.fn(), onBranch: vi.fn(),
+    }))
+    const details = container.querySelectorAll<HTMLDetailsElement>('.turn-consequences')
+
+    expect(details).toHaveLength(2)
+    expect(details[0].open).toBe(false)
+    expect(details[1].open).toBe(true)
   })
 
   it('jumps to the latest turn when campaign id changes even with the same message count', () => {

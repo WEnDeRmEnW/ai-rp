@@ -63,7 +63,8 @@ export function App() {
     '--accent-soft': `color-mix(in srgb, ${presentation.accent} 12%, transparent)`,
     '--gold': presentation.secondary,
     '--reader-scale': interfacePreferences.fontScale / 100,
-    '--inspector-width': interfacePreferences.inspectorWidth === 'compact' ? '360px' : interfacePreferences.inspectorWidth === 'wide' ? '500px' : '420px',
+    '--panel-scale': interfacePreferences.fontScale / 100,
+    '--inspector-width': interfacePreferences.inspectorWidth === 'compact' ? '420px' : interfacePreferences.inspectorWidth === 'wide' ? '560px' : '480px',
   } as CSSProperties
 
   const send = async () => {

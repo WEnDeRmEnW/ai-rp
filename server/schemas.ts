@@ -48,6 +48,7 @@ const worldFactionKindSchema = z.preprocess(alias({ государство: 'gov
 const worldPlaceKindSchema = z.preprocess(alias({ континент: 'continent', страна: 'country', регион: 'region', область: 'region', город: 'city', район: 'district', поселение: 'settlement', деревня: 'settlement', пустошь: 'wilderness', дикая_местность: 'wilderness', царство: 'realm', мир: 'realm', планета: 'planet', система: 'system', станция: 'station', измерение: 'dimension', другое: 'other' }), z.enum(['continent', 'country', 'region', 'city', 'district', 'settlement', 'wilderness', 'realm', 'planet', 'system', 'station', 'dimension', 'other']))
 const worldProcessStatusSchema = z.preprocess(alias({ активно: 'active', развивается: 'active', застопорилось: 'stalled', остановлено: 'stalled', завершено: 'resolved', разрешено: 'resolved', провалено: 'failed' }), z.enum(['active', 'stalled', 'resolved', 'failed']))
 const worldProcessDirectionSchema = z.preprocess(alias({ растет: 'rising', растёт: 'rising', усиливается: 'rising', стабильно: 'stable', без_изменений: 'stable', снижается: 'declining', ослабевает: 'declining' }), z.enum(['rising', 'stable', 'declining']))
+const worldScaleSchema = z.preprocess(alias({ личный: 'personal', персональный: 'personal', местный: 'local', локальный: 'local', региональный: 'regional', регион: 'regional', национальный: 'national', страна: 'national', континентальный: 'continental', континент: 'continental', глобальный: 'global', мировой: 'global', космический: 'cosmic', вселенский: 'cosmic' }), z.enum(['personal', 'local', 'regional', 'national', 'continental', 'global', 'cosmic']))
 const interfacePlacementSchema = z.preprocess(alias({ пульт: 'dashboard', сводка: 'dashboard', обзор: 'dashboard', сцена: 'scene', герой: 'hero', персонаж: 'hero', инвентарь: 'inventory', снаряжение: 'inventory', мир: 'world' }), z.enum(['dashboard', 'scene', 'hero', 'inventory', 'world']))
 const interfaceVisualSchema = z.preprocess(alias({ шкалы: 'meters', индикаторы: 'meters', узлы: 'nodes', сеть: 'nodes', слоты: 'slots', ячейки: 'slots', путь: 'track', этапы: 'track', журнал: 'ledger', реестр: 'ledger', сигналы: 'signals', сообщения: 'signals', радар: 'radar', диаграмма: 'radar', карточки: 'cards', плитки: 'cards' }), z.enum(['meters', 'nodes', 'slots', 'track', 'ledger', 'signals', 'radar', 'cards']))
 const interfaceIconSchema = z.preprocess(alias({ искра: 'spark', глаз: 'eye', взгляд: 'eye', щит: 'shield', сеть: 'network', узлы: 'network', пульс: 'pulse', сердце: 'pulse', компас: 'compass', корона: 'crown', руна: 'rune', механизм: 'gear', шестерня: 'gear', пламя: 'flame', огонь: 'flame', звезда: 'star', луна: 'moon' }), z.enum(['spark', 'eye', 'shield', 'network', 'pulse', 'compass', 'crown', 'rune', 'gear', 'flame', 'star', 'moon']))
@@ -102,6 +103,18 @@ const knowledgeStatusSchema = z.preprocess(alias({ известно: 'known', з
 const loreTypeSchema = z.preprocess(alias({ персонаж: 'character', герой: 'character', локация: 'location', место: 'location', фракция: 'faction', организация: 'faction', предмет: 'object', объект: 'object', правило: 'rule', закон: 'rule', история: 'history', тайна: 'secret', секрет: 'secret' }), z.enum(['character', 'location', 'faction', 'object', 'rule', 'history', 'secret']))
 const memoryKindSchema = z.preprocess(alias({ сводка: 'summary', итог: 'summary', факт: 'fact', обещание: 'promise', отношение: 'relationship', отношения: 'relationship', тайна: 'mystery', загадка: 'mystery' }), z.enum(['summary', 'fact', 'promise', 'relationship', 'mystery']))
 const worldEventStatusSchema = z.preprocess(alias({ запланировано: 'scheduled', ожидается: 'scheduled', назрело: 'due', наступило: 'due', выполнено: 'resolved', решено: 'resolved', завершено: 'resolved', отменено: 'cancelled' }), z.enum(['scheduled', 'due', 'resolved', 'cancelled']))
+const storyThreadTypeSchema = z.preprocess(alias({
+  обещание: 'promise', клятва: 'promise', обязательство: 'promise', задача: 'promise', задание: 'promise', квест: 'promise', quest: 'promise', mission: 'promise', personal: 'promise',
+  долг: 'debt', задолженность: 'debt', обязанность: 'debt', obligation: 'debt',
+  свидетельство: 'witness', свидетель: 'witness', улика: 'witness', факт: 'witness', evidence: 'witness', testimony: 'witness',
+  слух: 'rumor', слухи: 'rumor', тайна: 'rumor', загадка: 'rumor', mystery: 'rumor', secret: 'rumor',
+}), z.enum(['promise', 'debt', 'witness', 'rumor']))
+const storyThreadStatusSchema = z.preprocess(alias({
+  активно: 'active', активен: 'active', активна: 'active', открыто: 'active', открыт: 'active', открыта: 'active', известно: 'active', известен: 'active', известна: 'active', скрыто: 'active', скрыт: 'active', скрыта: 'active', open: 'active', known: 'active', hidden: 'active',
+  исполнено: 'fulfilled', выполнено: 'fulfilled', fulfilled: 'fulfilled', completed: 'fulfilled',
+  нарушено: 'broken', сорвано: 'broken', провалено: 'broken', failed: 'broken',
+  разрешено: 'resolved', решено: 'resolved', завершено: 'resolved', закрыто: 'resolved', done: 'resolved',
+}), z.enum(['active', 'fulfilled', 'broken', 'resolved']))
 const threatTierSchema = z.preprocess(alias({ незначительный: 'minor', обычный: 'capable', подготовленный: 'capable', опасный: 'dangerous', элитный: 'elite', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['minor', 'capable', 'dangerous', 'elite', 'legendary', 'mythic']))
 const npcFamiliaritySchema = z.preprocess(alias({ узнан: 'recognized', знакомое_лицо: 'recognized', знаком: 'acquainted', знакомство: 'acquainted', хорошо_знаком: 'familiar', изучен: 'familiar', близок: 'close', близко_знаком: 'close', экспертно_изучен: 'expert', полностью_изучен: 'expert' }), z.enum(['recognized', 'acquainted', 'familiar', 'close', 'expert']))
 const npcDossierSectionSchema = z.preprocess(alias({
@@ -182,6 +195,7 @@ const worldFactionPatchSchema = z.object({
   id: idSchema.optional(),
   name: shortText,
   kind: worldFactionKindSchema.optional(),
+  visibility: worldVisibilitySchema.optional(),
   description: longText,
   attitude: shortText,
   status: worldFactionStatusSchema.optional(),
@@ -202,6 +216,7 @@ const worldFactionPatchSchema = z.object({
 const generatedWorldFactionSchema = z.object({
   name: shortText,
   kind: worldFactionKindSchema,
+  visibility: worldVisibilitySchema,
   description: longText,
   attitude: shortText,
   status: worldFactionStatusSchema,
@@ -263,6 +278,8 @@ const worldProcessSchema = z.object({
   consequences: z.array(longText).max(16),
   createdTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
   lastAdvancedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+  scale: worldScaleSchema.optional(),
+  causeIds: z.array(idSchema).max(24).optional(),
 }).strict()
 
 const worldProcessPatchSchema = worldProcessSchema.extend({
@@ -270,8 +287,9 @@ const worldProcessPatchSchema = worldProcessSchema.extend({
   lastAdvancedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
 }).strict()
 
-const generatedWorldProcessSchema = worldProcessSchema.omit({ id: true, scopeIds: true, createdTurn: true, lastAdvancedTurn: true }).extend({
+const generatedWorldProcessSchema = worldProcessSchema.omit({ id: true, scopeIds: true, causeIds: true, createdTurn: true, lastAdvancedTurn: true }).extend({
   scopeNames: z.array(shortText).max(20),
+  causeTitles: z.array(shortText).max(24).optional(),
 }).strict()
 
 const generatedWorldLawSchema = worldLawSchema.omit({ id: true, createdTurn: true, lastChangedTurn: true })
@@ -1027,6 +1045,8 @@ const questDraftSchema = z.object({
   objectives: z.array(z.object({ id: idSchema, text: shortText, completed: modelBoolean })).max(20).optional(),
   reward: z.string().trim().max(500).optional(),
   giver: z.string().trim().max(300).optional(),
+  createdTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+  lastChangedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
 }).strict()
 const questAddSchema = questDraftSchema.extend({
   title: shortText,
@@ -1238,10 +1258,12 @@ const turnPatchContract = z.object({
   threads: z.preprocess((value) => normalizeNestedMutations(value, 'thread'), z.array(z.object({
     operation: z.enum(['add', 'update', 'resolve', 'break']), targetId: idSchema.optional(),
     thread: z.object({
-      id: idSchema.optional(), type: shortText.optional(), title: shortText.optional(),
+      id: idSchema.optional(), type: storyThreadTypeSchema.optional(), title: shortText.optional(),
       detail: z.string().trim().max(2000).optional(), participantIds: z.array(idSchema).max(20).optional(),
-      status: shortText.optional(), dueTurn: optionalModelNumber(z.number().int().min(0)),
+      status: storyThreadStatusSchema.optional(), dueTurn: optionalModelNumber(z.number().int().min(0)),
       secret: modelBoolean.optional(), createdTurn: optionalModelNumber(z.number().int().min(0)),
+      scale: worldScaleSchema.optional(), scopeIds: z.array(idSchema).max(24).optional(), causeIds: z.array(idSchema).max(24).optional(),
+      lastChangedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
     }).strict().optional(),
   }).strict()).max(20).optional()),
   worldEvents: z.preprocess((value) => normalizeNestedMutations(value, 'event'), z.array(z.object({
@@ -1251,6 +1273,8 @@ const turnPatchContract = z.object({
       dueTurn: optionalModelNumber(z.number().int().min(0)), dueDay: optionalModelNumber(z.number().int().min(1)),
       status: worldEventStatusSchema.optional(), visibility: worldVisibilitySchema.optional(),
       involvedIds: z.array(idSchema).max(20).optional(), createdTurn: optionalModelNumber(z.number().int().min(0)),
+      scale: worldScaleSchema.optional(), scopeIds: z.array(idSchema).max(24).optional(), causeIds: z.array(idSchema).max(24).optional(),
+      consequences: z.array(longText).max(16).optional(), lastChangedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
     }).strict().optional(),
   }).strict()).max(20).optional()),
   factionReputationDeltas: z.preprocess(normalizeNumberRecord, z.record(z.string().max(300), z.number().min(-50).max(50))).optional(),
@@ -1469,7 +1493,7 @@ export const campaignEditResponseSchema = z.object({
   statePatch: turnPatchSchema,
   campaignPatch: z.object({ title: shortText.optional() }).strict().optional(),
   settingsPatch: z.object({
-    responseLength: z.enum(['compact', 'balanced', 'detailed']).optional(),
+    responseLength: z.enum(['compact', 'balanced', 'detailed', 'adaptive']).optional(),
     playerAgency: z.enum(['strict', 'cinematic']).optional(),
     difficulty: z.enum(['story', 'balanced', 'harsh']).optional(),
     canonMode: z.enum(['faithful', 'flexible', 'original']).optional(),
@@ -1731,21 +1755,21 @@ const generatedWorldContract = z.object({
     tone: shortText,
     era: shortText,
     overview: longText,
-    rules: z.array(shortText).min(3).max(10),
-    factions: z.array(generatedWorldFactionSchema).min(4).max(14),
-    locations: z.array(z.object({ name: shortText, description: longText, danger: modelNumber(z.number().min(0).max(100)) })).min(4).max(16),
-    places: z.array(generatedWorldPlaceSchema).min(8).max(36),
-    processes: z.array(generatedWorldProcessSchema).min(3).max(14),
-    mysteries: z.array(shortText).min(2).max(8),
-    routes: z.array(worldRouteSchema).min(2).max(30),
-    laws: z.array(generatedWorldLawSchema).min(2).max(12),
-    mechanics: z.array(generatedWorldMechanicSchema).min(2).max(12),
-    interfaceModules: z.array(adaptiveInterfaceModuleDraftSchema).min(2).max(6),
+    rules: z.array(shortText).max(10),
+    factions: z.array(generatedWorldFactionSchema).max(14),
+    locations: z.array(z.object({ name: shortText, description: longText, danger: modelNumber(z.number().min(0).max(100)) })).max(16),
+    places: z.array(generatedWorldPlaceSchema).max(36),
+    processes: z.array(generatedWorldProcessSchema).max(14),
+    mysteries: z.array(shortText).max(8),
+    routes: z.array(worldRouteSchema).max(30),
+    laws: z.array(generatedWorldLawSchema).max(12),
+    mechanics: z.array(generatedWorldMechanicSchema).max(12),
+    interfaceModules: z.array(adaptiveInterfaceModuleDraftSchema).max(6),
     interfaceBlueprint: worldInterfaceBlueprintDraftSchema.optional(),
     metrics: z.array(worldMetricPatchSchema).max(12).optional(),
     system: z.object({
       name: shortText, summary: longText, progression: longText, conflictResolution: longText, consequences: longText,
-      equipmentSlots: z.array(z.object({ key: shortText, label: shortText, accepts: z.array(itemCategorySchema).min(1).max(7) }).strict()).min(1).max(12),
+      equipmentSlots: z.array(z.object({ key: shortText, label: shortText, accepts: z.array(itemCategorySchema).min(1).max(7) }).strict()).max(12),
     }).strict(),
     presentation: z.object({
       accent: colorSchema, accentStrong: colorSchema, secondary: colorSchema,
@@ -1768,9 +1792,9 @@ const generatedWorldContract = z.object({
     personality: longText,
     backstory: longText,
     goal: longText,
-    stats: z.array(statStateSchema).min(3).max(24),
-    resources: z.array(resourceStateSchema.extend({ kind: resourceKindSchema, max: modelNumber(z.number().positive()) }).strict()).min(1).max(24),
-    abilities: z.array(generatedAbilitySchema).min(1).max(40),
+    stats: z.array(statStateSchema).max(24),
+    resources: z.array(resourceStateSchema.extend({ kind: resourceKindSchema, max: modelNumber(z.number().positive()) }).strict()).max(24),
+    abilities: z.array(generatedAbilitySchema).max(40),
     currency: z.preprocess(normalizeCurrencyRecord, z.record(z.string().max(100), z.number().min(0))),
   }),
   inventory: z.array(z.object({
@@ -1786,13 +1810,13 @@ const generatedWorldContract = z.object({
     state: z.enum(['intact', 'damaged', 'broken', 'depleted', 'sealed']).optional(),
     history: z.array(z.object({ title: shortText, description: longText }).strict()).min(1).max(8),
     artifact: generatedArtifactProfileSchema.optional(),
-  })).min(1).max(20),
+  })).max(20),
   npcs: z.array(z.object({
     name: shortText, role: shortText, description: longText, personality: longText, disposition: shortText,
     relationship: modelNumber(z.number().min(-100).max(100)), currentGoal: longText, lastSeen: shortText, notes: z.array(z.string().max(500)).max(8),
-    stats: z.array(statStateSchema).min(3).max(24),
-    resources: z.array(resourceStateSchema.extend({ kind: resourceKindSchema, max: modelNumber(z.number().positive()) }).strict()).min(1).max(24),
-    abilities: z.array(generatedAbilitySchema).min(1).max(20),
+    stats: z.array(statStateSchema).max(24),
+    resources: z.array(resourceStateSchema.extend({ kind: resourceKindSchema, max: modelNumber(z.number().positive()) }).strict()).max(24),
+    abilities: z.array(generatedAbilitySchema).max(20),
     knowledge: z.array(knowledgeFactSchema.omit({ id: true })).max(20),
     relationshipDimensions: relationshipDimensionsSchema,
     initiative: npcInitiativeSchema.omit({ lastAdvancedTurn: true }),
@@ -1801,7 +1825,7 @@ const generatedWorldContract = z.object({
     recruitment: npcRecruitmentSchema,
     dossier: generatedNpcDossierSchema.optional(),
     voice: npcVoiceSchema,
-  })).min(1).max(12),
+  })).max(12),
   socialLinks: z.array(z.object({
     fromNpcName: shortText, toNpcName: shortText,
     kind: shortText,
@@ -1810,25 +1834,28 @@ const generatedWorldContract = z.object({
   worldEvents: z.array(z.object({
     title: shortText, description: longText, dueTurn: optionalModelNumber(z.number().int().min(1)), dueDay: optionalModelNumber(z.number().int().min(1)),
     visibility: worldVisibilitySchema, involvedNpcNames: z.array(shortText).max(12),
-  }).strict()).min(1).max(10),
+    scale: worldScaleSchema.optional(), scopeNames: z.array(shortText).max(24).optional(), causeTitles: z.array(shortText).max(24).optional(),
+    consequences: z.array(longText).max(16).optional(),
+  }).strict()).max(10),
   factionReputation: z.array(z.object({ factionName: shortText, value: modelNumber(z.number().min(-100).max(100)), label: shortText, notes: z.array(z.string().max(500)).max(8) }).strict()).max(8),
   threads: z.array(z.object({
-    type: shortText, title: shortText, detail: longText,
-    participantNames: z.array(shortText).max(12), status: shortText,
+    type: storyThreadTypeSchema, title: shortText, detail: longText,
+    participantNames: z.array(shortText).max(12), status: storyThreadStatusSchema,
     dueTurn: optionalModelNumber(z.number().int().min(1)), secret: modelBoolean,
+    scale: worldScaleSchema.optional(), scopeNames: z.array(shortText).max(24).optional(), causeTitles: z.array(shortText).max(24).optional(),
   }).strict()).max(10),
-  characterArcs: z.array(generatedCharacterArcSchema).min(2).max(12),
-  mysteryCases: z.array(generatedMysteryCaseSchema).min(1).max(6),
-  antagonistPlans: z.array(generatedAntagonistPlanSchema).min(1).max(6),
-  worldPressures: z.array(generatedWorldPressureSchema).max(6).default([]),
-  influenceAssets: z.array(generatedInfluenceAssetSchema).min(2).max(16),
+  characterArcs: z.array(generatedCharacterArcSchema).max(12),
+  mysteryCases: z.array(generatedMysteryCaseSchema).max(6),
+  antagonistPlans: z.array(generatedAntagonistPlanSchema).max(6),
+  worldPressures: z.array(generatedWorldPressureSchema).max(6),
+  influenceAssets: z.array(generatedInfluenceAssetSchema).max(16),
   quests: z.array(z.object({
     title: shortText, description: longText, objectives: z.array(shortText).min(1).max(8), reward: z.string().max(500).optional(), giver: z.string().max(300).optional(),
-  })).min(1).max(8),
+  })).max(8),
   lore: z.array(z.object({
     title: shortText, type: loreTypeSchema, content: longText,
     keys: z.array(z.string().max(100)).min(1).max(20), alwaysOn: modelBoolean, secret: modelBoolean, discovered: modelBoolean, priority: modelNumber(z.number().min(0).max(100)),
-  })).min(1).max(30),
+  })).max(30),
   opening: z.object({
     scene: z.object({ title: shortText, location: shortText, time: shortText, weather: shortText, tension: modelNumber(z.number().min(0).max(100)), presentNpcNames: z.array(shortText).max(8) }),
     pacing: storyPacingUpdateSchema,
@@ -1840,6 +1867,12 @@ const generatedWorldContract = z.object({
   const entityNames = new Set([...npcNames, world.player.name.toLocaleLowerCase('ru-RU')])
   const placeNames = new Set(world.world.places.map((place) => place.name.toLocaleLowerCase('ru-RU')))
   const factionNames = new Set(world.world.factions.map((faction) => faction.name.toLocaleLowerCase('ru-RU')))
+  const causalTitles = [
+    ...world.world.processes.map((process) => process.title),
+    ...world.worldEvents.map((event) => event.title),
+    ...world.threads.map((thread) => thread.title),
+  ].map((title) => title.toLocaleLowerCase('ru-RU'))
+  const knownCausalTitles = new Set(causalTitles)
   const requireEntity = (name: string, path: Array<string | number>) => {
     if (!entityNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -1912,6 +1945,56 @@ const generatedWorldContract = z.object({
         message: `Unknown process faction: ${name}`,
       })
     })
+    process.causeTitles?.forEach((title, causeIndex) => {
+      const normalized = title.toLocaleLowerCase('ru-RU')
+      if (!knownCausalTitles.has(normalized) || normalized === process.title.toLocaleLowerCase('ru-RU')) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['world', 'processes', index, 'causeTitles', causeIndex],
+        message: `Unknown or self-referencing causal title: ${title}`,
+      })
+    })
+  })
+  world.worldEvents.forEach((event, index) => {
+    event.scopeNames?.forEach((name, scopeIndex) => {
+      if (!placeNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['worldEvents', index, 'scopeNames', scopeIndex],
+        message: `Unknown event scope: ${name}`,
+      })
+    })
+    event.causeTitles?.forEach((title, causeIndex) => {
+      const normalized = title.toLocaleLowerCase('ru-RU')
+      if (!knownCausalTitles.has(normalized) || normalized === event.title.toLocaleLowerCase('ru-RU')) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['worldEvents', index, 'causeTitles', causeIndex],
+        message: `Unknown or self-referencing causal title: ${title}`,
+      })
+    })
+  })
+  world.threads.forEach((thread, index) => {
+    thread.scopeNames?.forEach((name, scopeIndex) => {
+      if (!placeNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['threads', index, 'scopeNames', scopeIndex],
+        message: `Unknown thread scope: ${name}`,
+      })
+    })
+    thread.causeTitles?.forEach((title, causeIndex) => {
+      const normalized = title.toLocaleLowerCase('ru-RU')
+      if (!knownCausalTitles.has(normalized) || normalized === thread.title.toLocaleLowerCase('ru-RU')) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['threads', index, 'causeTitles', causeIndex],
+        message: `Unknown or self-referencing causal title: ${title}`,
+      })
+    })
+  })
+  const usesCausalTitles = world.world.processes.some((process) => process.causeTitles?.length)
+    || world.worldEvents.some((event) => event.causeTitles?.length)
+    || world.threads.some((thread) => thread.causeTitles?.length)
+  if (usesCausalTitles && new Set(causalTitles).size !== causalTitles.length) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['world', 'processes'],
+    message: 'Process, event and thread titles used for causal links must be unique',
   })
   if (!world.mysteryCases.every((mystery) => mystery.clues.some((clue) => clue.essential && !clue.discovered))) {
     context.addIssue({

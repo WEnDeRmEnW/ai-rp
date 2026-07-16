@@ -1,4 +1,4 @@
-import type { Campaign, CampaignSettings, CanonDocument, LoreEntry, MemoryEntry, StoryArchive, StoryMessage } from './types.js'
+import type { Campaign, CampaignSettings, CanonDocument, LoreEntry, MemoryEntry, StoryArchive, StoryMessage, WorldChronicleEntry } from './types.js'
 
 export interface ContextProfile {
   budgetChars: number
@@ -9,12 +9,32 @@ export interface ContextProfile {
   archives: number
 }
 
+export interface NarrativeFingerprint {
+  recentOpenings: string[]
+  recentClosings: string[]
+  repeatedMotifs: string[]
+  recentWordCounts: number[]
+}
+
+export interface SimulationReview {
+  currentTurn: number
+  offscreenNpcIds: string[]
+  initiativeNpcIds: string[]
+  dueThreadIds: string[]
+  dueWorldEventIds: string[]
+  dueProcessIds: string[]
+  longUnchangedProcessIds: string[]
+  terminalThreadIds: string[]
+  terminalWorldEventIds: string[]
+}
+
 export const CONTEXT_PROFILES: Record<NonNullable<CampaignSettings['contextProfile']>, ContextProfile> = {
   standard: { budgetChars: 180_000, recentMessages: 32, lore: 10, memories: 16, documents: 8, archives: 18 },
   long: { budgetChars: 900_000, recentMessages: 120, lore: 24, memories: 40, documents: 24, archives: 60 },
-  // Около 700k токенов при обычном русском тексте: остаётся запас под инструкции,
-  // рассуждение модели и длинный ответ в окне на 1M токенов.
-  million: { budgetChars: 2_800_000, recentMessages: 260, lore: 48, memories: 96, documents: 64, archives: 160 },
+  // Консервативный предел для окна 1M: русский JSON и системные инструкции токенизируются
+  // заметно плотнее обычного английского текста. Остаток нужен для планирования, repair-циклов
+  // и длинного ответа, поэтому retrieval не пытается занять окно целиком.
+  million: { budgetChars: 1_600_000, recentMessages: 260, lore: 48, memories: 96, documents: 64, archives: 160 },
 }
 
 const STOP_WORDS = new Set([
@@ -33,8 +53,16 @@ export function tokenize(text: string): string[] {
 
 function tokenOverlap(query: string[], content: string): number {
   if (!query.length) return 0
+  const querySet = new Set(query)
   const haystack = new Set(tokenize(content))
-  return query.reduce((score, word) => score + (haystack.has(word) ? 1 : 0), 0) / query.length
+  if (!haystack.size) return 0
+  let hits = 0
+  querySet.forEach((word) => {
+    if ([...haystack].some((candidate) => softTokenEqual(word, candidate))) hits += 1
+  })
+  // The query intentionally includes recent history and grows broad over time. Dividing
+  // only by its length made a precise old fact disappear in a long campaign.
+  return hits / Math.min(querySet.size, haystack.size)
 }
 
 function softTokenEqual(left: string, right: string): boolean {
@@ -96,15 +124,31 @@ export function selectRelevantMemories(
 ): MemoryEntry[] {
   const queryTokens = tokenize(queryText)
   const latestTurn = memories.reduce((latest, entry) => Math.max(latest, entry.turn), 0)
-  return memories
+  const ranked = memories
     .map((memory) => ({
       memory,
+      relevance: tokenOverlap(queryTokens, `${memory.content} ${memory.tags.join(' ')}`),
       score:
-        tokenOverlap(queryTokens, `${memory.content} ${memory.tags.join(' ')}`) * 10 +
-        memory.importance / 10 +
-        (memory.pinned ? 20 : 0) +
-        Math.max(0, 12 - latestTurn + memory.turn) * 0.25,
+        tokenOverlap(queryTokens, `${memory.content} ${memory.tags.join(' ')}`) * 100 +
+        memory.importance / 5 +
+        (memory.pinned ? 250 : 0) +
+        Math.max(0, 16 - latestTurn + memory.turn) * 0.5,
     }))
+  const matched = ranked.filter(({ memory, relevance }) => memory.pinned || relevance >= 0.18)
+  // A vague "continue" still receives a small continuity tail, without flooding the
+  // prompt with dozens of unrelated high-importance memories.
+  const continuityTailSize = Math.min(limit, Math.max(1, Math.ceil(limit * 0.12)))
+  const continuityTail = ranked
+    .filter(({ memory, relevance }) => !memory.pinned && relevance < 0.18)
+    .sort((a, b) => b.memory.turn - a.memory.turn || b.memory.importance - a.memory.importance)
+    .slice(0, continuityTailSize)
+  const seen = new Set<string>()
+  return [...matched, ...continuityTail]
+    .filter(({ memory }) => {
+      if (seen.has(memory.id)) return false
+      seen.add(memory.id)
+      return true
+    })
     .sort((a, b) => b.score - a.score || b.memory.turn - a.memory.turn)
     .slice(0, limit)
     .map(({ memory }) => memory)
@@ -116,14 +160,79 @@ export function selectRelevantArchives(archives: StoryArchive[], queryText: stri
   return archives
     .map((archive) => ({
       archive,
+      relevance: tokenOverlap(queryTokens, `${archive.title} ${archive.summary} ${archive.tags.join(' ')} ${archive.entityIds.join(' ')}`),
       score:
-        tokenOverlap(queryTokens, `${archive.title} ${archive.summary} ${archive.tags.join(' ')} ${archive.entityIds.join(' ')}`) * 24 +
-        archive.importance / 10 +
-        Math.max(0, 20 - latestTurn + archive.endTurn) * 0.15,
+        tokenOverlap(queryTokens, `${archive.title} ${archive.summary} ${archive.tags.join(' ')} ${archive.entityIds.join(' ')}`) * 120 +
+        archive.importance / 5 +
+        Math.max(0, 24 - latestTurn + archive.endTurn) * 0.3,
     }))
+    .filter(({ relevance, archive }) => relevance >= 0.12 || archive.endTurn >= latestTurn - 8)
     .sort((a, b) => b.score - a.score || b.archive.endTurn - a.archive.endTurn)
     .slice(0, limit)
     .map(({ archive }) => archive)
+}
+
+export function selectRelevantChronicle(entries: WorldChronicleEntry[], queryText: string, limit = 24): WorldChronicleEntry[] {
+  const queryTokens = tokenize(queryText)
+  const latestTurn = entries.reduce((latest, entry) => Math.max(latest, entry.endTurn), 0)
+  return entries
+    .map((entry) => ({
+      entry,
+      relevance: tokenOverlap(queryTokens, `${entry.title} ${entry.summary} ${entry.outcome} ${entry.entityIds.join(' ')} ${entry.scopeIds.join(' ')} ${entry.causeIds.join(' ')}`),
+      score:
+        tokenOverlap(queryTokens, `${entry.title} ${entry.summary} ${entry.outcome} ${entry.entityIds.join(' ')} ${entry.scopeIds.join(' ')} ${entry.causeIds.join(' ')}`) * 140 +
+        entry.importance / 4 +
+        Math.max(0, 32 - latestTurn + entry.endTurn) * 0.3,
+    }))
+    .filter(({ relevance, entry }) => relevance >= 0.12 || entry.endTurn >= latestTurn - 12)
+    .sort((a, b) => b.score - a.score || b.entry.endTurn - a.entry.endTurn)
+    .slice(0, limit)
+    .map(({ entry }) => entry)
+}
+
+function paragraphExcerpt(content: string, edge: 'start' | 'end', limit = 180): string {
+  const paragraphs = content.split(/\n\s*\n/u).map((value) => value.replace(/\s+/gu, ' ').trim()).filter(Boolean)
+  const selected = edge === 'start' ? paragraphs[0] : paragraphs.at(-1)
+  if (!selected) return ''
+  return selected.length <= limit ? selected : `${selected.slice(0, limit - 1).trimEnd()}…`
+}
+
+function motifCount(messages: StoryMessage[], pattern: RegExp): number {
+  return messages.reduce((count, message) => count + (pattern.test(message.content) ? 1 : 0), 0)
+}
+
+export function buildNarrativeFingerprint(messages: StoryMessage[]): NarrativeFingerprint {
+  const recent = messages.filter((message) => message.role === 'assistant' && !message.failed).slice(-8)
+  const motifs: Array<[string, RegExp]> = [
+    ['«на мгновение» как универсальная пауза', /на (?:одно )?мгновение/iu],
+    ['взгляд или глаза вместо действия', /(?:взгляд\p{L}*|глаз\p{L}*)/iu],
+    ['дрогнувшая рука или сжатый кулак', /(?:дрогнул\p{L}*|кулак\p{L}*|сжал\p{L}* пальц\p{L}*)/iu],
+    ['гром или мигание света как искусственная пунктуация', /(?:гром\p{L}*|молни\p{L}*|мигнул\p{L}*|мерцал\p{L}*|ламп\p{L}*)/iu],
+    ['финал, где все смотрят или ждут героя', /(?:все|каждый|остальные)[^.!?\n]{0,80}(?:смотр\p{L}*|жд\p{L}*)/iu],
+  ]
+  return {
+    recentOpenings: recent.map((message) => paragraphExcerpt(message.content, 'start')).filter(Boolean),
+    recentClosings: recent.map((message) => paragraphExcerpt(message.content, 'end')).filter(Boolean),
+    repeatedMotifs: motifs.filter(([, pattern]) => motifCount(recent, pattern) >= 2).map(([label]) => label),
+    recentWordCounts: recent.map((message) => message.content.trim().split(/\s+/u).filter(Boolean).length),
+  }
+}
+
+export function buildSimulationReview(campaign: Campaign): SimulationReview {
+  const terminalThreadStatuses = new Set(['fulfilled', 'broken', 'resolved'])
+  const presentNpcIds = new Set(campaign.scene.presentNpcIds)
+  const processes = campaign.world.processes ?? []
+  return {
+    currentTurn: campaign.turn,
+    offscreenNpcIds: campaign.npcs.filter((npc) => npc.status === 'active' && !presentNpcIds.has(npc.id)).map((npc) => npc.id),
+    initiativeNpcIds: campaign.npcs.filter((npc) => npc.status === 'active' && !presentNpcIds.has(npc.id) && npc.initiative).map((npc) => npc.id),
+    dueThreadIds: (campaign.threads ?? []).filter((thread) => !terminalThreadStatuses.has(thread.status.toLocaleLowerCase('ru-RU')) && thread.dueTurn !== undefined && thread.dueTurn <= campaign.turn).map((thread) => thread.id),
+    dueWorldEventIds: (campaign.worldEvents ?? []).filter((event) => ['scheduled', 'due'].includes(event.status) && event.dueTurn !== undefined && event.dueTurn <= campaign.turn).map((event) => event.id),
+    dueProcessIds: processes.filter((process) => ['active', 'stalled'].includes(process.status) && process.dueTurn !== undefined && process.dueTurn <= campaign.turn).map((process) => process.id),
+    longUnchangedProcessIds: processes.filter((process) => ['active', 'stalled'].includes(process.status) && campaign.turn - process.lastAdvancedTurn >= 8).map((process) => process.id),
+    terminalThreadIds: (campaign.threads ?? []).filter((thread) => terminalThreadStatuses.has(thread.status.toLocaleLowerCase('ru-RU'))).map((thread) => thread.id),
+    terminalWorldEventIds: (campaign.worldEvents ?? []).filter((event) => ['resolved', 'cancelled'].includes(event.status)).map((event) => event.id),
+  }
 }
 
 export function selectRelevantDocumentChunks(documents: CanonDocument[], queryText: string, limit = 4) {
@@ -170,17 +279,25 @@ export function buildContextSelection(campaign: Campaign, input: string) {
   const profileName = campaign.settings.contextProfile ?? 'million'
   const profile = CONTEXT_PROFILES[profileName]
   const recentMessages = fitRecentMessages(campaign.messages, profile.recentMessages, Math.floor(profile.budgetChars * 0.58))
-  const recentText = recentMessages.slice(-24).map((message) => message.content).join('\n')
-  const query = `${campaign.scene.location} ${recentText} ${input}`
+  // Retrieval needs precise anchors, not the whole tail as one ever-growing bag of words.
+  const recentText = recentMessages.slice(-10).map((message) => message.content.slice(0, 4_000)).join('\n')
+  const sceneAnchors = campaign.scene.presentNpcIds
+    .map((id) => campaign.npcs.find((npc) => npc.id === id)?.name)
+    .filter(Boolean)
+    .join(' ')
+  const activeQuestAnchors = campaign.quests.filter((quest) => quest.status === 'active').map((quest) => quest.title).join(' ')
+  const query = `${campaign.scene.location} ${sceneAnchors} ${activeQuestAnchors} ${input} ${recentText}`
   const lore = selectRelevantLore(campaign.lore, query, profile.lore, campaign)
   const memories = selectRelevantMemories(campaign.memories, query, profile.memories)
   const documents = selectRelevantDocumentChunks(campaign.documents ?? [], query, profile.documents)
   const archives = selectRelevantArchives(campaign.archives ?? [], query, profile.archives)
+  const chronicle = selectRelevantChronicle(campaign.world.chronicle ?? [], query, profile.archives)
   const estimatedChars = recentMessages.reduce((sum, message) => sum + message.content.length, 0) +
     lore.reduce((sum, entry) => sum + entry.content.length, 0) +
     memories.reduce((sum, entry) => sum + entry.content.length, 0) +
     documents.reduce((sum, entry) => sum + entry.text.length, 0) +
     archives.reduce((sum, entry) => sum + entry.summary.length, 0)
+    + chronicle.reduce((sum, entry) => sum + entry.summary.length + entry.outcome.length, 0)
   return {
     profileName,
     budgetChars: profile.budgetChars,
@@ -190,5 +307,8 @@ export function buildContextSelection(campaign: Campaign, input: string) {
     memories,
     documents,
     archives,
+    chronicle,
+    narrativeFingerprint: buildNarrativeFingerprint(campaign.messages),
+    simulationReview: buildSimulationReview(campaign),
   }
 }

@@ -1,5 +1,5 @@
 const ARRAY_KEYS = new Set([
-  'rules', 'factions', 'locations', 'mysteries', 'routes', 'laws', 'mechanics', 'interfaceModules', 'elements', 'links', 'equipmentSlots', 'accepts',
+  'rules', 'factions', 'locations', 'mysteries', 'routes', 'places', 'processes', 'laws', 'mechanics', 'interfaceModules', 'metrics', 'elements', 'links', 'equipmentSlots', 'accepts',
   'stats', 'resources', 'abilities', 'inventory', 'npcs', 'knowledge', 'socialLinks',
   'worldEvents', 'factionReputation', 'threads', 'quests', 'lore', 'presentNpcNames',
   'presentNpcIds', 'suggestions', 'objectives', 'keys', 'notes', 'effects', 'participantNames',
@@ -8,7 +8,9 @@ const ARRAY_KEYS = new Set([
   'upsertResources', 'removeResourceKeys', 'addAbilities', 'removeAbilityIds', 'addConditions',
   'removeConditions', 'addRules', 'removeRules', 'upsertFactions', 'removeFactions',
   'upsertLocations', 'removeLocations', 'addMysteries', 'resolveMysteries', 'upsertRoutes',
-  'removeRouteIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds', 'upsertInterfaceModules', 'addNpcIds', 'removeNpcIds', 'events',
+  'removeRouteIds', 'upsertPlaces', 'removePlaceIds', 'upsertProcesses', 'retireProcessIds',
+  'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds', 'upsertInterfaceModules', 'interfaceModuleChanges', 'upsertElements', 'removeElementIds',
+  'upsertMetrics', 'removeMetricIds', 'tabs', 'dashboardSections', 'addNpcIds', 'removeNpcIds', 'events',
   'costs', 'requirements', 'limitations', 'evolutionPaths', 'history', 'powers', 'drawbacks', 'secrets',
   'patterns', 'avoids', 'blockedBy', 'stages', 'turningPoints', 'clues', 'redHerrings',
   'revelationRules', 'steps', 'weaknesses', 'abilityChanges', 'artifactChanges', 'upsertAbilities',
@@ -32,10 +34,13 @@ const ARRAY_KEYS = new Set([
   'victoryConditions', 'failureConsequences', 'escapeRoutes', 'telegraphs', 'targetNames', 'targetIds',
   'upsertFactionReputation', 'upsertLaws', 'upsertMechanics', 'territory', 'goals',
   'revealedSections', 'revealedStatKeys', 'revealedResourceKeys', 'revealedAbilityIds', 'revealedAbilityNames',
+  'culture', 'notableFacts', 'scopeIds', 'scopeNames', 'causeIds', 'causeTitles', 'involvedFactionNames',
+  'drivers', 'obstacles', 'consequences', 'signs', 'evidence', 'npcIds', 'questIds',
+  'npcAbilityChanges', 'narrativeIssues',
 ])
 
 const ARRAY_LIMITS: Record<string, number> = {
-  rules: 10, factions: 12, locations: 12, mysteries: 8, routes: 30, laws: 24, mechanics: 24, interfaceModules: 8, upsertInterfaceModules: 8, elements: 16, links: 16, upsertLaws: 24, upsertMechanics: 24, territory: 24, goals: 16, equipmentSlots: 12,
+  rules: 10, factions: 12, locations: 12, mysteries: 8, routes: 30, places: 36, processes: 14, laws: 24, mechanics: 24, interfaceModules: 8, metrics: 12, upsertInterfaceModules: 8, elements: 16, links: 16, upsertLaws: 24, upsertMechanics: 24, territory: 24, goals: 16, equipmentSlots: 12,
   accepts: 7, stats: 24, resources: 24, upsertStats: 24, upsertResources: 24, abilities: 40, inventory: 25, npcs: 20,
   knowledge: 30, socialLinks: 40, worldEvents: 20, factionReputation: 8, threads: 20,
   quests: 10, lore: 30, presentNpcNames: 8, presentNpcIds: 12, suggestions: 4,
@@ -65,7 +70,12 @@ const ARRAY_LIMITS: Record<string, number> = {
   whyDangerous: 12, knownFeats: 12, constraints: 12, defeatRequirements: 12, escalationTriggers: 12,
   victoryConditions: 12, failureConsequences: 12, escapeRoutes: 12, telegraphs: 12, targetNames: 20, targetIds: 20,
   revealedSections: 24, revealedStatKeys: 24, revealedResourceKeys: 24, revealedAbilityIds: 40, revealedAbilityNames: 20,
-  upsertFactionReputation: 16, removeLawIds: 24, removeMechanicIds: 24, removeInterfaceModuleIds: 8,
+  upsertFactionReputation: 16, upsertPlaces: 40, removePlaceIds: 40, upsertProcesses: 24, retireProcessIds: 24,
+  removeLawIds: 24, removeMechanicIds: 24, removeInterfaceModuleIds: 8, interfaceModuleChanges: 16, upsertElements: 16, removeElementIds: 16,
+  upsertMetrics: 24, removeMetricIds: 24, tabs: 6, dashboardSections: 7,
+  culture: 12, notableFacts: 16, scopeIds: 20, scopeNames: 20, causeIds: 24, causeTitles: 24,
+  involvedFactionNames: 20, drivers: 16, obstacles: 16, consequences: 16, signs: 16, evidence: 20,
+  npcIds: 20, questIds: 20, npcAbilityChanges: 12, narrativeIssues: 32,
 }
 
 const BOOLEAN_KEYS = new Set([
@@ -89,17 +99,18 @@ const NUMBER_KEYS = new Set([
 
 const ID_KEYS = new Set([
   'id', 'targetId', 'npcId', 'fromNpcId', 'toNpcId', 'abilityId', 'itemId', 'powerId', 'componentId', 'ownerId',
-  'culpritId', 'holderId', 'ownerNpcId', 'entityId', 'techniqueId', 'sourceNpcId',
+  'culpritId', 'holderId', 'ownerNpcId', 'entityId', 'techniqueId', 'sourceNpcId', 'moduleId',
 ])
 const ID_ARRAY_KEYS = new Set([
   'presentNpcIds', 'participantIds', 'involvedIds', 'entityIds', 'removeAbilityIds',
   'removeRouteIds', 'addNpcIds', 'removeNpcIds', 'unlockEvolutionPathIds',
   'removeInfluenceAssetIds', 'removeTechniqueIds',
-  'removeStatusEffectIds', 'removeKnowledgeIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds', 'links', 'targetIds',
+  'removeStatusEffectIds', 'removeKnowledgeIds', 'removePlaceIds', 'retireProcessIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds',
+  'removeElementIds', 'removeMetricIds', 'links', 'targetIds', 'scopeIds', 'causeIds', 'npcIds', 'questIds', 'revealedAbilityIds',
 ])
 
 const ARRAY_IDENTITY: Record<string, string> = {
-  factions: 'name', locations: 'name', laws: 'title', mechanics: 'name', interfaceModules: 'id', elements: 'id', upsertLaws: 'id', upsertMechanics: 'id', upsertInterfaceModules: 'id', npcs: 'name', quests: 'title', lore: 'title',
+  factions: 'name', locations: 'name', places: 'name', processes: 'title', laws: 'title', mechanics: 'name', interfaceModules: 'id', metrics: 'id', elements: 'id', tabs: 'id', upsertLaws: 'id', upsertMechanics: 'id', upsertInterfaceModules: 'id', interfaceModuleChanges: 'moduleId', upsertElements: 'id', upsertMetrics: 'id', upsertPlaces: 'id', upsertProcesses: 'id', npcs: 'name', quests: 'title', lore: 'title',
   worldEvents: 'title', knowledge: 'subject', stats: 'key', resources: 'key',
   characterArcs: 'title', upsertCharacterArcs: 'title', mysteryCases: 'title',
   upsertMysteryCases: 'title', antagonistPlans: 'title', upsertAntagonistPlans: 'title',
@@ -112,6 +123,7 @@ const ARRAY_IDENTITY: Record<string, string> = {
   upsertFactions: 'name', upsertLocations: 'name', addEvolutionPaths: 'name',
   techniques: 'name', addTechniques: 'name', techniqueChanges: 'techniqueId',
   worldPressures: 'id', upsertWorldPressures: 'id', measures: 'id',
+  npcAbilityChanges: 'npcId',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -413,9 +425,21 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'category') return translate({ оружие: 'weapon', броня: 'armor', защита: 'armor', одежда: 'armor', расходник: 'consumable', припас: 'consumable', зелье: 'consumable', артефакт: 'artifact', реликвия: 'artifact', квест: 'quest', сюжетный: 'quest', материал: 'material', инструмент: 'other', другое: 'other', прочее: 'other' })
   if (key === 'kind' && has('archives')) return translate({ сцена: 'scene', глава: 'chapter', эра: 'era', эпоха: 'era' })
   if (key === 'kind' && has('memories')) return translate({ сводка: 'summary', итог: 'summary', факт: 'fact', обещание: 'promise', отношение: 'relationship', отношения: 'relationship', тайна: 'mystery', загадка: 'mystery' })
+  if (key === 'type' && (has('threads') || has('thread'))) return translate({
+    promise: 'promise', обещание: 'promise', клятва: 'promise', обязательство: 'promise', задача: 'promise', задание: 'promise', квест: 'promise', quest: 'promise', mission: 'promise', personal: 'promise',
+    debt: 'debt', долг: 'debt', задолженность: 'debt', обязанность: 'debt', obligation: 'debt',
+    witness: 'witness', свидетельство: 'witness', свидетель: 'witness', улика: 'witness', факт: 'witness', evidence: 'witness', testimony: 'witness',
+    rumor: 'rumor', слух: 'rumor', слухи: 'rumor', тайна: 'rumor', загадка: 'rumor', mystery: 'rumor', secret: 'rumor',
+  })
   if (key === 'type' && has('issues')) return translate({ канон: 'canon', непрерывность: 'continuity', последовательность: 'continuity', знания: 'knowledge', осведомлённость: 'knowledge', свобода: 'agency', агентность: 'agency', состояние: 'state', стиль: 'style' })
   if (key === 'type' && has('lore')) return translate({ персонаж: 'character', герой: 'character', локация: 'location', место: 'location', фракция: 'faction', организация: 'faction', предмет: 'object', объект: 'object', правило: 'rule', закон: 'rule', история: 'history', тайна: 'secret', секрет: 'secret' })
   if (key === 'status' && has('knowledge')) return translate({ известно: 'known', знает: 'known', убеждён: 'believed', убежден: 'believed', верит: 'believed', предполагает: 'suspected', подозревает: 'suspected', ложно: 'false', ложь: 'false' })
+  if (key === 'status' && (has('threads') || has('thread'))) return translate({
+    active: 'active', активно: 'active', активен: 'active', активна: 'active', открыто: 'active', открыт: 'active', открыта: 'active', известно: 'active', известен: 'active', известна: 'active', скрыто: 'active', скрыт: 'active', скрыта: 'active', open: 'active', known: 'active', hidden: 'active',
+    fulfilled: 'fulfilled', исполнено: 'fulfilled', выполнено: 'fulfilled', completed: 'fulfilled',
+    broken: 'broken', нарушено: 'broken', сорвано: 'broken', провалено: 'broken', failed: 'broken',
+    resolved: 'resolved', разрешено: 'resolved', решено: 'resolved', завершено: 'resolved', закрыто: 'resolved', done: 'resolved',
+  })
   if (key === 'status' && (has('worldEvents') || has('event'))) return translate({ запланировано: 'scheduled', ожидается: 'scheduled', назрело: 'due', наступило: 'due', выполнено: 'resolved', решено: 'resolved', завершено: 'resolved', отменено: 'cancelled' })
   if (key === 'status' && has('countermeasures')) return translate({
     доступна: 'available', доступно: 'available', готова: 'available', подготовлена: 'prepared', подготовлено: 'prepared',
@@ -888,7 +912,9 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
 
   const isPresentationLabel = path.includes('presentation') && path.some((segment) => ['labels', 'categoryLabels', 'rarityLabels'].includes(segment))
   const isSingularProgressionHistory = key === 'history' && (path.includes('abilityChanges') || path.includes('artifactChanges'))
-  if (key && ARRAY_KEYS.has(key) && !isPresentationLabel && !isSingularProgressionHistory && !Array.isArray(value)) {
+  const isSingularSystemConsequences = key === 'consequences' && path.includes('system')
+  const isSingularAuditEvidence = key === 'evidence' && (path.includes('omissions') || path.includes('narrativeIssues'))
+  if (key && ARRAY_KEYS.has(key) && !isPresentationLabel && !isSingularProgressionHistory && !isSingularSystemConsequences && !isSingularAuditEvidence && !Array.isArray(value)) {
     if (isRecord(value)) {
       const groupedMutations = path.includes('statePatch') ? normalizeGroupedMutationCollection(key, value) : undefined
       value = groupedMutations ?? normalizeRecordAsArray(key, value)

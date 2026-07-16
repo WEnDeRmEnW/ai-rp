@@ -333,6 +333,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
     } : undefined,
     settings: {
       ...campaign.settings,
+      responseLength: campaign.settings.responseLength ?? 'adaptive',
       resolutionMode: campaign.settings.resolutionMode ?? 'hidden',
       contextProfile: campaign.settings.contextProfile ?? 'million',
       qualityMode: campaign.settings.qualityMode ?? 'deep',

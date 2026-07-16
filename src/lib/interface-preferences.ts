@@ -33,7 +33,7 @@ export function loadInterfacePreferences(): InterfacePreferences {
       readingWidth: ['narrow', 'balanced', 'wide'].includes(stored.readingWidth ?? '') ? stored.readingWidth! : 'balanced',
       readingFont: stored.readingFont === 'modern' ? 'modern' : 'literary',
       inspectorWidth: ['compact', 'balanced', 'wide'].includes(stored.inspectorWidth ?? '') ? stored.inspectorWidth! : 'balanced',
-      fontScale: Math.max(90, Math.min(125, Number(stored.fontScale) || 100)),
+      fontScale: Math.max(95, Math.min(135, Number(stored.fontScale) || 100)),
       showVitals: stored.showVitals !== false,
       reducedMotion: stored.reducedMotion === true,
     }

@@ -30,7 +30,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
   const [draft, setDraft] = useState(provider)
   const [showKey, setShowKey] = useState(false)
   const [authorsNote, setAuthorsNote] = useState(campaign?.settings.authorsNote ?? '')
-  const [responseLength, setResponseLength] = useState(campaign?.settings.responseLength ?? 'balanced')
+  const [responseLength, setResponseLength] = useState(campaign?.settings.responseLength ?? 'adaptive')
   const [difficulty, setDifficulty] = useState(campaign?.settings.difficulty ?? 'balanced')
   const [playerAgency, setPlayerAgency] = useState(campaign?.settings.playerAgency ?? 'strict')
   const [resolutionMode, setResolutionMode] = useState(campaign?.settings.resolutionMode ?? 'hidden')
@@ -51,7 +51,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
     if (open) {
       setDraft(provider)
       setAuthorsNote(campaign?.settings.authorsNote ?? '')
-      setResponseLength(campaign?.settings.responseLength ?? 'balanced')
+      setResponseLength(campaign?.settings.responseLength ?? 'adaptive')
       setDifficulty(campaign?.settings.difficulty ?? 'balanced')
       setPlayerAgency(campaign?.settings.playerAgency ?? 'strict')
       setResolutionMode(campaign?.settings.resolutionMode ?? 'hidden')
@@ -115,7 +115,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
         <div className="settings-title"><div><KeyRound size={18} /></div><span><h3>Режиссёрская заметка</h3><p>Короткая установка, которую рассказчик учитывает особенно внимательно.</p></span></div>
         <label className="field"><textarea value={authorsNote} onChange={(event) => setAuthorsNote(event.target.value)} rows={4} maxLength={4000} placeholder="Например: больше живых диалогов, медленнее раскрывать тайну…" /></label>
         <div className="field-grid settings-selects">
-          <label className="field"><span>Длина ответа</span><select value={responseLength} onChange={(event) => setResponseLength(event.target.value as typeof responseLength)}><option value="compact">Коротко</option><option value="balanced">Сбалансированно</option><option value="detailed">Подробно</option></select></label>
+          <label className="field"><span>Длина ответа</span><select value={responseLength} onChange={(event) => setResponseLength(event.target.value as typeof responseLength)}><option value="adaptive">По сцене — без фиксированного лимита</option><option value="compact">Коротко</option><option value="balanced">Сбалансированно</option><option value="detailed">Подробно</option></select></label>
           <label className="field"><span>Сложность</span><select value={difficulty} onChange={(event) => setDifficulty(event.target.value as typeof difficulty)}><option value="story">Сюжетная</option><option value="balanced">Честная</option><option value="harsh">Суровая</option></select></label>
           <label className="field"><span>Свобода героя</span><select value={playerAgency} onChange={(event) => setPlayerAgency(event.target.value as typeof playerAgency)}><option value="strict">Только мои решения</option><option value="cinematic">Кинематографично</option></select></label>
           <label className="field"><span>Контекст истории</span><select value={contextProfile} onChange={(event) => setContextProfile(event.target.value as typeof contextProfile)}><option value="standard">Стандартный</option><option value="long">Долгий</option><option value="million">DeepSeek 1M</option></select></label>
@@ -144,7 +144,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
           <label className="field"><span><Type size={13} /> Шрифт истории</span><select value={interfaceDraft.readingFont} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, readingFont: event.target.value as InterfacePreferences['readingFont'] })}><option value="literary">Литературный</option><option value="modern">Современный</option></select></label>
           <label className="field"><span><AlignJustify size={13} /> Плотность панелей</span><select value={interfaceDraft.density} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, density: event.target.value as InterfacePreferences['density'] })}><option value="comfortable">Просторная</option><option value="compact">Компактная</option></select></label>
           <label className="field"><span><AlignJustify size={13} /> Ширина правого пульта</span><select value={interfaceDraft.inspectorWidth} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, inspectorWidth: event.target.value as InterfacePreferences['inspectorWidth'] })}><option value="compact">Компактная</option><option value="balanced">Сбалансированная</option><option value="wide">Широкая</option></select></label>
-          <label className="field"><span><Gauge size={13} /> Размер текста: {interfaceDraft.fontScale}%</span><input type="range" min={90} max={125} step={5} value={interfaceDraft.fontScale} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, fontScale: Number(event.target.value) })} /></label>
+          <label className="field"><span><Gauge size={13} /> Размер текста истории и панелей: {interfaceDraft.fontScale}%</span><input type="range" min={95} max={135} step={5} value={interfaceDraft.fontScale} onChange={(event) => setInterfaceDraft({ ...interfaceDraft, fontScale: Number(event.target.value) })} /></label>
         </div>
         <div className="interface-toggle-list">
           <button role="switch" aria-checked={interfaceDraft.showVitals} className={interfaceDraft.showVitals ? 'is-on' : ''} onClick={() => setInterfaceDraft({ ...interfaceDraft, showVitals: !interfaceDraft.showVitals })}><span><strong>Постоянная строка состояния героя</strong><small>Ресурсы и эффекты всегда видны над историей</small></span><i /></button>

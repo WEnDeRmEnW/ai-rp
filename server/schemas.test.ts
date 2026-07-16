@@ -116,7 +116,7 @@ describe('persistent living-world patches', () => {
           source: 'Договор воздушных гаваней', discovered: 'да', status: 'зарождается',
         }],
         upsertFactions: [{
-          name: 'Северная эскадра', description: 'Союз капитанов северных маршрутов.', attitude: 'Оценивает выгоду сотрудничества', status: 'распалась', power: '37%',
+          name: 'Северная эскадра', visibility: 'слухи', description: 'Союз капитанов северных маршрутов.', attitude: 'Оценивает выгоду сотрудничества', status: 'распалась', power: '37%',
           influence: 'Контролировала два воздушных коридора.', territory: ['Северный порт'], resources: ['Три корабля'], goals: ['Сохранить маршруты'],
           currentMove: 'Договаривается о слиянии.', publicFace: 'Торговая охрана.', origin: 'Создана после шторма.', secrets: [],
         }],
@@ -125,7 +125,7 @@ describe('persistent living-world patches', () => {
 
     expect(parsed.world?.upsertLaws?.[0]).toMatchObject({ status: 'contested', visibility: 'known' })
     expect(parsed.world?.upsertMechanics?.[0]).toMatchObject({ category: 'political', status: 'emerging', discovered: true })
-    expect(parsed.world?.upsertFactions?.[0]).toMatchObject({ status: 'dissolved', power: 37, territory: ['Северный порт'] })
+    expect(parsed.world?.upsertFactions?.[0]).toMatchObject({ status: 'dissolved', visibility: 'rumored', power: 37, territory: ['Северный порт'] })
   })
 
   it('accepts a hierarchical atlas, autonomous processes and explicit active-state cleanup', () => {
@@ -140,14 +140,25 @@ describe('persistent living-world patches', () => {
           id: 'process-strike', title: 'Портовая забастовка', description: 'Рабочие требуют нового договора.', scopeIds: ['place-capital'],
           involvedFactionNames: ['Гильдия доков'], drivers: ['Снижение оплаты'], obstacles: ['Запасы владельцев'], stage: 'Переговоры сорваны.',
           momentum: '64%', direction: 'усиливается', status: 'активно', visibility: 'слухи', nextMilestone: 'Остановка ночной смены', consequences: ['Дефицит товаров'],
+          scale: 'национальный', causeIds: ['process-wage-cuts'],
         }],
       },
+      worldEvents: [{ operation: 'add', event: {
+        id: 'event-shortage', title: 'Дефицит продовольствия', description: 'Поставки в столицу сокращаются.', status: 'запланировано', visibility: 'слухи', involvedIds: [],
+        scale: 'региональный', scopeIds: ['place-capital'], causeIds: ['process-strike'], consequences: ['Цены растут'],
+      } }],
       cleanup: { quests: [{ targetId: 'quest-done', reason: 'Награда получена, новых обязательств нет.' }] },
     })
 
     expect(parsed.world?.upsertPlaces?.[0]).toMatchObject({ kind: 'city', visibility: 'known' })
-    expect(parsed.world?.upsertProcesses?.[0]).toMatchObject({ momentum: 64, direction: 'rising', status: 'active', visibility: 'rumored' })
+    expect(parsed.world?.upsertProcesses?.[0]).toMatchObject({ momentum: 64, direction: 'rising', status: 'active', visibility: 'rumored', scale: 'national', causeIds: ['process-wage-cuts'] })
+    expect(parsed.worldEvents?.[0]).toMatchObject({ event: { scale: 'regional', scopeIds: ['place-capital'], causeIds: ['process-strike'], consequences: ['Цены растут'] } })
     expect(parsed.cleanup?.quests?.[0].targetId).toBe('quest-done')
+  })
+
+  it('accepts adaptive response length without changing legacy modes', () => {
+    expect(campaignEditResponseSchema.parse({ summary: 'Длина ответа следует сцене.', settingsPatch: { responseLength: 'adaptive' }, statePatch: {} }).settingsPatch?.responseLength).toBe('adaptive')
+    expect(campaignEditResponseSchema.parse({ summary: 'Сохранён прежний режим.', settingsPatch: { responseLength: 'detailed' }, statePatch: {} }).settingsPatch?.responseLength).toBe('detailed')
   })
 
   it('accepts a persistent tactical conflict and personality-driven countermeasures', () => {
@@ -231,6 +242,23 @@ describe('DeepSeek-compatible nested mutations', () => {
     expect(parsed.statePatch.worldEvents?.[0]).toEqual({
       operation: 'update', targetId: 'event-storm', event: { description: 'Шторм подходит к маяку.' },
     })
+  })
+
+  it('canonicalizes Russian and loose English story-thread enums without inventing defaults', () => {
+    const parsed = turnPatchSchema.parse({
+      threads: [
+        { operation: 'add', thread: { id: 'thread-quest', type: 'quest', title: 'Вернуть печать', detail: 'Герой принял обязательство.', participantIds: ['player-1'], status: 'активно', secret: false, createdTurn: 1 } },
+        { operation: 'update', targetId: 'thread-rumor', thread: { type: 'тайна', status: 'скрыто' } },
+        { operation: 'update', targetId: 'thread-witness', thread: { type: 'witness', status: 'fulfilled' } },
+      ],
+    })
+
+    expect(parsed.threads?.map((mutation) => mutation.thread && ({ type: mutation.thread.type, status: mutation.thread.status }))).toEqual([
+      { type: 'promise', status: 'active' },
+      { type: 'rumor', status: 'active' },
+      { type: 'witness', status: 'fulfilled' },
+    ])
+    expect(turnPatchSchema.safeParse({ threads: [{ operation: 'add', thread: { type: 'что-то-неизвестное' } }] }).success).toBe(false)
   })
 
   it('normalizes detailed ability and long-running story systems without placeholders', () => {

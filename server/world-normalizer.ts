@@ -9,6 +9,10 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const playerId = id()
   const npcIds = new Map<string, string>(generated.npcs.map((npc) => [npc.name.toLocaleLowerCase('ru-RU'), id()]))
   const placeIds = new Map<string, string>(generated.world.places.map((place) => [place.name.toLocaleLowerCase('ru-RU'), id()]))
+  const processIds = new Map<string, string>(generated.world.processes.map((process) => [process.title.toLocaleLowerCase('ru-RU'), id()]))
+  const eventIds = new Map<string, string>(generated.worldEvents.map((event) => [event.title.toLocaleLowerCase('ru-RU'), id()]))
+  const threadIds = new Map<string, string>(generated.threads.map((thread) => [thread.title.toLocaleLowerCase('ru-RU'), id()]))
+  const causalIds = new Map([...processIds, ...eventIds, ...threadIds])
   const npcs = generated.npcs.map((npc) => {
     const abilities = npc.abilities.map((ability) => ({
       ...ability,
@@ -62,13 +66,15 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
         createdTurn: 0,
         lastChangedTurn: 0,
       })),
-      processes: generated.world.processes.map(({ scopeNames, ...process }) => ({
+      processes: generated.world.processes.map(({ scopeNames, causeTitles, ...process }) => ({
         ...process,
-        id: id(),
+        id: processIds.get(process.title.toLocaleLowerCase('ru-RU'))!,
         scopeIds: scopeNames.map((name) => placeIds.get(name.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
+        causeIds: causeTitles?.map((title) => causalIds.get(title.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
         createdTurn: 0,
         lastAdvancedTurn: 0,
       })),
+      chronicle: [],
       routes: generated.world.routes.map((route) => ({ ...route, id: id() })),
       laws: generated.world.laws.map((law) => ({ ...law, id: id(), createdTurn: 0, lastChangedTurn: 0 })),
       mechanics: generated.world.mechanics.map((mechanic) => ({ ...mechanic, id: id(), createdTurn: 0, lastChangedTurn: 0 })),
@@ -131,27 +137,36 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       const toNpcId = npcIds.get(link.toNpcName.toLocaleLowerCase('ru-RU'))
       return fromNpcId && toNpcId ? [{ id: id(), fromNpcId, toNpcId, kind: link.kind, label: link.label, score: link.score, secret: link.secret, notes: link.notes }] : []
     }),
-    threads: generated.threads.map((thread) => ({
-      id: id(),
+    threads: generated.threads.map(({ participantNames, scopeNames, causeTitles, ...thread }) => ({
+      id: threadIds.get(thread.title.toLocaleLowerCase('ru-RU'))!,
       type: thread.type,
       title: thread.title,
       detail: thread.detail,
-      participantIds: thread.participantNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+      participantIds: participantNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
       status: thread.status,
       dueTurn: thread.dueTurn,
       secret: thread.secret,
+      scale: thread.scale,
+      scopeIds: scopeNames?.map((name) => placeIds.get(name.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
+      causeIds: causeTitles?.map((title) => causalIds.get(title.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
       createdTurn: 0,
+      lastChangedTurn: 0,
     })),
-    worldEvents: generated.worldEvents.map((event) => ({
-      id: id(),
+    worldEvents: generated.worldEvents.map(({ involvedNpcNames, scopeNames, causeTitles, ...event }) => ({
+      id: eventIds.get(event.title.toLocaleLowerCase('ru-RU'))!,
       title: event.title,
       description: event.description,
       dueTurn: event.dueTurn,
       dueDay: event.dueDay,
       status: 'scheduled' as const,
       visibility: event.visibility,
-      involvedIds: event.involvedNpcNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+      scale: event.scale,
+      consequences: event.consequences,
+      involvedIds: involvedNpcNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+      scopeIds: scopeNames?.map((name) => placeIds.get(name.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
+      causeIds: causeTitles?.map((title) => causalIds.get(title.toLocaleLowerCase('ru-RU'))).filter((candidate): candidate is string => Boolean(candidate)),
       createdTurn: 0,
+      lastChangedTurn: 0,
     })),
     factionReputation: generated.factionReputation,
     documents: [],
@@ -199,6 +214,8 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       id: id(),
       status: 'active' as const,
       objectives: quest.objectives.map((text) => ({ id: id(), text, completed: false })),
+      createdTurn: 0,
+      lastChangedTurn: 0,
     })),
     lore: generated.lore.map((entry) => ({ ...entry, id: id(), enabled: true })),
     memories: [
@@ -232,7 +249,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       updatedTurn: 0,
     },
     settings: {
-      responseLength: 'balanced',
+      responseLength: 'adaptive',
       playerAgency: 'strict',
       difficulty: 'balanced',
       canonMode: request.canonMode,

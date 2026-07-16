@@ -52,4 +52,37 @@ describe('adaptive interface live bindings', () => {
     campaign.world.metrics = [{ id: 'secret-cycle', key: 'secret', label: 'Тайный цикл', description: 'Секрет', value: 3, min: 0, max: 10, visibility: 'hidden', source: 'Неизвестно', updatePolicy: 'Скрыто', lastChangedTurn: 1 }]
     expect(resolveAdaptiveInterfaceElement(campaign, element({ binding: { domain: 'world.metric', target: 'secret-cycle' } })).missing).toBe(true)
   })
+
+  it('keeps rumored world values connected without exposing their exact numbers', () => {
+    const campaign = createDemoCampaign()
+    campaign.world.metrics = [{ id: 'rumor-cycle', key: 'rumor', label: 'Неясный цикл', description: 'Слух', value: 93, min: 0, max: 100, visibility: 'rumored', source: 'Слухи', updatePolicy: 'Неизвестно', lastChangedTurn: 1 }]
+    const source = element({ binding: { domain: 'world.metric', target: 'rumor-cycle' }, stateRules: { dangerAbove: 80 } })
+    const resolved = resolveAdaptiveInterfaceElement(campaign, source)
+
+    expect(resolved).toMatchObject({ value: 'По слухам', live: true, missing: false, concealed: true })
+    expect(resolveAdaptiveElementState(source, resolved)).toBe('normal')
+    expect(adaptiveInterfaceBindingIssues(campaign, [moduleWith(source)])).toEqual([])
+  })
+
+  it('does not expose exact readiness from a rumored conflict participant', () => {
+    const campaign = createDemoCampaign()
+    campaign.activeConflict = {
+      id: 'conflict-1', kind: 'combat', title: 'Засада', round: 1, phase: 'Начало', stakes: 'Выжить', terrain: [], hazards: [], momentum: 'contested', startedTurn: 1, lastUpdatedTurn: 1,
+      participants: [{ entityId: campaign.npcs[0].id, side: 'opposition', objective: 'Неизвестно', position: 'В тени', readiness: 97, morale: 88, intent: 'Скрыто', lastAction: '', advantages: [], vulnerabilities: [], visibility: 'rumored' }],
+    }
+    const source = element({ binding: { domain: 'conflict.participant-readiness', target: campaign.npcs[0].id } })
+
+    expect(resolveAdaptiveInterfaceElement(campaign, source)).toMatchObject({ value: 'По слухам', concealed: true, missing: false })
+    expect(adaptiveInterfaceBindingIssues(campaign, [moduleWith(source)])).toEqual([])
+  })
+
+  it('keeps a rumored faction power qualitative even when a module targets its id', () => {
+    const campaign = createDemoCampaign()
+    const faction = campaign.world.factions[0]
+    faction.visibility = 'rumored'
+    faction.power = 96
+    const source = element({ binding: { domain: 'faction.power', target: faction.id ?? faction.name } })
+
+    expect(resolveAdaptiveInterfaceElement(campaign, source)).toMatchObject({ value: 'По слухам', concealed: true, missing: false })
+  })
 })

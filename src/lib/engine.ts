@@ -28,6 +28,8 @@ import type {
   AdaptiveInterfaceModule,
   WorldInterfaceBlueprint,
   WorldMetric,
+  WorldChronicleEntry,
+  WorldScale,
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
@@ -41,6 +43,34 @@ const normalizedName = (value: string) => value.trim().toLocaleLowerCase('ru-RU'
 const INTERFACE_MODULE_LIMIT = 8
 const INTERFACE_ELEMENT_LIMIT = 16
 const WORLD_METRIC_LIMIT = 48
+const WORLD_CHRONICLE_LIMIT = 5_000
+const TERMINAL_RETENTION_TURNS = 4
+const WORLD_PLACE_LIMIT = 600
+const WORLD_PROCESS_TERMINAL_LIMIT = 60
+const WORLD_FACTION_LIMIT = 120
+const WORLD_LOCATION_LIMIT = 240
+const WORLD_ROUTE_LIMIT = 1_000
+const WORLD_LAW_LIMIT = 200
+const WORLD_MECHANIC_LIMIT = 200
+
+const WORLD_SCALE_IMPORTANCE: Record<WorldScale, number> = {
+  personal: 45,
+  local: 55,
+  regional: 65,
+  national: 75,
+  continental: 82,
+  global: 90,
+  cosmic: 96,
+}
+
+function pressureScale(tier: NonNullable<Campaign['worldPressures']>[number]['tier']): WorldScale {
+  if (tier === 'mythic') return 'cosmic'
+  if (tier === 'legendary') return 'global'
+  if (tier === 'critical') return 'national'
+  if (tier === 'serious') return 'regional'
+  if (tier === 'local') return 'local'
+  return 'personal'
+}
 
 function rejectedReference(diagnostics: StateChange[] | undefined, path: string, reference: string | undefined, reason = 'ссылка не найдена') {
   diagnostics?.push({
@@ -225,7 +255,13 @@ function normalizePowerTechnique(draft: PowerTechniqueDraft, existing?: PowerTec
   }
 }
 
-function materializePowerTechniques(existing: PowerTechnique[] | undefined, drafts: PowerTechniqueDraft[] | undefined): PowerTechnique[] {
+function materializePowerTechniques(existing: PowerTechnique[] | undefined, drafts: PowerTechniqueDraft[] | undefined, authoritative = false): PowerTechnique[] {
+  if (authoritative && drafts !== undefined) {
+    return drafts.map((draft) => {
+      const current = existing?.find((technique) => (draft.id && technique.id === draft.id) || normalizedName(technique.name) === normalizedName(draft.name))
+      return normalizePowerTechnique(draft, current)
+    }).slice(-48)
+  }
   const result = (existing ?? []).map((technique) => normalizePowerTechnique(technique, technique))
   drafts?.forEach((draft) => {
     const current = result.find((technique) => (draft.id && technique.id === draft.id) || normalizedName(technique.name) === normalizedName(draft.name))
@@ -314,12 +350,12 @@ function mergeTextDetails(current: string[] | undefined, incoming: string[] | un
 }
 
 function materializeAbility(draft: AbilityDraft, turn: number, existing?: Ability): Ability {
-  const paths = [...(existing?.evolutionPaths ?? [])]
-  ;(draft.evolutionPaths ?? []).forEach((path) => {
-    const current = paths.find((candidate) => (path.id && candidate.id === path.id) || normalizedName(candidate.name) === normalizedName(path.name))
-    if (current) Object.assign(current, path, { id: current.id })
-    else paths.push({ ...path, id: path.id ?? id() })
-  })
+  const paths = draft.evolutionPaths === undefined
+    ? [...(existing?.evolutionPaths ?? [])]
+    : draft.evolutionPaths.map((path) => {
+      const current = existing?.evolutionPaths?.find((candidate) => (path.id && candidate.id === path.id) || normalizedName(candidate.name) === normalizedName(path.name))
+      return { ...current, ...path, id: current?.id ?? path.id ?? id() }
+    })
   const histories = [
     ...(existing?.history ?? []),
     ...(draft.history ?? []).map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })),
@@ -332,18 +368,34 @@ function materializeAbility(draft: AbilityDraft, turn: number, existing?: Abilit
     description: draft.description.trim(),
     mastery: clamp(draft.mastery ?? existing?.mastery ?? 0, 0, 100),
     costs: (draft.costs ?? existing?.costs ?? []).slice(0, 8),
-    effects: mergeTextDetails(existing?.effects, draft.effects, 48),
-    limitations: mergeTextDetails(existing?.limitations, draft.limitations, 48),
-    requirements: mergeTextDetails(existing?.requirements, draft.requirements, 48),
+    // A full-card upsert is authoritative for every explicitly supplied collection. This lets
+    // the model remove obsolete effects/limits after an upgrade. Granular additive changes
+    // remain available through AbilityChangePatch.add* fields below.
+    effects: draft.effects === undefined ? existing?.effects ?? [] : mergeTextDetails([], draft.effects, 48),
+    limitations: draft.limitations === undefined ? existing?.limitations ?? [] : mergeTextDetails([], draft.limitations, 48),
+    requirements: draft.requirements === undefined ? existing?.requirements ?? [] : mergeTextDetails([], draft.requirements, 48),
     evolutionPaths: paths.slice(-24),
     history: histories,
-    tags: mergeTextDetails(existing?.tags, draft.tags, 32),
-    capabilities: mergeTextDetails(existing?.capabilities, draft.capabilities, 64),
-    synergies: mergeTextDetails(existing?.synergies, draft.synergies, 32),
-    counters: mergeTextDetails(existing?.counters, draft.counters, 32),
-    examples: mergeTextDetails(existing?.examples, draft.examples, 24),
-    techniques: materializePowerTechniques(existing?.techniques, draft.techniques),
+    tags: draft.tags === undefined ? existing?.tags ?? [] : mergeTextDetails([], draft.tags, 32),
+    capabilities: draft.capabilities === undefined ? existing?.capabilities ?? [] : mergeTextDetails([], draft.capabilities, 64),
+    synergies: draft.synergies === undefined ? existing?.synergies ?? [] : mergeTextDetails([], draft.synergies, 32),
+    counters: draft.counters === undefined ? existing?.counters ?? [] : mergeTextDetails([], draft.counters, 32),
+    examples: draft.examples === undefined ? existing?.examples ?? [] : mergeTextDetails([], draft.examples, 24),
+    techniques: materializePowerTechniques(existing?.techniques, draft.techniques, true),
   }
+}
+
+/** Ability history is append-only. Full-card upserts and empty model arrays may enrich an
+ * ability, but never erase the campaign's already recorded progression. */
+function preserveAbilityHistories(current: Ability[], previousSets: Ability[][], turn: number) {
+  current.forEach((ability) => {
+    const previous = previousSets.flatMap((abilities) => abilities.filter((candidate) => candidate.id === ability.id || normalizedName(candidate.name) === normalizedName(ability.name)))
+    const combined = [...previous.flatMap((candidate) => candidate.history ?? []), ...(ability.history ?? [])]
+      .map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn }))
+      .filter((entry, index, all) => all.findIndex((candidate) => candidate.id === entry.id) === index)
+      .slice(-100)
+    ability.history = combined
+  })
 }
 
 function applyAbilityChange(
@@ -518,7 +570,7 @@ function normalizeWorldPressure(incoming: WorldPressure, turn: number, existing?
     counterplay: incoming.counterplay.slice(-16),
     deescalationConditions: incoming.deescalationConditions.slice(-12),
     createdTurn: existing?.createdTurn ?? Math.max(0, Math.min(turn, Math.round(incoming.createdTurn))),
-    lastAdvancedTurn: Math.max(0, Math.min(turn, Math.round(incoming.lastAdvancedTurn))),
+    lastAdvancedTurn: turn,
   }
 }
 
@@ -638,6 +690,7 @@ export function applyPatch(
   options: { advanceStatusClock?: boolean } = {},
 ): Campaign {
   const campaign = structuredClone(base)
+  campaign.settings.responseLength ??= 'adaptive'
   const retirementEvents: Array<Omit<GameEvent, 'id' | 'turn' | 'createdAt'>> = []
   const sceneChanges = patch.scene && (
     (patch.scene.title !== undefined && patch.scene.title !== campaign.scene.title)
@@ -678,6 +731,84 @@ export function applyPatch(
   campaign.influenceAssets ??= []
   campaign.world.places ??= []
   campaign.world.processes ??= []
+  campaign.world.chronicle ??= []
+
+  type ChronicleDraft = Omit<WorldChronicleEntry, 'id' | 'createdAt' | 'endTurn' | 'importance'> & {
+    endTurn?: number
+    importance?: number
+  }
+  const queueChronicle = (draft: ChronicleDraft) => {
+    if (campaign.world.chronicle?.some((entry) => entry.kind === draft.kind && entry.sourceId === draft.sourceId)) return
+    const timestamp = now()
+    const entry: WorldChronicleEntry = {
+      ...draft,
+      id: id(),
+      scopeIds: [...new Set(draft.scopeIds)].slice(0, 24),
+      causeIds: [...new Set(draft.causeIds)].filter((causeId) => causeId !== draft.sourceId).slice(0, 24),
+      entityIds: [...new Set(draft.entityIds)].slice(0, 24),
+      startTurn: clamp(Math.round(draft.startTurn), 0, turn),
+      endTurn: clamp(Math.round(draft.endTurn ?? turn), 0, turn),
+      importance: clamp(draft.importance ?? WORLD_SCALE_IMPORTANCE[draft.scale], 0, 100),
+      createdAt: timestamp,
+    }
+    if (entry.endTurn < entry.startTurn) entry.endTurn = entry.startTurn
+    campaign.world.chronicle = [...(campaign.world.chronicle ?? []), entry].slice(-WORLD_CHRONICLE_LIMIT)
+    // Rumored and hidden causal facts remain available only through the visibility-aware
+    // chronicle. The general story archive is narrator-facing and may contain exact summaries,
+    // so only confirmed facts are allowed into it.
+    if (entry.visibility === 'known') {
+      const archiveKind = ['global', 'cosmic'].includes(entry.scale) ? 'era' as const
+        : ['process', 'event', 'pressure', 'plan'].includes(entry.kind) ? 'chapter' as const
+          : 'scene' as const
+      campaign.archives = [...(campaign.archives ?? []), {
+        id: id(),
+        kind: archiveKind,
+        title: entry.title,
+        summary: `${entry.summary} Итог: ${entry.outcome}`,
+        startTurn: entry.startTurn,
+        endTurn: entry.endTurn,
+        tags: ['world-chronicle', entry.kind, entry.scale, entry.sourceId],
+        entityIds: [...new Set([...entry.entityIds, ...entry.scopeIds])].slice(0, 24),
+        importance: entry.importance,
+        createdAt: timestamp,
+      }].slice(-20_000)
+    }
+  }
+  const knownCausalIds = new Set([
+    ...(campaign.world.processes ?? []).map((entry) => entry.id),
+    ...(campaign.world.chronicle ?? []).flatMap((entry) => [entry.id, entry.sourceId]),
+    ...(campaign.threads ?? []).map((entry) => entry.id),
+    ...(campaign.worldEvents ?? []).map((entry) => entry.id),
+    ...campaign.quests.map((entry) => entry.id),
+    ...(campaign.antagonistPlans ?? []).map((entry) => entry.id),
+    ...(campaign.worldPressures ?? []).map((entry) => entry.id),
+    ...(patch.world?.upsertProcesses ?? []).map((entry) => entry.id),
+    ...(patch.threads ?? []).flatMap((entry) => entry.operation === 'add' && entry.thread?.id ? [entry.thread.id] : []),
+    ...(patch.worldEvents ?? []).flatMap((entry) => entry.operation === 'add' && entry.event?.id ? [entry.event.id] : []),
+    ...(patch.upsertAntagonistPlans ?? []).map((entry) => entry.id),
+    ...(patch.upsertWorldPressures ?? []).map((entry) => entry.id),
+  ])
+  const normalizeCauseIds = (ownerId: string, causeIds: string[] | undefined, path: string) => [...new Set(causeIds ?? [])].filter((causeId, index) => {
+    const valid = causeId !== ownerId && knownCausalIds.has(causeId)
+    if (!valid) rejectedReference(diagnostics, `${path}.causeIds[${index}]`, causeId, 'причинная ссылка неизвестна или ссылается на себя')
+    return valid
+  }).slice(0, 24)
+  const normalizeScopeIds = (scopeIds: string[] | undefined, path: string) => {
+    const knownPlaces = new Set([...(campaign.world.places ?? []).map((place) => place.id), ...(patch.world?.upsertPlaces ?? []).map((place) => place.id)])
+    return [...new Set(scopeIds ?? [])].filter((placeId, index) => {
+      const valid = knownPlaces.has(placeId)
+      if (!valid) rejectedReference(diagnostics, `${path}.scopeIds[${index}]`, placeId, 'область причинного изменения не найдена в атласе')
+      return valid
+    }).slice(0, 24)
+  }
+  const inferScale = (scopeIds: string[] | undefined, fallback: WorldScale = 'local'): WorldScale => {
+    const kinds = new Set((scopeIds ?? []).map((scopeId) => campaign.world.places?.find((place) => place.id === scopeId)?.kind))
+    if (kinds.has('dimension') || kinds.has('system') || kinds.has('planet')) return 'cosmic'
+    if (kinds.has('realm') || kinds.has('continent')) return 'continental'
+    if (kinds.has('country')) return 'national'
+    if (kinds.has('region')) return 'regional'
+    return fallback
+  }
 
   if (patch.playerProfile) {
     const { levelDelta, ...profile } = patch.playerProfile
@@ -1195,7 +1326,14 @@ export function applyPatch(
     if (mutation.operation === 'add') {
       const thread = mutation.thread
       if (!thread?.id || !thread.title || !thread.type || !thread.detail || !thread.status || !Array.isArray(thread.participantIds)) return
-      if (!campaign.threads?.some((candidate) => candidate.id === thread.id)) campaign.threads?.push(thread as NonNullable<Campaign['threads']>[number])
+      if (!campaign.threads?.some((candidate) => candidate.id === thread.id)) campaign.threads?.push({
+        ...thread,
+        participantIds: [...new Set(thread.participantIds)].slice(0, 20),
+        scopeIds: normalizeScopeIds(thread.scopeIds, `statePatch.threads[${mutationIndex}].thread`),
+        causeIds: normalizeCauseIds(thread.id, thread.causeIds, `statePatch.threads[${mutationIndex}].thread`),
+        createdTurn: thread.createdTurn ?? turn,
+        lastChangedTurn: turn,
+      } as NonNullable<Campaign['threads']>[number])
       return
     }
     const thread = campaign.threads?.find((candidate) => candidate.id === mutation.targetId)
@@ -1205,14 +1343,28 @@ export function applyPatch(
     }
     if (mutation.operation === 'resolve') thread.status = 'resolved'
     else if (mutation.operation === 'break') thread.status = 'broken'
-    else if (mutation.thread) Object.assign(thread, mutation.thread, { id: thread.id })
+    else if (mutation.thread) Object.assign(thread, mutation.thread, {
+      id: thread.id,
+      createdTurn: thread.createdTurn,
+      ...(mutation.thread.scopeIds ? { scopeIds: normalizeScopeIds(mutation.thread.scopeIds, `statePatch.threads[${mutationIndex}].thread`) } : {}),
+      ...(mutation.thread.causeIds ? { causeIds: normalizeCauseIds(thread.id, mutation.thread.causeIds, `statePatch.threads[${mutationIndex}].thread`) } : {}),
+    })
+    thread.lastChangedTurn = turn
   })
 
   patch.worldEvents?.slice(0, 20).forEach((mutation, mutationIndex) => {
     if (mutation.operation === 'add') {
       const event = mutation.event
       if (!event?.id || !event.title || !event.description || !event.status || !event.visibility || !Array.isArray(event.involvedIds)) return
-      if (!campaign.worldEvents?.some((candidate) => candidate.id === event.id)) campaign.worldEvents?.push(event as NonNullable<Campaign['worldEvents']>[number])
+      if (!campaign.worldEvents?.some((candidate) => candidate.id === event.id)) campaign.worldEvents?.push({
+        ...event,
+        involvedIds: [...new Set(event.involvedIds)].slice(0, 20),
+        scopeIds: normalizeScopeIds(event.scopeIds, `statePatch.worldEvents[${mutationIndex}].event`),
+        causeIds: normalizeCauseIds(event.id, event.causeIds, `statePatch.worldEvents[${mutationIndex}].event`),
+        consequences: event.consequences?.slice(0, 16),
+        createdTurn: event.createdTurn ?? turn,
+        lastChangedTurn: turn,
+      } as NonNullable<Campaign['worldEvents']>[number])
       return
     }
     const event = campaign.worldEvents?.find((candidate) => candidate.id === mutation.targetId)
@@ -1222,7 +1374,14 @@ export function applyPatch(
     }
     if (mutation.operation === 'resolve') event.status = 'resolved'
     else if (mutation.operation === 'cancel') event.status = 'cancelled'
-    else if (mutation.event) Object.assign(event, mutation.event, { id: event.id })
+    else if (mutation.event) Object.assign(event, mutation.event, {
+      id: event.id,
+      createdTurn: event.createdTurn,
+      ...(mutation.event.scopeIds ? { scopeIds: normalizeScopeIds(mutation.event.scopeIds, `statePatch.worldEvents[${mutationIndex}].event`) } : {}),
+      ...(mutation.event.causeIds ? { causeIds: normalizeCauseIds(event.id, mutation.event.causeIds, `statePatch.worldEvents[${mutationIndex}].event`) } : {}),
+      ...(mutation.event.consequences ? { consequences: mutation.event.consequences.slice(0, 16) } : {}),
+    })
+    event.lastChangedTurn = turn
   })
 
   const reputationLabel = (value: number) => value >= 60 ? 'Почитают' : value >= 20 ? 'Уважают' : value <= -60 ? 'Ненавидят' : value <= -20 ? 'Не доверяют' : 'Нейтрально'
@@ -1306,7 +1465,7 @@ export function applyPatch(
       progress: clamp(incoming.progress, 0, 100),
       stages: incoming.stages.slice(0, 12),
       turningPoints: incoming.turningPoints.slice(0, 12),
-      lastAdvancedTurn: Math.min(turn, Math.max(0, incoming.lastAdvancedTurn)),
+      lastAdvancedTurn: turn,
     }
     const existing = campaign.characterArcs?.find((arc) => arc.id === incoming.id)
     if (existing) Object.assign(existing, normalized, { id: existing.id, ownerId: existing.ownerId })
@@ -1351,7 +1510,7 @@ export function applyPatch(
       knowledge: incoming.knowledge.slice(0, 20),
       steps: incoming.steps.slice(0, 12),
       weaknesses: incoming.weaknesses.slice(0, 12),
-      lastAdvancedTurn: Math.min(turn, Math.max(0, incoming.lastAdvancedTurn)),
+      lastAdvancedTurn: turn,
     }
     const existing = campaign.antagonistPlans?.find((plan) => plan.id === incoming.id)
     if (existing) Object.assign(existing, normalized, { id: existing.id, ownerNpcId: existing.ownerNpcId })
@@ -1416,6 +1575,8 @@ export function applyPatch(
         objectives: mutation.quest.objectives,
         reward: mutation.quest?.reward,
         giver: mutation.quest?.giver,
+        createdTurn: mutation.quest.createdTurn ?? turn,
+        lastChangedTurn: turn,
       }
       campaign.quests.push(quest)
       return
@@ -1427,7 +1588,8 @@ export function applyPatch(
     }
     if (mutation.operation === 'complete') quest.status = 'completed'
     else if (mutation.operation === 'fail') quest.status = 'failed'
-    else Object.assign(quest, mutation.quest, { id: quest.id })
+    else Object.assign(quest, mutation.quest, { id: quest.id, createdTurn: quest.createdTurn })
+    quest.lastChangedTurn = turn
   })
 
   patch.lore?.slice(0, 12).forEach((entry) => {
@@ -1550,8 +1712,8 @@ export function applyPatch(
       const existing = campaign.world.factions.find((faction) => normalizedName(faction.name) === normalizedName(entry.name))
       return { ...entry, id: existing?.id ?? entry.id ?? id(), lastChangedTurn: turn }
     })
-    campaign.world.factions = upsertNamed(campaign.world.factions, factionUpserts, worldPatch.removeFactions, 20)
-    campaign.world.locations = upsertNamed(campaign.world.locations, worldPatch.upsertLocations, worldPatch.removeLocations, 40)
+    campaign.world.factions = upsertNamed(campaign.world.factions, factionUpserts, worldPatch.removeFactions, WORLD_FACTION_LIMIT)
+    campaign.world.locations = upsertNamed(campaign.world.locations, worldPatch.upsertLocations, worldPatch.removeLocations, WORLD_LOCATION_LIMIT)
     const removedRoutes = new Set(worldPatch.removeRouteIds ?? [])
     const routes = (campaign.world.routes ?? []).filter((route) => !removedRoutes.has(route.id))
     ;(worldPatch.upsertRoutes ?? []).forEach((route) => {
@@ -1559,7 +1721,7 @@ export function applyPatch(
       if (existing) Object.assign(existing, route, { id: existing.id })
       else routes.push(route)
     })
-    campaign.world.routes = routes.slice(0, 80)
+    campaign.world.routes = routes.slice(0, WORLD_ROUTE_LIMIT)
 
     const removedPlaceIds = new Set(worldPatch.removePlaceIds ?? [])
     const places = (campaign.world.places ?? []).filter((place) => !removedPlaceIds.has(place.id))
@@ -1579,7 +1741,7 @@ export function applyPatch(
       if (existing) Object.assign(existing, normalized, { id: existing.id, createdTurn: existing.createdTurn, lastChangedTurn: turn })
       else places.push({ ...normalized, createdTurn: incoming.createdTurn ?? turn, lastChangedTurn: turn })
     })
-    campaign.world.places = places.slice(0, 120)
+    campaign.world.places = places.slice(0, WORLD_PLACE_LIMIT)
 
     const processes = campaign.world.processes ?? []
     const placeIds = new Set(campaign.world.places.map((place) => place.id))
@@ -1596,6 +1758,10 @@ export function applyPatch(
         ...incoming,
         momentum: clamp(incoming.momentum, 0, 100),
         scopeIds: [...new Set(incoming.scopeIds)].slice(0, 20),
+        causeIds: incoming.causeIds
+          ? normalizeCauseIds(incoming.id, incoming.causeIds, `statePatch.world.upsertProcesses[${processIndex}]`)
+          : existing?.causeIds,
+        scale: incoming.scale ?? existing?.scale ?? inferScale(incoming.scopeIds),
         involvedFactionNames: [...new Set(incoming.involvedFactionNames)].slice(0, 20),
         drivers: incoming.drivers.slice(0, 16),
         obstacles: incoming.obstacles.slice(0, 16),
@@ -1613,9 +1779,42 @@ export function applyPatch(
         return
       }
       retiredProcessIds.add(processId)
+      queueChronicle({
+        sourceId: process.id,
+        kind: 'process',
+        title: process.title,
+        summary: process.description,
+        outcome: process.stage,
+        scale: process.scale ?? inferScale(process.scopeIds),
+        scopeIds: process.scopeIds,
+        causeIds: process.causeIds ?? [],
+        entityIds: [],
+        visibility: process.visibility,
+        startTurn: process.createdTurn,
+      })
       retirementEvents.push({ title: `Завершён внешний процесс: ${process.title}`, description: `${process.description} Итог: ${process.stage}`, category: 'world' })
     })
-    campaign.world.processes = processes.filter((process) => !retiredProcessIds.has(process.id)).slice(0, 60)
+    const remainingProcesses = processes.filter((process) => !retiredProcessIds.has(process.id))
+    const activeProcessCount = remainingProcesses.filter((process) => !['resolved', 'failed'].includes(process.status)).length
+    const terminalBudget = Math.max(0, WORLD_PROCESS_TERMINAL_LIMIT - activeProcessCount)
+    const retainedTerminalIds = new Set((terminalBudget > 0
+      ? remainingProcesses.filter((process) => ['resolved', 'failed'].includes(process.status)).slice(-terminalBudget)
+      : []).map((process) => process.id))
+    remainingProcesses.filter((process) => ['resolved', 'failed'].includes(process.status) && !retainedTerminalIds.has(process.id)).forEach((process) => queueChronicle({
+      sourceId: process.id,
+      kind: 'process',
+      title: process.title,
+      summary: process.description,
+      outcome: process.stage,
+      scale: process.scale ?? inferScale(process.scopeIds),
+      scopeIds: process.scopeIds,
+      causeIds: process.causeIds ?? [],
+      entityIds: [],
+      visibility: process.visibility,
+      startTurn: process.createdTurn,
+      endTurn: process.lastAdvancedTurn,
+    }))
+    campaign.world.processes = remainingProcesses.filter((process) => !['resolved', 'failed'].includes(process.status) || retainedTerminalIds.has(process.id))
 
     const removedLawIds = new Set(worldPatch.removeLawIds ?? [])
     const laws = (campaign.world.laws ?? []).filter((law) => !removedLawIds.has(law.id))
@@ -1624,7 +1823,7 @@ export function applyPatch(
       if (existing) Object.assign(existing, incoming, { id: existing.id, createdTurn: existing.createdTurn, lastChangedTurn: turn })
       else laws.push({ ...incoming, createdTurn: incoming.createdTurn ?? turn, lastChangedTurn: turn })
     })
-    campaign.world.laws = laws.slice(0, 40)
+    campaign.world.laws = laws.slice(0, WORLD_LAW_LIMIT)
 
     const removedMechanicIds = new Set(worldPatch.removeMechanicIds ?? [])
     const mechanics = (campaign.world.mechanics ?? []).filter((mechanic) => !removedMechanicIds.has(mechanic.id))
@@ -1633,7 +1832,7 @@ export function applyPatch(
       if (existing) Object.assign(existing, incoming, { id: existing.id, createdTurn: existing.createdTurn, lastChangedTurn: turn })
       else mechanics.push({ ...incoming, createdTurn: incoming.createdTurn ?? turn, lastChangedTurn: turn })
     })
-    campaign.world.mechanics = mechanics.slice(0, 40)
+    campaign.world.mechanics = mechanics.slice(0, WORLD_MECHANIC_LIMIT)
 
     const removedInterfaceModuleIds = new Set(worldPatch.removeInterfaceModuleIds ?? [])
     const interfaceModules = (campaign.world.interfaceModules ?? [])
@@ -1740,6 +1939,7 @@ export function applyPatch(
     label: (value: T) => string,
     description: (value: T, reason: string) => string,
     category: GameEvent['category'],
+    onRetire: (value: T, reason: string) => void,
   ) => {
     const retired = new Set<string>()
     ;(requests ?? []).forEach((request, index) => {
@@ -1754,6 +1954,7 @@ export function applyPatch(
       }
       retired.add(value.id)
       retirementEvents.push({ title: `Закрыто: ${label(value)}`, description: description(value, request.reason), category })
+      onRetire(value, request.reason)
     })
     return values.filter((value) => !retired.has(value.id))
   }
@@ -1765,6 +1966,12 @@ export function applyPatch(
     (thread) => thread.title,
     (thread, reason) => `${thread.detail} Причина снятия с активного состояния: ${reason}`,
     'story',
+    (thread, reason) => queueChronicle({
+      sourceId: thread.id, kind: 'thread', title: thread.title, summary: thread.detail, outcome: reason,
+      scale: thread.scale ?? inferScale(thread.scopeIds, 'personal'), scopeIds: thread.scopeIds ?? [], causeIds: thread.causeIds ?? [],
+      entityIds: thread.participantIds, visibility: thread.secret ? 'hidden' : 'known', startTurn: thread.createdTurn,
+      endTurn: thread.lastChangedTurn ?? turn,
+    }),
   )
   campaign.worldEvents = retire(
     campaign.worldEvents,
@@ -1774,6 +1981,12 @@ export function applyPatch(
     (event) => event.title,
     (event, reason) => `${event.description} Итог: ${reason}`,
     'world',
+    (event, reason) => queueChronicle({
+      sourceId: event.id, kind: 'event', title: event.title, summary: event.description, outcome: reason,
+      scale: event.scale ?? inferScale(event.scopeIds), scopeIds: event.scopeIds ?? [], causeIds: event.causeIds ?? [],
+      entityIds: event.involvedIds, visibility: event.visibility, startTurn: event.createdTurn,
+      endTurn: event.lastChangedTurn ?? turn,
+    }),
   )
   campaign.quests = retire(
     campaign.quests,
@@ -1783,6 +1996,11 @@ export function applyPatch(
     (quest) => quest.title,
     (quest, reason) => `${quest.description} Итог: ${reason}`,
     'quest',
+    (quest, reason) => queueChronicle({
+      sourceId: quest.id, kind: 'quest', title: quest.title, summary: quest.description, outcome: reason,
+      scale: 'personal', scopeIds: [], causeIds: [], entityIds: [], visibility: quest.status === 'hidden' ? 'hidden' : 'known',
+      startTurn: quest.createdTurn ?? 0, endTurn: quest.lastChangedTurn ?? turn,
+    }),
   )
   campaign.antagonistPlans = retire(
     campaign.antagonistPlans,
@@ -1792,6 +2010,11 @@ export function applyPatch(
     (plan) => plan.title,
     (plan, reason) => `${plan.objective} Итог: ${reason}`,
     'world',
+    (plan, reason) => queueChronicle({
+      sourceId: plan.id, kind: 'plan', title: plan.title, summary: `${plan.objective} Метод: ${plan.method}`, outcome: reason,
+      scale: 'local', scopeIds: [], causeIds: [], entityIds: [plan.ownerNpcId], visibility: plan.secret ? 'hidden' : 'known',
+      startTurn: Math.max(0, plan.lastAdvancedTurn), endTurn: plan.lastAdvancedTurn,
+    }),
   )
   campaign.worldPressures = retire(
     campaign.worldPressures,
@@ -1801,6 +2024,95 @@ export function applyPatch(
     (pressure) => `${pressure.sourceName}: ${pressure.objective}`,
     (pressure, reason) => `${pressure.cause} Итог: ${reason}`,
     'world',
+    (pressure, reason) => queueChronicle({
+      sourceId: pressure.id, kind: 'pressure', title: `${pressure.sourceName}: ${pressure.objective}`, summary: pressure.cause, outcome: reason,
+      scale: pressureScale(pressure.tier), scopeIds: [], causeIds: [], entityIds: pressure.targetIds,
+      visibility: pressure.visibility, startTurn: pressure.createdTurn, endTurn: pressure.lastAdvancedTurn,
+    }),
+  )
+
+  // Terminal records remain visible for a few turns, then move to the compact chronicle.
+  // Active, stalled, scheduled, due, hidden-active and otherwise unresolved records are never
+  // removed by this budget compaction.
+  const compactFinished = <T extends { id: string }>(
+    values: T[],
+    isTerminal: (value: T) => boolean,
+    changedTurn: (value: T) => number,
+    archive: (value: T) => void,
+    label: (value: T) => string,
+  ) => values.filter((value) => {
+    if (!isTerminal(value) || turn - changedTurn(value) < TERMINAL_RETENTION_TURNS) return true
+    archive(value)
+    retirementEvents.push({ title: `Перенесено в хронику: ${label(value)}`, description: 'Завершённая линия сохранена как компактная причинная запись.', category: 'world' })
+    return false
+  })
+  campaign.world.processes = compactFinished(
+    campaign.world.processes ?? [],
+    (process) => ['resolved', 'failed'].includes(process.status),
+    (process) => process.lastAdvancedTurn,
+    (process) => queueChronicle({
+      sourceId: process.id, kind: 'process', title: process.title, summary: process.description, outcome: process.stage,
+      scale: process.scale ?? inferScale(process.scopeIds), scopeIds: process.scopeIds, causeIds: process.causeIds ?? [], entityIds: [],
+      visibility: process.visibility, startTurn: process.createdTurn, endTurn: process.lastAdvancedTurn,
+    }),
+    (process) => process.title,
+  )
+  campaign.threads = compactFinished(
+    campaign.threads ?? [],
+    (thread) => ['fulfilled', 'broken', 'resolved'].includes(normalizedName(thread.status)),
+    (thread) => thread.lastChangedTurn ?? thread.createdTurn,
+    (thread) => queueChronicle({
+      sourceId: thread.id, kind: 'thread', title: thread.title, summary: thread.detail, outcome: thread.status,
+      scale: thread.scale ?? inferScale(thread.scopeIds, 'personal'), scopeIds: thread.scopeIds ?? [], causeIds: thread.causeIds ?? [],
+      entityIds: thread.participantIds, visibility: thread.secret ? 'hidden' : 'known', startTurn: thread.createdTurn,
+      endTurn: thread.lastChangedTurn ?? turn,
+    }),
+    (thread) => thread.title,
+  )
+  campaign.worldEvents = compactFinished(
+    campaign.worldEvents ?? [],
+    (event) => ['resolved', 'cancelled'].includes(event.status),
+    (event) => event.lastChangedTurn ?? event.createdTurn,
+    (event) => queueChronicle({
+      sourceId: event.id, kind: 'event', title: event.title, summary: event.description,
+      outcome: event.consequences?.join(' ') || event.status,
+      scale: event.scale ?? inferScale(event.scopeIds), scopeIds: event.scopeIds ?? [], causeIds: event.causeIds ?? [],
+      entityIds: event.involvedIds, visibility: event.visibility, startTurn: event.createdTurn, endTurn: event.lastChangedTurn ?? turn,
+    }),
+    (event) => event.title,
+  )
+  campaign.quests = compactFinished(
+    campaign.quests,
+    (quest) => ['completed', 'failed'].includes(quest.status),
+    (quest) => quest.lastChangedTurn ?? quest.createdTurn ?? 0,
+    (quest) => queueChronicle({
+      sourceId: quest.id, kind: 'quest', title: quest.title, summary: quest.description, outcome: quest.status,
+      scale: 'personal', scopeIds: [], causeIds: [], entityIds: [], visibility: quest.status === 'hidden' ? 'hidden' : 'known',
+      startTurn: quest.createdTurn ?? 0, endTurn: quest.lastChangedTurn ?? turn,
+    }),
+    (quest) => quest.title,
+  )
+  campaign.antagonistPlans = compactFinished(
+    campaign.antagonistPlans ?? [],
+    (plan) => ['completed', 'failed', 'abandoned'].includes(plan.status),
+    (plan) => plan.lastAdvancedTurn,
+    (plan) => queueChronicle({
+      sourceId: plan.id, kind: 'plan', title: plan.title, summary: `${plan.objective} Метод: ${plan.method}`, outcome: plan.status,
+      scale: 'local', scopeIds: [], causeIds: [], entityIds: [plan.ownerNpcId], visibility: plan.secret ? 'hidden' : 'known',
+      startTurn: plan.lastAdvancedTurn, endTurn: plan.lastAdvancedTurn,
+    }),
+    (plan) => plan.title,
+  )
+  campaign.worldPressures = compactFinished(
+    campaign.worldPressures ?? [],
+    (pressure) => pressure.stage === 'resolved',
+    (pressure) => pressure.lastAdvancedTurn,
+    (pressure) => queueChronicle({
+      sourceId: pressure.id, kind: 'pressure', title: `${pressure.sourceName}: ${pressure.objective}`, summary: pressure.cause,
+      outcome: pressure.deescalationConditions.join(' ') || pressure.stage, scale: pressureScale(pressure.tier), scopeIds: [], causeIds: [],
+      entityIds: pressure.targetIds, visibility: pressure.visibility, startTurn: pressure.createdTurn, endTurn: pressure.lastAdvancedTurn,
+    }),
+    (pressure) => `${pressure.sourceName}: ${pressure.objective}`,
   )
   const removedMemoryIds = new Set<string>()
   ;(cleanup?.memories ?? []).forEach((request, index) => {
@@ -1838,6 +2150,16 @@ export function applyPatch(
   campaign.worldEvents?.forEach((event) => {
     if (event.status !== 'scheduled') return
     if ((event.dueTurn !== undefined && event.dueTurn <= turn) || (event.dueDay !== undefined && event.dueDay <= campaign.world.calendar.day)) event.status = 'due'
+  })
+  preserveAbilityHistories(campaign.player.abilities ?? [], [
+    base.player.abilities ?? [],
+    ...[...base.snapshots].reverse().map((snapshot) => snapshot.player.abilities ?? []),
+  ], turn)
+  campaign.npcs.forEach((npc) => {
+    preserveAbilityHistories(npc.abilities ?? [], [
+      base.npcs.find((candidate) => candidate.id === npc.id)?.abilities ?? [],
+      ...[...base.snapshots].reverse().map((snapshot) => snapshot.npcs.find((candidate) => candidate.id === npc.id)?.abilities ?? []),
+    ], turn)
   })
   return campaign
 }

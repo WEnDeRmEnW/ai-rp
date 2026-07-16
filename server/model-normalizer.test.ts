@@ -82,6 +82,22 @@ describe('global DeepSeek output normalization', () => {
     })
   })
 
+  it('normalizes story-thread aliases while preserving canonical enum values', () => {
+    const normalized = normalizeModelOutput({
+      threads: [
+        { operation: 'add', thread: { type: 'quest', status: 'активно' } },
+        { operation: 'update', targetId: 'thread-rumor', thread: { type: 'тайна', status: 'известно' } },
+        { operation: 'update', targetId: 'thread-canonical', thread: { type: 'debt', status: 'broken' } },
+      ],
+    }) as any
+
+    expect(normalized.threads.map((entry: any) => entry.thread)).toEqual([
+      { type: 'promise', status: 'active' },
+      { type: 'rumor', status: 'active' },
+      { type: 'debt', status: 'broken' },
+    ])
+  })
+
   it('keeps explicit faction changes as deltas and canonical values authoritative', () => {
     const normalized = normalizeModelOutput({
       statePatch: {
@@ -294,5 +310,90 @@ describe('global DeepSeek output normalization', () => {
     expect(parsed.statePatch.inventory?.[0]).toMatchObject({
       operation: 'add', item: { category: 'quest', quantity: 1, rarity: 'common', equipped: false, effects: ['Подтверждает условия'] },
     })
+  })
+
+  it('normalizes every adaptive-world patch collection and its id arrays without a repair pass', () => {
+    const parsed = turnPatchSchema.parse({
+      world: {
+        upsertPlaces: {
+          'place-capital': {
+            name: 'Столица', kind: 'город', description: 'Политический центр.', scale: 'мегаполис',
+            culture: 'Квартальные советы', notableFacts: 'Здесь заседает сенат', currentSituation: 'Назревает забастовка.', visibility: 'известно',
+          },
+        },
+        upsertProcesses: {
+          'process-strike': {
+            title: 'Портовая забастовка', description: 'Рабочие требуют новый договор.', scopeIds: 101,
+            involvedFactionNames: 'Гильдия доков', drivers: 'Снижение оплаты', obstacles: 'Запасы владельцев', stage: 'Переговоры сорваны.',
+            momentum: '64%', direction: 'усиливается', status: 'активно', visibility: 'слухи', nextMilestone: 'Остановка смены',
+            consequences: 'Дефицит товаров', causeIds: 202, scale: 'региональный',
+          },
+        },
+        interfaceModuleChanges: {
+          'module-city': {
+            upsertElements: {
+              'element-strike': { label: 'Накал забастовки', kind: 'meter', min: 0, max: 100, state: 'warning', links: 303 },
+            },
+            removeElementIds: 404,
+          },
+        },
+        upsertMetrics: {
+          'metric-strike': {
+            key: 'strike_heat', label: 'Накал забастовки', description: 'Готовность рабочих остановить порт.', value: 64, min: 0, max: 100,
+            visibility: 'known', source: 'Гильдия доков', updatePolicy: 'Менять после переговоров.',
+          },
+        },
+        removePlaceIds: 505,
+        retireProcessIds: 606,
+        removeMetricIds: 707,
+      },
+    })
+
+    expect(parsed.world?.upsertPlaces?.[0]).toMatchObject({ id: 'place-capital', culture: ['Квартальные советы'], notableFacts: ['Здесь заседает сенат'] })
+    expect(parsed.world?.upsertProcesses?.[0]).toMatchObject({
+      id: 'process-strike', scopeIds: ['101'], causeIds: ['202'], involvedFactionNames: ['Гильдия доков'],
+      drivers: ['Снижение оплаты'], obstacles: ['Запасы владельцев'], consequences: ['Дефицит товаров'], scale: 'regional',
+    })
+    expect(parsed.world?.interfaceModuleChanges?.[0]).toMatchObject({
+      moduleId: 'module-city', upsertElements: [{ id: 'element-strike', links: ['303'] }], removeElementIds: ['404'],
+    })
+    expect(parsed.world?.upsertMetrics?.[0]).toMatchObject({ id: 'metric-strike', key: 'strike_heat' })
+    expect(parsed.world).toMatchObject({ removePlaceIds: ['505'], retireProcessIds: ['606'], removeMetricIds: ['707'] })
+  })
+
+  it('normalizes object-shaped generated atlas, processes, metrics and interface blueprint', () => {
+    const raw: any = demoWorld(worldRequest)
+    const firstProcessTitle = raw.world.processes[0].title
+    raw.world.processes[1].causeTitles = firstProcessTitle
+    raw.world.processes[1].scale = 'региональный'
+    raw.worldEvents[0].scopeNames = raw.world.places[0].name
+    raw.worldEvents[0].causeTitles = raw.world.processes[1].title
+    raw.worldEvents[0].consequences = 'Изменятся торговые маршруты'
+    raw.world.places = Object.fromEntries(raw.world.places.map(({ name, culture, notableFacts, ...place }: any) => [name, {
+      ...place, culture: culture[0], notableFacts: notableFacts[0],
+    }]))
+    raw.world.processes = Object.fromEntries(raw.world.processes.map(({ title, scopeNames, involvedFactionNames, drivers, obstacles, consequences, ...process }: any) => [title, {
+      ...process,
+      scopeNames: scopeNames[0],
+      involvedFactionNames: involvedFactionNames.length === 1 ? involvedFactionNames[0] : involvedFactionNames,
+      drivers: drivers[0], obstacles, consequences: consequences[0],
+    }]))
+    if (raw.world.metrics?.length) raw.world.metrics = Object.fromEntries(raw.world.metrics.map(({ id, ...metric }: any) => [id, metric]))
+    if (raw.world.interfaceBlueprint) {
+      raw.world.interfaceBlueprint.tabs = Object.fromEntries(raw.world.interfaceBlueprint.tabs.map(({ id, ...tab }: any) => [id, tab]))
+      raw.world.interfaceBlueprint.dashboardSections = raw.world.interfaceBlueprint.dashboardSections[0]
+    }
+
+    const parsed = generatedWorldSchema.parse(raw)
+
+    expect(parsed.world.places[0]).toMatchObject({ name: expect.any(String), culture: [expect.any(String)], notableFacts: [expect.any(String)] })
+    expect(parsed.world.processes[0]).toMatchObject({ title: expect.any(String), scopeNames: [expect.any(String)], drivers: [expect.any(String)], consequences: [expect.any(String)] })
+    expect(parsed.world.processes[1]).toMatchObject({ causeTitles: [firstProcessTitle], scale: 'regional' })
+    expect(parsed.worldEvents[0]).toMatchObject({ scopeNames: [expect.any(String)], causeTitles: [expect.any(String)], consequences: ['Изменятся торговые маршруты'] })
+    if (parsed.world.metrics?.length) expect(parsed.world.metrics[0].id).toBeTruthy()
+    if (parsed.world.interfaceBlueprint) {
+      expect(parsed.world.interfaceBlueprint.tabs[0].id).toBeTruthy()
+      expect(parsed.world.interfaceBlueprint.dashboardSections).toHaveLength(1)
+    }
   })
 })

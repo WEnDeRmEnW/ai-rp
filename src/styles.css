@@ -28,6 +28,7 @@
   --sidebar-width: 258px;
   --inspector-width: 400px;
   --reader-scale: 1;
+  --panel-scale: 1;
   --reader-max: 820px;
   --sans: "Segoe UI Variable", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
   font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
@@ -272,7 +273,17 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .inspector-tabs button:hover { background: var(--surface-1); color: var(--text); }
 .inspector-tabs button.is-active { background: var(--surface-2); color: var(--accent); }
 .inspector-tabs button i { position: absolute; top: 4px; right: 7px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 7px; background: var(--surface-3); color: var(--muted); font-size: 8px; font-style: normal; line-height: 15px; }
-.inspector-body { min-height: 0; overflow-y: auto; padding: 17px 17px 86px; }
+.inspector-body {
+  container-name: inspector-body;
+  container-type: inline-size;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 17px 17px 86px;
+}
+.inspector-body > * { min-width: 0; max-width: 100%; }
 .scene-card, .world-card { position: relative; overflow: hidden; padding: 18px; border: 1px solid var(--border-soft); border-radius: var(--radius-l); background: linear-gradient(140deg, var(--surface-2), color-mix(in srgb, var(--surface-1) 80%, var(--accent) 5%)); }
 .scene-card::after, .world-card::after { content: ""; position: absolute; right: -28px; top: -37px; width: 100px; height: 100px; border: 1px solid color-mix(in srgb, var(--accent) 13%, transparent); border-radius: 50%; box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 7%, transparent); }
 .scene-card h2, .world-card h2 { margin: 7px 0 5px; font-family: ui-serif, Georgia, serif; font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
@@ -991,11 +1002,13 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 
 /* Tablet: inspector becomes a docked overlay */
 /* AI-authored, world-specific interface modules */
-.adaptive-world-modules { display: grid; gap: 11px; margin: 12px 0 2px; }
+.adaptive-world-modules { display: grid; min-width: 0; max-width: 100%; gap: 11px; margin: 12px 0 2px; }
 .adaptive-module {
   --module-accent: var(--accent);
   --module-secondary: var(--gold);
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--module-accent) 24%, var(--border-soft));
   border-radius: 15px;
@@ -1016,10 +1029,10 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .adaptive-module-heading > em { margin-left: auto; padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--module-secondary) 22%, var(--border-soft)); border-radius: 999px; color: var(--module-secondary); font-size: 7.5px; font-style: normal; white-space: nowrap; }
 .adaptive-module-chevron { width: 7px; height: 7px; margin-left: auto; border-right: 1px solid var(--faint); border-bottom: 1px solid var(--faint); transform: rotate(45deg); transition: transform .18s ease; }
 .adaptive-module[open] .adaptive-module-chevron { transform: rotate(225deg) translate(-2px, -2px); }
-.adaptive-module-body { padding: 0 13px 11px; }
+.adaptive-module-body { min-width: 0; max-width: 100%; padding: 0 13px 11px; }
 .adaptive-module-description { margin: 0 0 10px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--module-accent) 12%, var(--border-soft)); color: var(--muted); font-size: 9px; line-height: 1.5; }
 .adaptive-module-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-soft); color: var(--faint); font-size: 7.5px; }
-.adaptive-module-footer span { display: inline-flex; align-items: center; gap: 4px; }
+.adaptive-module-footer span { display: inline-flex; min-width: 0; align-items: center; gap: 4px; overflow-wrap: anywhere; }
 
 .adaptive-meter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .adaptive-meter, .adaptive-value { min-width: 0; padding: 8px 9px; border: 1px solid var(--border-soft); border-radius: 10px; background: color-mix(in srgb, var(--surface-2) 88%, var(--module-accent) 3%); }
@@ -1101,7 +1114,8 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .adaptive-empty button:disabled { opacity: .65; cursor: wait; }
 
 /* Adaptive world cockpit */
-.world-cockpit { display: grid; gap: 11px; }
+.world-cockpit { display: grid; min-width: 0; max-width: 100%; gap: 11px; }
+.world-cockpit > div { min-width: 0; max-width: 100%; }
 .cockpit-hero { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; overflow: hidden; padding: 17px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border-soft)); border-radius: 17px; background: radial-gradient(circle at 110% -10%, color-mix(in srgb, var(--accent) 17%, transparent), transparent 42%), linear-gradient(145deg, color-mix(in srgb, var(--accent) 6%, var(--surface-2)), var(--surface-1)); }
 .cockpit-hero::after { content: ""; position: absolute; right: 54px; top: -37px; width: 82px; height: 82px; border: 1px solid color-mix(in srgb, var(--gold) 16%, transparent); border-radius: 50%; pointer-events: none; }
 .cockpit-hero > div { min-width: 0; }
@@ -1110,12 +1124,12 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .cockpit-hero p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .cockpit-hero > button { position: relative; z-index: 1; display: grid; flex: 0 0 auto; width: 36px; height: 36px; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 11px; background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); color: var(--accent); }
 .cockpit-hero > button:hover { background: color-mix(in srgb, var(--accent) 17%, var(--surface-2)); }
-.cockpit-section { overflow: hidden; border: 1px solid var(--border-soft); border-radius: 14px; background: color-mix(in srgb, var(--surface-1) 94%, var(--accent) 1%); }
+.cockpit-section { min-width: 0; max-width: 100%; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 14px; background: color-mix(in srgb, var(--surface-1) 94%, var(--accent) 1%); }
 .cockpit-section > header { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--border-soft); }
 .cockpit-section > header > span { display: inline-flex; min-width: 0; align-items: center; gap: 7px; color: var(--accent); }
 .cockpit-section > header strong { overflow: hidden; color: var(--text-soft); font-size: 11px; font-weight: 720; letter-spacing: .02em; text-overflow: ellipsis; white-space: nowrap; }
-.cockpit-section > div { padding: 11px; }
-.cockpit-link { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 9px; }
+.cockpit-section > div { min-width: 0; max-width: 100%; padding: 11px; }
+.cockpit-link { display: inline-flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 4px; color: var(--muted); font-size: 9px; text-align: right; }
 .cockpit-link:hover { color: var(--accent); }
 .cockpit-empty { margin: 0; padding: 9px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted); font-size: 10.5px; line-height: 1.5; text-align: center; }
 .cockpit-scene { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
@@ -1141,21 +1155,21 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .cockpit-pacing strong { margin-top: 4px; color: var(--muted); font-size: 10.5px; font-weight: 500; line-height: 1.45; }
 .cockpit-pacing > b { margin-left: auto; color: var(--accent); font: 550 18px/1 ui-serif, Georgia, serif; }
 .world-pulse-list { display: grid; gap: 7px; }
-.pulse-entry { display: flex; gap: 9px; padding: 9px; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--surface-2); }
+.pulse-entry { display: flex; min-width: 0; align-items: flex-start; gap: 9px; padding: 9px; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--surface-2); }
 .pulse-entry > i { flex: 0 0 auto; width: 6px; height: 6px; margin-top: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent); }
 .pulse-entry.tier-critical > i, .pulse-entry.tier-legendary > i, .pulse-entry.tier-mythic > i { background: var(--danger); box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 60%, transparent); }
 .pulse-entry.is-event > i { background: var(--gold); }
-.pulse-entry > span { min-width: 0; }
+.pulse-entry > span { min-width: 0; max-width: 100%; flex: 1; overflow-wrap: anywhere; }
 .pulse-entry small, .pulse-entry strong, .pulse-entry p { display: block; }
-.pulse-entry small { color: var(--faint); font-size: 8.5px; }
-.pulse-entry strong { margin-top: 2px; font-size: 11px; }
-.pulse-entry p { overflow: hidden; margin: 3px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.pulse-entry small { color: var(--faint); font-size: 8.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.pulse-entry strong { margin-top: 2px; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.pulse-entry p { margin: 3px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.45; overflow-wrap: anywhere; white-space: normal; }
 .open-loop-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .open-loop-list > * { display: grid; min-width: 0; gap: 3px; padding: 9px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-2); text-align: left; }
 .open-loop-list > button:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .open-loop-list span { color: var(--accent); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-.open-loop-list strong { overflow: hidden; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
-.open-loop-list small { overflow: hidden; color: var(--faint); font-size: 8.5px; text-overflow: ellipsis; white-space: nowrap; }
+.open-loop-list strong { font-size: 10.5px; line-height: 1.35; overflow-wrap: anywhere; white-space: normal; }
+.open-loop-list small { color: var(--faint); font-size: 8.5px; line-height: 1.4; overflow-wrap: anywhere; white-space: normal; }
 .world-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .world-metric-card { min-width: 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-soft)); border-radius: 11px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 5%, var(--surface-2)), var(--surface-1)); }
 .world-metric-card header { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
@@ -1181,6 +1195,43 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .cockpit-studio-card small { margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.35; }
 .cockpit-studio-card > svg { color: var(--faint); }
 
+@container inspector-body (max-width: 410px) {
+  .adaptive-meter-grid,
+  .adaptive-node-map,
+  .adaptive-card-grid,
+  .world-metric-grid,
+  .open-loop-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .adaptive-slot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adaptive-radar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .adaptive-radar svg {
+    max-height: 132px;
+  }
+
+  .adaptive-module-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cockpit-scene,
+  .cockpit-pacing {
+    align-items: flex-start;
+  }
+
+  .cockpit-scene > span {
+    flex-basis: 58px;
+    min-height: 56px;
+  }
+}
+
 /* Adaptive module variants and live-binding diagnostics */
 .adaptive-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .adaptive-data-card { min-width: 0; padding: 9px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-2); }
@@ -1198,6 +1249,28 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .adaptive-module.is-pinned .adaptive-module-heading::after { content: "•"; color: var(--gold); font-size: 18px; line-height: 1; }
 .binding-missing { border-style: dashed !important; opacity: .72; }
 .binding-missing strong, .binding-missing b { color: var(--warning) !important; }
+.binding-concealed { border-style: dashed !important; border-color: color-mix(in srgb, var(--gold) 28%, var(--border-soft)) !important; }
+.binding-concealed strong, .binding-concealed b { color: var(--gold) !important; font-size: 10px !important; line-height: 1.35 !important; }
+
+/* Rumors must look intentionally incomplete without encoding their hidden severity. */
+.is-rumored { border-color: color-mix(in srgb, var(--gold) 22%, var(--border-soft)) !important; border-left-color: color-mix(in srgb, var(--gold) 55%, var(--border-soft)) !important; background: linear-gradient(145deg, color-mix(in srgb, var(--gold) 3%, var(--surface-1)), var(--surface-2)) !important; }
+.world-metric-card.is-rumored > strong { color: var(--gold); font: 650 10px/1.4 var(--sans); }
+.pulse-entry.is-rumored > i { background: color-mix(in srgb, var(--gold) 70%, var(--muted)); box-shadow: none; }
+
+/* The detailed world cards are collapsed by default, so their opened state can be comfortably readable. */
+.world-pressure-card > header span { font-size: 9px; }
+.world-pressure-card > header strong { font-size: 11.5px; }
+.world-pressure-card > header b { font-size: 8.5px; }
+.world-pressure-card > p, .world-pressure-card > small { font-size: 10px; }
+.world-pressure-card > footer { font-size: 8.8px; }
+.world-process-card > header strong, .world-place-card > header strong { font-size: 11.5px; }
+.world-process-card > header span, .world-place-card > header span, .world-place-card > header small { font-size: 9px; }
+.world-process-card > p, .world-place-card > p { font-size: 10px; }
+.pulse-entry small { font-size: 9px; }
+.pulse-entry strong { font-size: 11.5px; }
+.pulse-entry p { font-size: 10px; }
+.world-metric-card header span { font-size: 10px; }
+.world-metric-card p { font-size: 9.5px; }
 
 /* Interface studio */
 .interface-studio { min-height: 0; overflow-y: auto; padding: 18px 22px 24px; }
@@ -1400,7 +1473,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .density-compact .inspector-body { padding: 12px 13px 70px; }
 .density-compact .inspector-section { margin-top: 18px; }
 
-@media (max-width: 1279px) {
+@media (max-width: 1439px) {
   :root { --sidebar-width: 230px; }
   .app-shell, .app-shell:not(.has-inspector) { grid-template-columns: 0 minmax(0, 1fr); }
   .app-shell.has-sidebar, .app-shell.has-sidebar:not(.has-inspector) { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
@@ -1412,7 +1485,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   .story-column { width: min(100%, 840px); }
 }
 
-@media (min-width: 1280px) {
+@media (min-width: 1440px) {
   .inspector-scrim { display: none; }
 }
 
@@ -1546,4 +1619,525 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   .scene-tension-badge { font-size: 8px; }
   .scene-context span:last-child { display: none; }
   .command-palette > footer span:last-child { display: none; }
+}
+
+/* Readable information panels: generated worlds can contain long names and dense mechanics. */
+.inspector-tabs {
+  min-height: 72px;
+  padding: 8px 10px;
+}
+.inspector-tabs button {
+  min-height: 54px;
+  padding: 5px 3px;
+  font-size: calc(10.5px * var(--panel-scale));
+  line-height: 1.2;
+}
+.inspector-tabs button span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.inspector-tabs button i {
+  min-width: 17px;
+  height: 17px;
+  font-size: calc(9px * var(--panel-scale));
+  line-height: 17px;
+}
+.inspector-body {
+  padding: 20px 20px 96px;
+  font-size: calc(11px * var(--panel-scale));
+}
+.inspector-section {
+  margin-top: 28px;
+}
+.section-heading {
+  min-height: 32px;
+  margin-bottom: 10px;
+}
+.section-toggle {
+  min-height: 32px;
+}
+.section-heading h3,
+.section-heading .section-title {
+  font-size: calc(11.5px * var(--panel-scale));
+  line-height: 1.35;
+}
+.section-toggle h3,
+.section-toggle .section-title {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.inspector-body p,
+.inspector-body li,
+.inspector-body dd {
+  font-size: calc(11px * var(--panel-scale)) !important;
+  line-height: 1.55;
+}
+.inspector-body small,
+.inspector-body dt {
+  font-size: calc(10px * var(--panel-scale)) !important;
+  line-height: 1.45;
+}
+.inspector-body summary {
+  font-size: calc(10.5px * var(--panel-scale));
+  line-height: 1.4;
+}
+.mini-empty,
+.cockpit-empty {
+  font-size: calc(11px * var(--panel-scale));
+  line-height: 1.55;
+}
+
+.cockpit-section > header {
+  min-height: 48px;
+  padding: 7px 13px;
+}
+.cockpit-section > header strong {
+  overflow: visible;
+  font-size: calc(12px * var(--panel-scale));
+  line-height: 1.3;
+  text-overflow: clip;
+  white-space: normal;
+}
+.cockpit-link {
+  flex: 0 0 auto;
+  font-size: calc(10px * var(--panel-scale));
+}
+.cockpit-scene {
+  align-items: flex-start;
+}
+.cockpit-scene p {
+  overflow: visible;
+  font-size: calc(11px * var(--panel-scale));
+  line-height: 1.45;
+  text-overflow: clip;
+  white-space: normal;
+}
+.cockpit-conflict header strong,
+.cockpit-studio-card strong {
+  font-size: calc(12px * var(--panel-scale));
+}
+.cockpit-conflict header em,
+.cockpit-conflict > div,
+.cockpit-pacing span {
+  font-size: calc(10px * var(--panel-scale));
+}
+.cockpit-pacing strong,
+.cockpit-conflict p,
+.cockpit-studio-card small {
+  font-size: calc(11px * var(--panel-scale));
+}
+.pulse-entry {
+  gap: 10px;
+  padding: 11px;
+}
+.pulse-entry small {
+  font-size: calc(10px * var(--panel-scale)) !important;
+}
+.pulse-entry strong {
+  font-size: calc(12px * var(--panel-scale));
+}
+.pulse-entry p {
+  font-size: calc(11px * var(--panel-scale)) !important;
+}
+.open-loop-list > * {
+  gap: 5px;
+  padding: 11px;
+}
+.open-loop-list span {
+  font-size: calc(9.5px * var(--panel-scale));
+}
+.open-loop-list strong {
+  font-size: calc(11.5px * var(--panel-scale));
+}
+.open-loop-list small {
+  font-size: calc(10px * var(--panel-scale)) !important;
+}
+.world-metric-card {
+  padding: 11px;
+}
+.world-metric-card header span,
+.adaptive-data-card header span {
+  overflow: visible;
+  font-size: calc(10.5px * var(--panel-scale));
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+.world-metric-card header em {
+  font-size: calc(9px * var(--panel-scale));
+}
+.world-metric-card p {
+  display: block;
+  overflow: visible;
+  font-size: calc(10.5px * var(--panel-scale)) !important;
+  -webkit-line-clamp: initial;
+}
+.cockpit-mechanics summary {
+  align-items: flex-start;
+  font-size: calc(11px * var(--panel-scale));
+}
+.cockpit-mechanics summary small,
+.cockpit-mechanics details > strong {
+  font-size: calc(9.5px * var(--panel-scale)) !important;
+}
+
+.adaptive-module-heading {
+  min-height: 61px;
+  padding: 12px 14px 10px;
+}
+.adaptive-module-heading small {
+  overflow: visible;
+  font-size: calc(9.5px * var(--panel-scale)) !important;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+.adaptive-module-heading h3 {
+  font-size: calc(16px * var(--panel-scale));
+  line-height: 1.25;
+}
+.adaptive-module-heading > em {
+  font-size: calc(9px * var(--panel-scale));
+}
+.adaptive-module-body {
+  padding: 0 14px 13px;
+}
+.adaptive-module-description {
+  font-size: calc(11px * var(--panel-scale)) !important;
+}
+.adaptive-module-footer {
+  font-size: calc(9.5px * var(--panel-scale));
+  line-height: 1.4;
+}
+.adaptive-meter,
+.adaptive-value,
+.adaptive-data-card {
+  padding: 10px;
+}
+.adaptive-meter span,
+.adaptive-value > span {
+  overflow: visible;
+  font-size: calc(10.5px * var(--panel-scale));
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+.adaptive-meter strong,
+.adaptive-value > strong {
+  font-size: calc(11px * var(--panel-scale));
+}
+.adaptive-meter small,
+.adaptive-value small {
+  font-size: calc(9.5px * var(--panel-scale)) !important;
+}
+.adaptive-node strong,
+.adaptive-step strong,
+.adaptive-signal strong,
+.adaptive-slot strong {
+  font-size: calc(10.5px * var(--panel-scale));
+  line-height: 1.35;
+}
+.adaptive-node b,
+.adaptive-step b,
+.adaptive-signal span,
+.adaptive-slot b {
+  font-size: calc(9.5px * var(--panel-scale));
+}
+.adaptive-node small,
+.adaptive-node em,
+.adaptive-step small,
+.adaptive-signal small,
+.adaptive-slot small {
+  font-size: calc(9.5px * var(--panel-scale)) !important;
+  line-height: 1.4;
+}
+.adaptive-radar-legend span {
+  overflow: visible;
+  font-size: calc(9.5px * var(--panel-scale));
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+.adaptive-radar-legend strong {
+  font-size: calc(10px * var(--panel-scale));
+}
+.adaptive-empty small,
+.adaptive-empty button,
+.adaptive-module-rationale summary {
+  font-size: calc(9.5px * var(--panel-scale)) !important;
+}
+.adaptive-empty p,
+.adaptive-module-rationale p,
+.adaptive-data-card p {
+  font-size: calc(10.5px * var(--panel-scale)) !important;
+}
+
+.npc-card {
+  gap: 11px;
+  padding: 12px;
+}
+.npc-card strong {
+  font-size: calc(12px * var(--panel-scale));
+}
+.npc-card span {
+  font-size: calc(10.5px * var(--panel-scale));
+  line-height: 1.4;
+}
+.npc-card small,
+.npc-initiative,
+.npc-knowledge-summary p,
+.npc-known-profile p,
+.npc-knowledge-summary summary,
+.npc-knowledge-summary li span,
+.npc-locked-note b,
+.npc-locked-note small,
+.npc-resource-list span,
+.npc-resource-list b,
+.npc-strategy p,
+.npc-threat-profile > p,
+.npc-threat-profile > small,
+.npc-threat-profile > em,
+.npc-personality,
+.npc-effect-list > div b,
+.npc-effect-list > div span,
+.npc-effect-list > div small {
+  font-size: calc(10.5px * var(--panel-scale)) !important;
+}
+.bond-dimensions i,
+.npc-knowledge-summary strong,
+.npc-knowledge-summary li small,
+.npc-detail-heading > strong,
+.npc-detail-heading > span,
+.npc-stat-grid span,
+.strategy-metrics span,
+.strategy-metrics b,
+.npc-threat-profile > header span,
+.countermeasure-list > b,
+.countermeasure-list article > div span {
+  font-size: calc(9.5px * var(--panel-scale));
+  line-height: 1.4;
+}
+.npc-threat-profile > header strong,
+.countermeasure-list article > div strong,
+.npc-effect-list > strong {
+  font-size: calc(11px * var(--panel-scale));
+}
+
+.ability-main,
+.item-main {
+  padding: 12px;
+}
+.ability-card strong,
+.item-copy strong,
+.artifact-heading strong,
+.artifact-powers summary strong {
+  overflow: visible;
+  font-size: calc(12px * var(--panel-scale));
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+.ability-card p,
+.item-details p,
+.artifact-profile p,
+.artifact-power-body > p {
+  font-size: calc(11px * var(--panel-scale)) !important;
+}
+.ability-card small,
+.item-copy small,
+.item-state-line b,
+.item-state-line i,
+.item-details > small,
+.artifact-heading span,
+.artifact-meters span,
+.artifact-powers summary small,
+.artifact-component p,
+.artifact-component header span {
+  font-size: calc(10px * var(--panel-scale)) !important;
+  line-height: 1.45;
+}
+.ability-details > div > b,
+.artifact-profile > div > b,
+.progress-history > b,
+.evolution-list > b,
+.technique-collection > header b {
+  font-size: calc(10.5px * var(--panel-scale));
+}
+.ability-details ul,
+.artifact-profile ul,
+.item-details ul,
+.power-detail-list.is-compact li {
+  font-size: calc(10.5px * var(--panel-scale));
+}
+.power-badges span,
+.equipped-mark {
+  font-size: calc(9.5px * var(--panel-scale));
+}
+.technique-collection {
+  padding: 11px;
+}
+.technique-collection > header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.technique-collection > header small,
+.technique-card > summary > span em,
+.technique-mastery > span,
+.technique-mastery > b,
+.technique-facts p b,
+.technique-body .power-detail-list > b,
+.technique-body .power-detail-list ul {
+  font-size: calc(9.5px * var(--panel-scale)) !important;
+}
+.technique-card > summary > span strong {
+  font-size: calc(11px * var(--panel-scale));
+}
+.technique-card > summary > span small,
+.technique-facts p span {
+  font-size: calc(10px * var(--panel-scale)) !important;
+}
+.technique-card > summary > b {
+  font-size: calc(10px * var(--panel-scale));
+}
+.artifact-profile {
+  padding: 16px;
+}
+.artifact-powers > div strong,
+.artifact-powers > div span,
+.artifact-powers > div small,
+.evolution-list > div strong,
+.evolution-list > div span,
+.evolution-list > div small,
+.progress-history > div strong,
+.progress-history > div span {
+  font-size: calc(10.5px * var(--panel-scale));
+  line-height: 1.45;
+}
+.rarity-profile header span,
+.rarity-profile header strong,
+.rarity-profile dt,
+.rarity-profile dd,
+.rarity-profile > p,
+.rarity-profile > small,
+.item-condition-grid span,
+.item-condition-grid strong {
+  font-size: calc(10px * var(--panel-scale)) !important;
+}
+.rarity-profile header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.world-pulse-card header strong,
+.world-process-card > header strong,
+.world-place-card > header strong,
+.faction-dynamics-card > header strong,
+.world-law-card > header strong,
+.world-mechanic-card > header strong,
+.arc-card strong,
+.mystery-card strong,
+.plan-card strong,
+.influence-card strong {
+  font-size: calc(11.5px * var(--panel-scale));
+  line-height: 1.4;
+}
+.world-process-card > header span,
+.world-place-card > header span,
+.world-place-card > header small,
+.process-stage small,
+.place-situation small,
+.process-details summary,
+.process-details b,
+.process-details span,
+.faction-dynamics-card > header span,
+.world-law-card > header span,
+.world-mechanic-card > header span,
+.world-tag-row span,
+.world-law-card dt,
+.world-law-card dd,
+.world-consequences b,
+.world-consequences span,
+.rumor-mark,
+.mechanic-trigger small,
+.world-mechanic-card > footer,
+.memory-card span,
+.route-nodes i,
+.arc-card span,
+.mystery-card span,
+.plan-card span,
+.influence-card span,
+.arc-card small,
+.plan-card small,
+.influence-card small,
+.mystery-card li b,
+.mystery-card li span,
+.mystery-card li small,
+.context-xray dt,
+.continuity-notes {
+  font-size: calc(10px * var(--panel-scale)) !important;
+  line-height: 1.45;
+}
+.world-process-card > p,
+.world-place-card > p,
+.faction-dynamics-card > p,
+.world-law-card > p,
+.world-mechanic-card > p,
+.mechanic-trigger span,
+.world-mechanic-card ul,
+.memory-card p,
+.route-nodes > span,
+.route-list strong,
+.route-list span,
+.social-list strong,
+.social-list span,
+.document-list strong,
+.document-list small,
+.arc-card p,
+.mystery-card p,
+.plan-card p,
+.influence-card p,
+.context-xray > p {
+  font-size: calc(10.5px * var(--panel-scale)) !important;
+}
+.lore-main {
+  min-height: 44px;
+}
+.lore-main strong {
+  overflow: visible;
+  font-size: calc(11.5px * var(--panel-scale));
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+.lore-type,
+.pin-badge,
+.context-badge,
+.count-badge {
+  font-size: calc(9.5px * var(--panel-scale));
+}
+.state-change-value,
+.change-vital > span,
+.change-active-effects span {
+  overflow: visible;
+  font-size: calc(10px * var(--panel-scale));
+  line-height: 1.4;
+  text-overflow: clip;
+  white-space: normal;
+}
+.state-change-value {
+  max-width: min(240px, 46%);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 800px) {
+  .inspector-tabs button,
+  .inspector-tabs button span {
+    font-size: calc(10px * var(--panel-scale));
+  }
+  .inspector-body {
+    padding: 17px 16px max(92px, env(safe-area-inset-bottom));
+  }
 }

@@ -195,7 +195,7 @@ export function createDemoCampaign(): Campaign {
       presentNpcIds: [miraId],
     },
     settings: {
-      responseLength: 'balanced',
+      responseLength: 'adaptive',
       playerAgency: 'strict',
       difficulty: 'balanced',
       canonMode: 'original',

@@ -81,10 +81,15 @@ function WorldMetricCards({ campaign }: { campaign: Campaign }) {
   const metrics = (campaign.world.metrics ?? []).filter((metric) => metric.visibility !== 'hidden')
   if (!metrics.length) return <EmptySignal>У этого мира пока нет открытых уникальных показателей.</EmptySignal>
   return <div className="world-metric-grid">{metrics.map((metric) => {
+    if (metric.visibility === 'rumored') return <article key={metric.id} className="world-metric-card is-rumored">
+      <header><span>{metric.label}</span><em>по слухам</em></header>
+      <strong>Точное значение неизвестно</strong>
+      <p>Пока доступны только неподтверждённые сведения. Число откроется после надёжного наблюдения или проверки.</p>
+    </article>
     const range = metric.max - metric.min
     const progress = range > 0 ? Math.max(0, Math.min(100, (metric.value - metric.min) / range * 100)) : 0
     return <article key={metric.id} className="world-metric-card" title={metric.description}>
-      <header><span>{metric.label}</span>{metric.visibility === 'rumored' && <em>по слухам</em>}</header>
+      <header><span>{metric.label}</span></header>
       <strong>{metric.value}{metric.unit ?? ''}</strong>
       <div role="progressbar" aria-label={metric.label} aria-valuemin={metric.min} aria-valuemax={metric.max} aria-valuenow={metric.value}><i style={{ width: `${progress}%` }} /></div>
       <p>{metric.description}</p>
@@ -186,9 +191,15 @@ export function WorldCockpit({ campaign, onNavigate, onUpdate, onDesign, designi
     </CockpitSection>,
     worldPulse: <CockpitSection title="Мир движется" icon={<Activity size={15} />} action={<button className="cockpit-link" onClick={() => onNavigate('world')}>Подробнее <ChevronRight size={13} /></button>}>
       {(processes.length || pressures.length || events.length) ? <div className="world-pulse-list">
-        {pressures.map((pressure) => <article className={`pulse-entry tier-${pressure.tier}`} key={pressure.id}><i /><span><small>{pressure.sourceName} · {uiLabel(pressure.stage)}</small><strong>{pressure.objective}</strong><p>{pressure.signs[0] ?? pressure.cause}</p></span></article>)}
-        {processes.map((process) => <article className="pulse-entry" key={process.id}><i /><span><small>{process.stage} · импульс {process.momentum}%</small><strong>{process.title}</strong><p>{process.nextMilestone}</p></span></article>)}
-        {events.map((event) => <article className="pulse-entry is-event" key={event.id}><i /><span><small>{event.status === 'due' ? 'Событие наступает' : event.dueTurn ? `ожидается к ходу ${event.dueTurn}` : 'грядущее событие'}</small><strong>{event.title}</strong><p>{event.description}</p></span></article>)}
+        {pressures.map((pressure) => pressure.visibility === 'rumored'
+          ? <article className="pulse-entry is-rumored" key={pressure.id}><i /><span><small>Неподтверждённые сведения</small><strong>{pressure.sourceName}</strong><p>Замечены признаки возможного давления, но его масштаб, цель и источник пока не установлены.</p></span></article>
+          : <article className={`pulse-entry tier-${pressure.tier}`} key={pressure.id}><i /><span><small>{pressure.sourceName} · {uiLabel(pressure.stage)}</small><strong>{pressure.objective}</strong><p>{pressure.signs[0] ?? pressure.cause}</p></span></article>)}
+        {processes.map((process) => process.visibility === 'rumored'
+          ? <article className="pulse-entry is-rumored" key={process.id}><i /><span><small>Ходят слухи</small><strong>{process.title}</strong><p>Что именно происходит и к чему это ведёт, герою ещё предстоит выяснить.</p></span></article>
+          : <article className="pulse-entry" key={process.id}><i /><span><small>{process.stage} · импульс {process.momentum}%</small><strong>{process.title}</strong><p>{process.nextMilestone}</p></span></article>)}
+        {events.map((event) => event.visibility === 'rumored'
+          ? <article className="pulse-entry is-event is-rumored" key={event.id}><i /><span><small>Неподтверждённое событие</small><strong>{event.title}</strong><p>Точное время, причины и последствия пока неизвестны.</p></span></article>
+          : <article className="pulse-entry is-event" key={event.id}><i /><span><small>{event.status === 'due' ? 'Событие наступает' : event.dueTurn ? `ожидается к ходу ${event.dueTurn}` : 'грядущее событие'}</small><strong>{event.title}</strong><p>{event.description}</p></span></article>)}
       </div> : <EmptySignal>Открытых крупных процессов пока не замечено — скрытая жизнь мира всё равно продолжается.</EmptySignal>}
     </CockpitSection>,
     openLoops: <CockpitSection title="Не забыть" icon={<BookOpenCheck size={15} />}>
