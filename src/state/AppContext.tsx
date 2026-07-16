@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ActionType, Campaign, OperationProgress, ProviderConfig, WorldGenerationRequest, WorldIdea, WorldIdeaRequest } from '../../shared/types'
-import { editCampaign as requestCampaignEdit, generateCampaign, inventWorldIdea, takeTurn } from '../lib/api'
+import type { ActionType, Campaign, OperationProgress, ProviderConfig, WorldGenerationRequest } from '../../shared/types'
+import { editCampaign as requestCampaignEdit, generateCampaign, takeTurn } from '../lib/api'
 import { ensureCampaignIdentity } from '../lib/campaign-identity'
 import { createDemoCampaign } from '../lib/demo'
 import { applyPatch, commitTurn, rewindLastTurn } from '../lib/engine'
@@ -18,10 +18,8 @@ interface AppContextValue {
   theme: Theme
   loading: boolean
   generating: boolean
-  ideating: boolean
   error?: string
   operationProgress?: OperationProgress
-  ideaProgress?: OperationProgress
   setActiveCampaignId: (id: string) => void
   setProvider: (config: ProviderConfig) => void
   setTheme: (theme: Theme) => void
@@ -32,8 +30,6 @@ interface AppContextValue {
   retryFailedTurn: () => Promise<boolean>
   canRetryFailedTurn: boolean
   createCampaign: (request: Omit<WorldGenerationRequest, 'provider'>) => Promise<Campaign | undefined>
-  createWorldIdea: (request: Omit<WorldIdeaRequest, 'provider'>) => Promise<WorldIdea>
-  cancelWorldIdea: () => void
   aiEditCampaign: (instruction: string) => Promise<string | undefined>
   updateActiveCampaign: (updater: (campaign: Campaign) => Campaign) => Promise<void>
   undoLastEdit: () => Promise<void>
@@ -55,12 +51,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
-  const [ideating, setIdeating] = useState(false)
   const [error, setError] = useState<string>()
   const [operationProgress, setOperationProgress] = useState<OperationProgress>()
-  const [ideaProgress, setIdeaProgress] = useState<OperationProgress>()
   const abortRef = useRef<AbortController | undefined>(undefined)
-  const ideaAbortRef = useRef<AbortController | undefined>(undefined)
   const lastFailedTurnRef = useRef<{ input: string; actionType: ActionType } | undefined>(undefined)
   const [canRetryFailedTurn, setCanRetryFailedTurn] = useState(false)
   const initializedRef = useRef(false)
@@ -214,27 +207,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [provider, setActiveCampaignId, upsert])
 
-  const createWorldIdea = useCallback(async (request: Omit<WorldIdeaRequest, 'provider'>) => {
-    if (ideaAbortRef.current) throw new Error('Изобретатель мира уже работает над концепцией.')
-    setIdeating(true)
-    setIdeaProgress({ percent: 1, stage: 'connecting', detail: 'Передаём свободу изобретателю миров' })
-    const controller = new AbortController()
-    ideaAbortRef.current = controller
-    try {
-      return await inventWorldIdea({ ...request, provider }, controller.signal, setIdeaProgress)
-    } finally {
-      if (ideaAbortRef.current === controller) ideaAbortRef.current = undefined
-      setIdeating(false)
-    }
-  }, [provider])
-
-  const cancelWorldIdea = useCallback(() => {
-    ideaAbortRef.current?.abort()
-    ideaAbortRef.current = undefined
-    setIdeating(false)
-    setIdeaProgress(undefined)
-  }, [])
-
   const aiEditCampaign = useCallback(async (instruction: string) => {
     const campaign = campaigns.find((candidate) => candidate.id === activeCampaignId)
     if (!campaign || generating || instruction.trim().length < 3) return undefined
@@ -318,10 +290,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setActiveCampaignId, upsert])
 
   const value = useMemo<AppContextValue>(() => ({
-    campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, ideating, error, operationProgress, ideaProgress,
+    campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress,
     setActiveCampaignId, setProvider, setTheme, dismissError: () => setError(undefined), sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, canRetryFailedTurn, createCampaign, aiEditCampaign,
-    createWorldIdea, cancelWorldIdea, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign,
-  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, ideating, error, operationProgress, ideaProgress, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, createWorldIdea, cancelWorldIdea, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
+    updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign,
+  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

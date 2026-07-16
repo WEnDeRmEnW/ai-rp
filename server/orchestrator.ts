@@ -1,13 +1,12 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest, WorldIdea, WorldIdeaRequest } from '../shared/types.js'
+import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldIdeaCriticPrompt, worldIdeaPrompt, worldIdeaRewritePrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
-import { backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldIdeaReviewSchema, worldIdeaSchema, worldQualityReviewSchema, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldIdeaReview, type WorldQualityReview } from './schemas.js'
+import { backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
+import { backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
-import { assessWorldIdeaNovelty, worldIdeaSummary } from '../shared/world-idea-novelty.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
 
@@ -1762,98 +1761,6 @@ export async function editCampaign(request: CampaignEditRequest, report?: Progre
     summary: sanitized.notes.length ? `${parsed.summary} Часть небезопасных ссылок отклонена: ${sanitized.notes.join(' ')}` : parsed.summary,
     statePatch: sanitized.plan.statePatch,
   }
-}
-
-function reviewedIdea(idea: WorldIdea, review: WorldIdeaReview): WorldIdea {
-  const score = Math.round((review.originality + review.coherence + review.longTermDepth + review.playability + review.livingWorld) / 5)
-  return { ...idea, originalityScore: score }
-}
-
-function passesWorldIdeaReview(review: WorldIdeaReview) {
-  return review.pass
-    && review.originality >= 85
-    && review.coherence >= 80
-    && review.longTermDepth >= 85
-    && review.playability >= 80
-    && review.livingWorld >= 85
-    && review.detectedCliches.length === 0
-}
-
-export async function generateWorldIdea(request: WorldIdeaRequest, report?: ProgressReporter): Promise<WorldIdea> {
-  if (request.provider.provider === 'demo') throw new Error('Автоматическое изобретение мира требует подключённую модель. Выберите DeepSeek V4 Flash в настройках.')
-
-  const excludedIdeas = [...request.previousIdeas]
-  const maxAttempts = 3
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const attemptNumber = attempt + 1
-    const attemptBase = 6 + attempt * 28
-    const attemptRequest: WorldIdeaRequest = {
-      ...request,
-      previousIdeas: excludedIdeas.slice(-8),
-      creativeSeed: `${request.creativeSeed}:${attemptNumber}:${randomUUID()}`,
-    }
-
-    reportProgress(
-      report,
-      attemptBase,
-      'idea-seed',
-      attempt === 0 ? 'Ищем необычный причинный фундамент мира' : `Меняем направление после отклонённого варианта · попытка ${attemptNumber}`,
-      attempt * 3 + 1,
-      maxAttempts * 3,
-    )
-    const creatorMessages = worldIdeaPrompt(attemptRequest)
-    const rawIdea = await completeJson(request.provider, creatorMessages, {
-      stage: 'idea',
-      temperature: Math.min(1.15, Math.max(0.9, request.provider.temperature) + attempt * 0.08),
-    })
-    let idea = await parseWithRepair<WorldIdea>(rawIdea, worldIdeaSchema, request.provider, creatorMessages)
-
-    reportProgress(report, attemptBase + 10, 'idea-novelty', 'Сравниваем основу с уже отклонёнными мирами', attempt * 3 + 1, maxAttempts * 3)
-    const novelty = assessWorldIdeaNovelty(idea, attemptRequest.previousIdeas)
-    if (!novelty.novel) {
-      excludedIdeas.push(worldIdeaSummary(idea))
-      console.warn(`[model:world-idea] Отклонён повтор с близостью ${Math.round(novelty.similarity * 100)}%: ${novelty.reason ?? 'слишком похожая концепция'}.`)
-      continue
-    }
-
-    reportProgress(report, attemptBase + 18, 'idea-critic', 'Независимый редактор ищет заимствования, повторы и жанровые клише', attempt * 3 + 2, maxAttempts * 3)
-    let criticMessages = worldIdeaCriticPrompt(attemptRequest, idea)
-    let rawReview = await completeJson(request.provider, criticMessages, { stage: 'idea', temperature: 0.1 })
-    let review = await parseWithRepair<WorldIdeaReview>(rawReview, worldIdeaReviewSchema, request.provider, criticMessages)
-    idea = reviewedIdea(idea, review)
-    if (passesWorldIdeaReview(review)) {
-      reportProgress(report, 98, 'idea-ready', 'Новая концепция проверена и поля Кузницы заполнены', maxAttempts * 3, maxAttempts * 3)
-      return idea
-    }
-
-    reportProgress(report, attemptBase + 22, 'idea-rewrite', 'Пересобираем слабые и слишком знакомые части концепции', attempt * 3 + 3, maxAttempts * 3)
-    const rewriteMessages = worldIdeaRewritePrompt(attemptRequest, idea, review)
-    const rawRewrite = await completeJson(request.provider, rewriteMessages, {
-      stage: 'idea',
-      temperature: Math.min(1.1, Math.max(0.85, request.provider.temperature) + attempt * 0.06),
-    })
-    const rewritten = await parseWithRepair<WorldIdea>(rawRewrite, worldIdeaSchema, request.provider, rewriteMessages)
-    const rewrittenNovelty = assessWorldIdeaNovelty(rewritten, attemptRequest.previousIdeas)
-
-    if (rewrittenNovelty.novel) {
-      reportProgress(report, attemptBase + 26, 'idea-verification', 'Проверяем, что новый вариант связный, игровой и действительно самостоятельный', attempt * 3 + 3, maxAttempts * 3)
-      criticMessages = worldIdeaCriticPrompt(attemptRequest, rewritten)
-      rawReview = await completeJson(request.provider, criticMessages, { stage: 'idea', temperature: 0.1 })
-      review = await parseWithRepair<WorldIdeaReview>(rawReview, worldIdeaReviewSchema, request.provider, criticMessages)
-      idea = reviewedIdea(rewritten, review)
-      if (passesWorldIdeaReview(review)) {
-        reportProgress(report, 98, 'idea-ready', 'Новая концепция проверена и поля Кузницы заполнены', maxAttempts * 3, maxAttempts * 3)
-        return idea
-      }
-    } else {
-      console.warn(`[model:world-idea] Переработка всё ещё повторяет прошлый мир с близостью ${Math.round(rewrittenNovelty.similarity * 100)}%.`)
-    }
-
-    excludedIdeas.push(worldIdeaSummary(idea), worldIdeaSummary(rewritten))
-  }
-
-  throw new Error('DeepSeek несколько раз повторил или недостаточно переработал прошлую концепцию. Старый мир сохранён; нажмите «Придумать другой» ещё раз для совершенно нового направления.')
 }
 
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {

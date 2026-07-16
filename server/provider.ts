@@ -5,13 +5,11 @@ export interface ChatMessage {
   content: string
 }
 
-export type CompletionStage = 'service' | 'idea' | 'turn' | 'world' | 'narrative'
+export type CompletionStage = 'service' | 'turn' | 'world' | 'narrative'
 
 export interface CompletionOptions {
   stage?: CompletionStage
   maxOutputTokens?: number
-  /** JSON defaults to zero for reliability; creative pre-generation may explicitly opt into variation. */
-  temperature?: number
 }
 
 interface CompletionResult {
@@ -22,7 +20,6 @@ interface CompletionResult {
 
 const outputTokensByStage: Record<CompletionStage, number> = {
   service: 12_288,
-  idea: 12_288,
   turn: 32_768,
   world: 65_536,
   narrative: 16_384,
@@ -126,7 +123,6 @@ async function requestCompletion(
   messages: ChatMessage[],
   jsonMode: boolean,
   maxOutputTokens: number | undefined,
-  temperature: number | undefined,
   retryWithoutJson = true,
   tokenLimitFallback: TokenLimitFallback = 'reduce',
 ): Promise<CompletionResult> {
@@ -140,7 +136,7 @@ async function requestCompletion(
   const body: Record<string, unknown> = {
     model: config.model,
     messages,
-    temperature: temperature ?? (jsonMode ? 0 : config.temperature),
+    temperature: jsonMode ? 0 : config.temperature,
     // DeepSeek Flash through Ollama Cloud exposes an OpenAI-compatible endpoint and accepts
     // max_tokens. Explicit stage limits avoid the provider's much smaller default output cap.
   }
@@ -163,13 +159,13 @@ async function requestCompletion(
     if (response.status === 400 && explicitlyTokenRelated && tokenLimitFallback !== 'none') {
       const unsupportedParameter = /not supported|unsupported|unknown (?:field|parameter)|unrecognized|not permitted|extra inputs?/i.test(detail)
       if (unsupportedParameter || maxOutputTokens === undefined || tokenLimitFallback === 'omit') {
-        return requestCompletion(config, messages, jsonMode, undefined, temperature, retryWithoutJson, 'none')
+        return requestCompletion(config, messages, jsonMode, undefined, retryWithoutJson, 'none')
       }
       const reduced = reducedProviderLimit(detail, maxOutputTokens)
-      return requestCompletion(config, messages, jsonMode, reduced, temperature, retryWithoutJson, 'omit')
+      return requestCompletion(config, messages, jsonMode, reduced, retryWithoutJson, 'omit')
     }
     if (jsonMode && retryWithoutJson && response.status === 400 && /response_format|json/i.test(detail)) {
-      return requestCompletion({ ...config, temperature: 0 }, messages, false, maxOutputTokens, temperature, false, tokenLimitFallback)
+      return requestCompletion({ ...config, temperature: 0 }, messages, false, maxOutputTokens, false, tokenLimitFallback)
     }
     if (response.status === 401 || response.status === 403) throw new Error('API отклонил ключ. Проверьте ключ и выбранного провайдера.')
     if (response.status === 429) throw new Error('Провайдер временно ограничил частоту запросов. Попробуйте чуть позже.')
@@ -207,7 +203,7 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   let maxOutputTokens = outputLimit(messages, true, options)
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await requestCompletion(config, repairMessages, true, maxOutputTokens, options?.temperature)
+    const completion = await requestCompletion(config, repairMessages, true, maxOutputTokens)
     const raw = completion.content
     if (completion.truncated) {
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
@@ -246,7 +242,7 @@ export async function completeText(config: ProviderConfig, messages: ChatMessage
   let finishReason = 'length'
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await requestCompletion(config, retryMessages, false, maxOutputTokens, options?.temperature)
+    const completion = await requestCompletion(config, retryMessages, false, maxOutputTokens)
     if (!completion.truncated) return completion.content
     finishReason = completion.finishReason ?? finishReason
     maxOutputTokens = expandedOutputLimit(maxOutputTokens)

@@ -5,17 +5,16 @@ import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit'
 import helmet from 'helmet'
-import type { Campaign, CampaignEditResponse, TurnResponse, WorldIdea } from '../shared/types.js'
+import type { Campaign, CampaignEditResponse, TurnResponse } from '../shared/types.js'
 import { OperationJobs } from './operation-jobs.js'
-import { editCampaign, runTurn, generateWorld, generateWorldIdea } from './orchestrator.js'
-import { campaignEditRequestSchema, turnRequestSchema, worldIdeaRequestSchema, worldRequestSchema } from './schemas.js'
+import { editCampaign, runTurn, generateWorld } from './orchestrator.js'
+import { campaignEditRequestSchema, turnRequestSchema, worldRequestSchema } from './schemas.js'
 import { normalizeWorld } from './world-normalizer.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
 const turnJobs = new OperationJobs<TurnResponse>()
 const worldJobs = new OperationJobs<Campaign>()
-const ideaJobs = new OperationJobs<WorldIdea>()
 const editJobs = new OperationJobs<CampaignEditResponse>()
 
 function requestId(value: unknown) {
@@ -56,17 +55,6 @@ app.post('/api/jobs/world', (req, res, next) => {
   }
 })
 
-app.post('/api/jobs/idea', (req, res, next) => {
-  try {
-    const id = requestId(req.body?.requestId)
-    const request = worldIdeaRequestSchema.parse(req.body?.payload)
-    const job = ideaJobs.start(id, (report) => generateWorldIdea(request, report))
-    res.status(job.status === 'pending' ? 202 : 200).json(job)
-  } catch (error) {
-    next(error)
-  }
-})
-
 app.post('/api/jobs/edit', (req, res, next) => {
   try {
     const id = requestId(req.body?.requestId)
@@ -90,12 +78,6 @@ app.get('/api/jobs/world/:id', (req, res) => {
   return res.json(job)
 })
 
-app.get('/api/jobs/idea/:id', (req, res) => {
-  const job = ideaJobs.get(req.params.id)
-  if (!job) return res.status(404).json({ error: 'Задача изобретения мира не найдена.' })
-  return res.json(job)
-})
-
 app.get('/api/jobs/edit/:id', (req, res) => {
   const job = editJobs.get(req.params.id)
   if (!job) return res.status(404).json({ error: 'Задача ИИ-корректировки не найдена.' })
@@ -104,7 +86,6 @@ app.get('/api/jobs/edit/:id', (req, res) => {
 
 app.delete('/api/jobs/turn/:id', (req, res) => res.status(turnJobs.forget(req.params.id) ? 204 : 404).end())
 app.delete('/api/jobs/world/:id', (req, res) => res.status(worldJobs.forget(req.params.id) ? 204 : 404).end())
-app.delete('/api/jobs/idea/:id', (req, res) => res.status(ideaJobs.forget(req.params.id) ? 204 : 404).end())
 app.delete('/api/jobs/edit/:id', (req, res) => res.status(editJobs.forget(req.params.id) ? 204 : 404).end())
 
 app.post('/api/turn', async (req, res, next) => {

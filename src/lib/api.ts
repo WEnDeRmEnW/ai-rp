@@ -1,4 +1,4 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnRequest, TurnResponse, WorldGenerationRequest, WorldIdea, WorldIdeaRequest } from '../../shared/types'
+import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnRequest, TurnResponse, WorldGenerationRequest } from '../../shared/types'
 
 class ApiError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -59,7 +59,7 @@ interface JobState<T> {
   progress?: OperationProgress
 }
 
-async function runJob<T>(kind: 'turn' | 'world' | 'idea' | 'edit', payload: unknown, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<T> {
+async function runJob<T>(kind: 'turn' | 'world' | 'edit', payload: unknown, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<T> {
   const requestId = crypto.randomUUID()
   const create = () => fetchJson<JobState<T>>(`/api/jobs/${kind}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId, payload }),
@@ -103,10 +103,6 @@ export async function takeTurn(request: TurnRequest, signal?: AbortSignal, onPro
 
 export async function generateCampaign(request: WorldGenerationRequest, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<Campaign> {
   return runJob<Campaign>('world', request, signal, onProgress)
-}
-
-export async function inventWorldIdea(request: WorldIdeaRequest, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<WorldIdea> {
-  return runJob<WorldIdea>('idea', request, signal, onProgress)
 }
 
 export async function editCampaign(request: CampaignEditRequest, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<CampaignEditResponse> {
