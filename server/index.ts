@@ -152,7 +152,7 @@ app.use((req, res, next) => {
 
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   void _next
-  const status = error?.name === 'ZodError' ? 400 : 500
+  const status = error?.name === 'ZodError' || error?.type === 'entity.parse.failed' || error?.status === 400 ? 400 : 500
   const message = error instanceof Error ? error.message : 'Неизвестная ошибка сервера.'
   if (process.env.NODE_ENV !== 'test') console.error(`[api] ${message}`)
   res.status(status).json({ error: message })
