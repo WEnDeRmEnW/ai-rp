@@ -464,6 +464,12 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .ability-card strong { display: block; color: var(--text-soft); font-size: 10.5px; }
 .ability-card p { margin: 4px 0; color: var(--muted); font-size: 9.5px; line-height: 1.5; }
 .ability-card small { color: var(--faint); font-size: 8.5px; }
+.ability-card.is-unavailable { border-style: dashed; background: color-mix(in srgb, var(--surface-1) 88%, var(--surface-3)); }
+.ability-card.is-unavailable .ability-icon { color: var(--faint); filter: saturate(.45); }
+.ability-access { display: inline-flex; width: fit-content; margin-top: 7px; padding: 4px 7px; border: 1px solid var(--border-soft); border-radius: 999px; font-size: 8px; font-style: normal; line-height: 1.25; }
+.ability-access.is-ready { border-color: color-mix(in srgb, var(--accent) 30%, var(--border-soft)); color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ability-access.is-locked { color: var(--faint); background: var(--surface-2); }
+.item-ability-intro { margin-bottom: 8px; padding: 8px 9px; border-left: 2px solid var(--lore); border-radius: 0 8px 8px 0; color: var(--muted); background: color-mix(in srgb, var(--lore) 5%, transparent); font-size: calc(9.5px * var(--panel-scale)); line-height: 1.5; }
 .ability-details { display: grid; gap: 11px; padding: 1px 12px 13px; }
 .ability-details > div > b, .artifact-profile > div > b, .progress-history > b, .evolution-list > b { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
 .ability-details ul, .artifact-profile ul { margin: 4px 0 0; padding-left: 17px; color: var(--muted); font-size: 10px; line-height: 1.55; }

@@ -4,8 +4,9 @@ import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEve
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt, worldRewritePrompt } from './prompts.js'
+import { agencyRevisionPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt, worldRewritePrompt } from './prompts.js'
 import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
+import { assessItemRarity, rarityOrder } from '../shared/rarity.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 import { findAgencyViolations, type AgencyViolation } from './agency-guard.js'
@@ -1585,6 +1586,78 @@ function startingAccessIssues(concept: ConceptAnalysis, world: GeneratedWorld): 
   return issues
 }
 
+const rarityRequestPatterns: Array<{ rarity: typeof rarityOrder[number]; pattern: RegExp }> = [
+  { rarity: 'transcendent', pattern: /трансцендент|transcendent/iu },
+  { rarity: 'mythic', pattern: /мифическ|mythic/iu },
+  { rarity: 'legendary', pattern: /легендарн|legendary/iu },
+  { rarity: 'epic', pattern: /эпическ|epic/iu },
+  { rarity: 'exceptional', pattern: /исключительн|exceptional/iu },
+  { rarity: 'rare', pattern: /\bредк(?:ий|ого|ую|ое|ие)\b|\brare\b/iu },
+  { rarity: 'uncommon', pattern: /необычн|uncommon/iu },
+  { rarity: 'common', pattern: /обычн|common/iu },
+]
+
+function requestedArtifactRarity(input: string) {
+  const artifactIntent = /артефакт|реликви|особ(?:ый|ого|ую)\s+предмет|оружи|artifact|relic/iu.test(input)
+  if (!artifactIntent) return undefined
+  return rarityRequestPatterns.find((entry) => entry.pattern.test(input))?.rarity
+}
+
+function artifactPlanQualityIssues(input: string, plan: ReturnType<typeof turnPlanSchema.parse>): string[] {
+  const requested = requestedArtifactRarity(input)
+  const additions = (plan.statePatch.inventory ?? []).flatMap((mutation) => (
+    mutation.operation === 'add' && mutation.item?.category === 'artifact' ? [mutation.item] : []
+  ))
+  const issues: string[] = []
+  for (const item of additions) {
+    const assessment = assessItemRarity({
+      category: item.category,
+      effects: item.effects ?? [],
+      artifact: item.artifact,
+      rarity: item.rarity,
+      rarityProfile: item.rarityProfile,
+    })
+    const claimedRank = rarityOrder.indexOf(item.rarity)
+    const assessedRank = rarityOrder.indexOf(assessment.rarity)
+    const requestedRank = requested ? rarityOrder.indexOf(requested) : -1
+    if (claimedRank >= rarityOrder.indexOf('legendary') && assessedRank < claimedRank) {
+      issues.push(`«${item.name}» заявлен как ${item.rarity}, но реальные свойства дают только ${assessment.rarity} (${assessment.score}/100). Исправь свойства и оценки либо честно понизь заявленный класс.`)
+    }
+    if (requested && requestedRank >= 0 && assessedRank < requestedRank) {
+      issues.push(`Игрок запросил класс ${requested}, а «${item.name}» фактически имеет класс ${assessment.rarity}. Если запрос исполнен, создай предмет не ниже ${requested}; одна смена rarity без новых возможностей не подходит.`)
+    }
+    if (!item.artifact) {
+      issues.push(`Особый предмет «${item.name}» не имеет полного artifact-профиля и его силы не попадут во вкладку героя.`)
+      continue
+    }
+    const highTier = Math.max(claimedRank, requestedRank) >= rarityOrder.indexOf('mythic')
+    if (!highTier) continue
+    const powers = item.artifact.powers ?? []
+    const concreteApplications = powers.reduce((sum, power) => sum
+      + (power.capabilities?.length ?? 0)
+      + (power.techniques?.length ?? 0)
+      + (power.examples?.length ?? 0), 0)
+      + (item.artifact.passiveEffects?.length ?? 0)
+      + (item.artifact.combinedEffects?.length ?? 0)
+    if (powers.length < 2 && !(powers.length === 1 && (powers[0].techniques?.length ?? 0) >= 3)) {
+      issues.push(`«${item.name}» уровня mythic/transcendent должен иметь несколько различимых сил либо одну фундаментальную силу с полноценной системой приёмов.`)
+    }
+    if (concreteApplications < 8) issues.push(`«${item.name}» описан слишком поверхностно: нужно минимум восемь конкретных возможностей, приёмов, примеров и совместных эффектов без повторов.`)
+    powers.forEach((power) => {
+      if (!power.activation?.trim()) issues.push(`У силы «${item.name} / ${power.name}» не описана настоящая активация.`)
+      if (!power.capabilities?.length) issues.push(`У силы «${item.name} / ${power.name}» нет конкретных возможностей.`)
+      if (!power.counters?.length) issues.push(`У силы «${item.name} / ${power.name}» не описано причинное противодействие.`)
+      if (!power.examples?.length) issues.push(`У силы «${item.name} / ${power.name}» нет понятного примера применения.`)
+    })
+    if (Math.max(claimedRank, requestedRank) >= rarityOrder.indexOf('transcendent')) {
+      if ((item.rarityProfile?.potency ?? 0) < 95 || (item.rarityProfile?.worldImpact ?? 0) < 95) {
+        issues.push(`Трансцендентный «${item.name}» обязан иметь potency и worldImpact не ниже 95 и подтверждать их реальными механиками.`)
+      }
+    }
+  }
+  return [...new Set(issues)]
+}
+
 export async function runTurn(request: TurnRequest, report?: ProgressReporter): Promise<TurnResponse> {
   reportProgress(report, 3, 'preparing', 'Проверяем ввод и собираем актуальное состояние', 1, 11)
   const check = resolveActionCheck(request.campaign, request.input, request.actionType)
@@ -1641,6 +1714,28 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     return parseWithRepair(rawPlan, turnPlanSchema, request.provider, director.messages, salvageTurnPlan)
   }
   let validPlan = await createPlan()
+
+  let artifactIssues = artifactPlanQualityIssues(request.input, validPlan)
+  for (let artifactAttempt = 0; artifactIssues.length > 0 && artifactAttempt < 2; artifactAttempt += 1) {
+    reportProgress(report, 31 + artifactAttempt * 2, 'artifact-quality', artifactAttempt === 0
+      ? 'Сверяем класс, оригинальность и полный набор сил нового предмета'
+      : 'Пересобираем неполный особый предмет', 5, 11)
+    const repairMessages = artifactQualityRepairPrompt(director.messages, validPlan, artifactIssues)
+    try {
+      const repairedRaw = await completeJson(request.provider, repairMessages)
+      validPlan = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+      artifactIssues = artifactPlanQualityIssues(request.input, validPlan)
+    } catch (error) {
+      console.warn(`[artifact-quality] Optional repair was safely skipped: ${error instanceof Error ? error.message : String(error)}`)
+      break
+    }
+  }
+  if (artifactIssues.length) {
+    // The ordinary rarity normalizer will still prevent a decorative high-tier label.
+    // Do not fail the whole RP turn: a malformed optional reward is safer when honestly
+    // downgraded than when it interrupts the scene after every other consequence succeeded.
+    console.warn(`[artifact-quality] DeepSeek left unresolved quality issues: ${artifactIssues.join(' ')}`)
+  }
 
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed') {
     const complianceIssues = narrativeEventComplianceIssues(eventDecision, validPlan.statePatch)

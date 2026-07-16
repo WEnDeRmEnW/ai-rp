@@ -6,6 +6,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { assessItemRarity } from '../../shared/rarity'
+import { grantedItemAbilities, type GrantedItemAbility } from '../../shared/effective-abilities'
 import { readCanonDocument } from '../lib/canon'
 import { localizeTechnicalText, resourceUiLabel, uiLabel } from '../lib/ui-labels'
 import { getWorldInterfaceBlueprint, getWorldPresentation, getWorldSystem } from '../lib/world-customization'
@@ -131,11 +132,11 @@ function TechniqueCollection({ source, resources }: { source: Ability | Artifact
   </section>
 }
 
-function AbilityCard({ ability, expanded, onToggle, resources }: { ability: Ability; expanded: boolean; onToggle: () => void; resources?: Campaign['player']['resources'] }) {
+function AbilityCard({ ability, expanded, onToggle, resources, access }: { ability: Ability; expanded: boolean; onToggle: () => void; resources?: Campaign['player']['resources']; access?: Pick<GrantedItemAbility, 'available' | 'blockers' | 'itemName'> }) {
   const techniqueCount = visibleTechniqueCount(ability)
-  return <div className={`ability-card ${expanded ? 'is-expanded' : ''}`}>
+  return <div className={`ability-card ${expanded ? 'is-expanded' : ''} ${access && !access.available ? 'is-unavailable' : ''}`}>
     <button className="ability-main" onClick={onToggle}>
-      <span className="ability-icon"><Sparkles size={14} /></span><span className="ability-copy"><strong>{ability.name}{ability.rank ? ` · ${ability.rank}` : ''}</strong><p>{ability.description}</p><small>{uiLabel(ability.kind, 'Особенность')}{ability.source ? ` · ${ability.source}` : ''}{techniqueCount ? ` · ${techniqueCountLabel(techniqueCount)}` : ''}</small></span><ChevronDown size={14} />
+      <span className="ability-icon"><Sparkles size={14} /></span><span className="ability-copy"><strong>{ability.name}{ability.rank ? ` · ${ability.rank}` : ''}</strong><p>{ability.description}</p><small>{uiLabel(ability.kind, 'Особенность')}{ability.source ? ` · ${ability.source}` : ''}{techniqueCount ? ` · ${techniqueCountLabel(techniqueCount)}` : ''}</small>{access && <em className={`ability-access ${access.available ? 'is-ready' : 'is-locked'}`}>{access.available ? 'Доступна сейчас' : access.blockers.join(' · ')}</em>}</span><ChevronDown size={14} />
     </button>
     {expanded && <div className="ability-details">
       <div className="mastery-line"><span>Освоение</span><strong>{Math.round(ability.mastery ?? 0)}%</strong><i><b style={{ width: `${Math.max(0, Math.min(100, ability.mastery ?? 0))}%` }} /></i></div>
@@ -386,6 +387,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const activeLoreIds = new Set(lastAssistant?.activeLoreIds ?? [])
   const weight = campaign.inventory.reduce((sum, item) => sum + (item.weight ?? 0) * item.quantity, 0)
   const filteredItems = useMemo(() => campaign.inventory.filter((item) => `${item.name} ${item.description}`.toLocaleLowerCase('ru-RU').includes(query.toLocaleLowerCase('ru-RU'))), [campaign.inventory, query])
+  const itemAbilities = useMemo(() => grantedItemAbilities(campaign), [campaign.inventory])
   const visibleLore = campaign.lore.filter((entry) => !entry.secret || entry.discovered)
   const visibleInitiatives = campaign.npcs.filter((npc) => getNpcDisclosure(npc).has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
   const visibleWorldEvents = (campaign.worldEvents ?? []).filter((event) => event.visibility !== 'hidden' && ['scheduled', 'due'].includes(event.status))
@@ -552,8 +554,15 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
             <Section title={labels.abilities} action={<Sparkles size={15} />}>
               <div className="ability-list">
                 {campaign.player.abilities.map((ability) => <AbilityCard key={ability.id} ability={ability} resources={campaign.player.resources} expanded={expandedAbility === ability.id} onToggle={() => setExpandedAbility(expandedAbility === ability.id ? undefined : ability.id)} />)}
+                {!campaign.player.abilities.length && <EmptyMini>Личных способностей пока нет.</EmptyMini>}
               </div>
             </Section>
+            {!!itemAbilities.length && <Section title="Силы предметов" action={<Backpack size={15} />}>
+              <div className="item-ability-intro">Эти силы связаны с настоящими предметами в рюкзаке. Улучшение, поломка, запечатывание, экипировка или потеря предмета сразу меняют эту карточку.</div>
+              <div className="ability-list item-ability-list">
+                {itemAbilities.map((entry) => <AbilityCard key={entry.ability.id} ability={entry.ability} access={entry} resources={campaign.player.resources} expanded={expandedAbility === entry.ability.id} onToggle={() => setExpandedAbility(expandedAbility === entry.ability.id ? undefined : entry.ability.id)} />)}
+              </div>
+            </Section>}
             {!!campaign.characterArcs?.some((arc) => arc.ownerId === campaign.player.id && !arc.secret) && <Section title="Личная арка" action={<Target size={15} />}>
               <div className="arc-list">{campaign.characterArcs.filter((arc) => arc.ownerId === campaign.player.id && !arc.secret).map((arc) => <div className="arc-card" key={arc.id}><div><strong>{arc.title}</strong><span>{arc.progress}% · {uiLabel(arc.status)}</span></div><p>{arc.currentStage}</p><div className="mini-progress"><i style={{ width: `${arc.progress}%` }} /></div><small>{arc.theme}</small></div>)}</div>
             </Section>}

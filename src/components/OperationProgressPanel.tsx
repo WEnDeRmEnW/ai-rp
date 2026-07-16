@@ -8,6 +8,7 @@ const stageLabels: Record<string, string> = {
   preparing: 'Подготовка',
   'world-simulation': 'Живой мир',
   directing: 'План сцены',
+  'artifact-quality': 'Проверка особого предмета',
   progression: 'Прогрессия',
   drafting: 'Написание',
   critic: 'Редактура',

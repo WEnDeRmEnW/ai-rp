@@ -2,6 +2,7 @@ import type {
   AdaptiveInterfaceElement, AdaptiveInterfaceElementState, AdaptiveInterfaceModule, Campaign, RelationshipDimensions,
 } from '../../shared/types'
 import { getNpcDisclosure } from './npc-disclosure'
+import { effectivePlayerAbilities } from '../../shared/effective-abilities'
 
 export interface ResolvedInterfaceElement {
   value: string | number | boolean
@@ -69,7 +70,7 @@ export function resolveAdaptiveInterfaceElement(campaign: Campaign, element: Ada
     return bound(matchingEffects.length + matchingConditions.length, element.min ?? 0, element.max, element.unit)
   }
   if (binding.domain === 'player.ability-mastery') {
-    const ability = campaign.player.abilities.find((entry) => same(entry.id, binding.target ?? binding.key) || same(entry.name, binding.target ?? binding.key))
+    const ability = effectivePlayerAbilities(campaign, true).find((entry) => same(entry.id, binding.target ?? binding.key) || same(entry.name, binding.target ?? binding.key))
     return ability ? bound(ability.mastery ?? 0, element.min ?? 0, element.max ?? 100, element.unit ?? '%') : missing()
   }
 

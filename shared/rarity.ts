@@ -31,7 +31,7 @@ function scarcityScore(knownCopies?: number) {
   return 4
 }
 
-function rarityForScore(score: number): Rarity {
+export function rarityForScore(score: number): Rarity {
   if (score >= 92) return 'transcendent'
   if (score >= 82) return 'mythic'
   if (score >= 72) return 'legendary'
@@ -40,6 +40,27 @@ function rarityForScore(score: number): Rarity {
   if (score >= 34) return 'rare'
   if (score >= 20) return 'uncommon'
   return 'common'
+}
+
+/**
+ * Scores describe practical value, while the upper classes also carry a semantic
+ * promise. A reality-authority with near-absolute potency must not be demoted just
+ * because it has several real requirements: those requirements make it usable and
+ * interesting, but do not turn it into an ordinary mythic trinket.
+ */
+function rarityForAssessment(
+  score: number,
+  dimensions: Pick<ItemClassAssessment, 'potency' | 'versatility' | 'worldImpact' | 'provenance' | 'scarcity' | 'acquisitionRisk'>,
+): Rarity {
+  const { potency, versatility, worldImpact, provenance, scarcity, acquisitionRisk } = dimensions
+  if (
+    worldImpact >= 98
+    && potency >= 95
+    && Math.max(versatility, provenance) >= 85
+    && Math.max(scarcity, acquisitionRisk) >= 80
+  ) return 'transcendent'
+  if (worldImpact >= 91 && potency >= 88 && Math.max(versatility, provenance) >= 75) return 'mythic'
+  return rarityForScore(score)
 }
 
 function scaleImpact(scale: unknown) {
@@ -80,7 +101,7 @@ export function assessItemRarity(item: Pick<InventoryItem, 'category' | 'effects
   const acquisitionRisk = finite(profile?.acquisitionRisk) ?? 0
   const limitationCount = (profile?.limitations?.length ?? 0) + (item.artifact?.drawbacks?.length ?? 0) + (item.artifact?.requirements?.length ?? 0)
   const limitationPenalty = Math.min(12, limitationCount * 1.5)
-  const score = clamp(
+  const rawScore = clamp(
     potency * .38
     + worldImpact * .22
     + versatility * .12
@@ -89,10 +110,20 @@ export function assessItemRarity(item: Pick<InventoryItem, 'category' | 'effects
     + acquisitionRisk * .08
     - limitationPenalty,
   )
+  // The user sees an integer score, so classifying a hidden 91.6 as mythic while
+  // displaying 92/100 is contradictory. Round once and use that same value everywhere.
+  const score = Math.round(rawScore)
+  const dimensions = {
+    potency: Math.round(potency),
+    versatility: Math.round(versatility),
+    worldImpact: Math.round(worldImpact),
+    provenance: Math.round(provenance),
+    scarcity: Math.round(scarcity),
+    acquisitionRisk: Math.round(acquisitionRisk),
+  }
   return {
-    rarity: rarityForScore(score), score: Math.round(score), potency: Math.round(potency), versatility: Math.round(versatility),
-    worldImpact: Math.round(worldImpact), provenance: Math.round(provenance), scarcity: Math.round(scarcity),
-    acquisitionRisk: Math.round(acquisitionRisk), limitationPenalty: Math.round(limitationPenalty),
+    rarity: rarityForAssessment(score, dimensions), score, ...dimensions,
+    limitationPenalty: Math.round(limitationPenalty),
     inferred: !profile || [profile.potency, profile.versatility, profile.worldImpact, profile.provenance].some((value) => !Number.isFinite(value)),
   }
 }

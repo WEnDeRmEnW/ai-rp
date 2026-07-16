@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto'
 import type { ActionCheck, ActionType, Campaign } from '../shared/types.js'
 import { tokenize } from '../shared/context.js'
+import { activeItemAbilities } from '../shared/effective-abilities.js'
 
 const riskyAction = /(атак|удар|стрел|уклон|взлом|крад|пробир|прыж|лез|убежд|обман|запуг|скрыт|подкрад|колдов|техник|ритуал|fight|attack|steal|climb|persuad|deceiv)/iu
 
@@ -227,16 +228,16 @@ export function resolveActionCheck(
   const roll = Math.max(1, Math.min(20, Math.round(rollDie())))
   const midpoint = (stat.max ?? 10) / 2
   const baseModifier = Math.round(stat.value - midpoint)
+  const mechanicallyAvailableAbilities = [...campaign.player.abilities, ...activeItemAbilities(campaign)]
   const mechanicalEffectTexts = [
     ...(campaign.player.statusEffects ?? [])
       .filter((effect) => Object.keys(effect.checkModifiers ?? {}).length === 0)
       .map((effect) => `${effect.name} ${effect.description} ${effect.effects.join(' ')}`),
     ...campaign.inventory.filter((item) => item.equipped).flatMap((item) => [
       `${item.name} ${item.effects.join(' ')}`,
-      ...(item.artifact?.awakened ? item.artifact.passiveEffects : []),
     ]),
-    ...campaign.player.abilities.filter((ability) => ability.kind === 'passive').flatMap((ability) => ability.effects ?? []),
-    ...campaign.player.abilities.flatMap((ability) => (ability.techniques ?? [])
+    ...mechanicallyAvailableAbilities.filter((ability) => ability.kind === 'passive').flatMap((ability) => ability.effects ?? []),
+    ...mechanicallyAvailableAbilities.flatMap((ability) => (ability.techniques ?? [])
       .filter((technique) => technique.unlocked && technique.kind === 'passive')
       .flatMap((technique) => technique.effects)),
   ]

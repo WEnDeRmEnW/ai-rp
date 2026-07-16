@@ -578,6 +578,24 @@ describe('state engine', () => {
     expect(second.inventory.find((item) => item.name === 'Лечебная трава')?.quantity).toBe(5)
   })
 
+  it('normalizes a newly granted reality-scale artifact immediately', () => {
+    const campaign = createDemoCampaign()
+    const next = applyPatch(campaign, { inventory: [{ operation: 'add', item: {
+      id: 'reality-artifact', name: 'Ось невозможного', description: 'Переназначает границы причин и следствий.',
+      category: 'artifact', quantity: 1, rarity: 'mythic', equipped: false, effects: ['Переписывает локальный закон причинности'],
+      rarityProfile: {
+        basis: 'Ось погасшей реальности', scarcity: 'Единственный экземпляр', knownCopies: 1, recognition: 'Известна архитекторам миров',
+        marketImpact: 'Не имеет цены', acquisitionRisk: 100, potency: 100, versatility: 80, worldImpact: 100, provenance: 100,
+        limitations: ['Требует согласованного носителя'],
+      },
+      artifact: {
+        sentient: false, awakened: true, attunement: 100, bond: 0, requirements: ['Требует согласованного носителя'],
+        passiveEffects: [], combinedEffects: [], failureModes: [], components: [], powers: [], drawbacks: [], evolutionPaths: [], secrets: [], scale: 'cosmic',
+      },
+    } }] }, 4)
+    expect(next.inventory.find((item) => item.id === 'reality-artifact')?.rarity).toBe('transcendent')
+  })
+
   it('commits and rewinds a whole turn atomically', () => {
     const campaign = createDemoCampaign()
     const committed = commitTurn(campaign, 'Беру осколок', 'do', {

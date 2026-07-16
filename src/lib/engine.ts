@@ -35,7 +35,7 @@ import type {
   WorldPatch,
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
-import { rarityFromKnownCopies } from '../../shared/rarity'
+import { normalizeItemRarity } from '../../shared/rarity'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { diffCampaignState, summarizeStateChanges } from './state-changes'
 
@@ -724,13 +724,13 @@ function materializeItem(patch: InventoryItemPatch, turn: number): InventoryItem
   const durability = normalizedMeter(patch?.durability, maxDurability)
   const maxCharges = Number.isFinite(patch?.maxCharges) ? Math.max(0, patch?.maxCharges ?? 0) : undefined
   const charges = normalizedMeter(patch?.charges, maxCharges)
-  return {
+  return normalizeItemRarity({
     id: patch?.id ?? id(),
     name: patch.name.trim(),
     description: patch.description.trim(),
     category: patch.category,
     quantity: clamp(Math.round(patch.quantity ?? 1), 1, 999),
-    rarity: rarityFromKnownCopies(patch.rarity, patch.rarityProfile?.knownCopies),
+    rarity: patch.rarity,
     rarityProfile: patch.rarityProfile ? { ...patch.rarityProfile, acquisitionRisk: clamp(patch.rarityProfile.acquisitionRisk, 0, 100) } : undefined,
     equipped: patch.equipped,
     equippedSlot: patch?.equippedSlot,
@@ -745,7 +745,7 @@ function materializeItem(patch: InventoryItemPatch, turn: number): InventoryItem
     discoveredTurn: patch?.discoveredTurn ?? turn,
     history: patch?.history?.slice(0, 40).map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })) ?? [],
     artifact: patch?.artifact ? normalizeArtifact(patch.artifact) : undefined,
-  }
+  })
 }
 
 export function describePatch(patch: TurnPatch): string[] {
@@ -985,12 +985,12 @@ export function applyPatch(
     const maxCharges = Number.isFinite(update.maxCharges) ? Math.max(0, update.maxCharges ?? 0) : current.maxCharges
     const charges = normalizedMeter(update.charges ?? current.charges, maxCharges)
     const preservedState = update.state ?? (current.state === 'sealed' || (durability === undefined && charges === undefined) ? current.state : undefined)
-    campaign.inventory[index] = {
+    campaign.inventory[index] = normalizeItemRarity({
       ...current,
       ...update,
       id: current.id,
       name: update.name?.trim() || current.name,
-      rarity: rarityFromKnownCopies(update.rarity ?? current.rarity, update.rarityProfile?.knownCopies ?? current.rarityProfile?.knownCopies),
+      rarity: update.rarity ?? current.rarity,
       rarityProfile: update.rarityProfile ? { ...update.rarityProfile, acquisitionRisk: clamp(update.rarityProfile.acquisitionRisk, 0, 100) } : current.rarityProfile,
       quantity: clamp(Math.round(update.quantity ?? current.quantity), 1, 999),
       durability,
@@ -1005,7 +1005,7 @@ export function applyPatch(
           .slice(-80)
         : current.history,
       artifact: update.artifact ? normalizeArtifact({ ...current.artifact, ...update.artifact }) : current.artifact,
-    }
+    })
   })
 
   const updateStats = (deltas: Record<string, number> | undefined, type: 'stats' | 'resources') => {
@@ -1172,6 +1172,7 @@ export function applyPatch(
       item.history.push({ id: id(), turn, title: change.history.title, description: change.history.description })
       item.history = item.history.slice(-80)
     }
+    Object.assign(item, normalizeItemRarity(item))
   })
 
   patch.addConditions?.forEach((condition) => {

@@ -42,6 +42,22 @@ describe('token-efficient action checks', () => {
     expect(check?.modifier).toBe(-1)
   })
 
+  it('uses an equipped artifact power from the same record shown in the hero tab', () => {
+    const campaign = createDemoCampaign()
+    const baseline = resolveActionCheck(campaign, 'Пытаюсь взломать сложный замок', 'do', () => 12)!
+    campaign.inventory.push({
+      id: 'oracle-key', name: 'Ключ точного исхода', description: 'Смещает вероятность проверяемого действия.', category: 'artifact',
+      quantity: 1, rarity: 'mythic', equipped: true, effects: [], discoveredTurn: 0,
+      artifact: {
+        sentient: false, awakened: true, attunement: 90, bond: 0, requirements: [], passiveEffects: [], combinedEffects: [], failureModes: [], components: [], drawbacks: [], evolutionPaths: [], secrets: [],
+        powers: [{ id: 'certain-step', name: 'Верный шаг', description: 'Уточняет ближайший исход.', mastery: 90, costs: [], trigger: 'Постоянная пассивная коррекция', limitations: [], capabilities: ['+5 ко всем проверкам'], techniques: [] }],
+      },
+    })
+
+    const empowered = resolveActionCheck(campaign, 'Пытаюсь взломать сложный замок', 'do', () => 12)!
+    expect(empowered.modifier - baseline.modifier).toBe(5)
+  })
+
   it('uses stat aliases when selecting the relevant characteristic', () => {
     const campaign = createDemoCampaign()
     const finesse = campaign.player.stats.find((stat) => stat.key === 'finesse')!
