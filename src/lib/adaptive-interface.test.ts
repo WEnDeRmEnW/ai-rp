@@ -41,7 +41,8 @@ describe('adaptive interface live bindings', () => {
     npc.stats = [{ key: 'intellect', label: 'Интеллект', value: 99, max: 100 }]
     npc.dossier = undefined
     const hidden = element({ binding: { domain: 'npc.stat', target: npc.id, key: 'intellect' } })
-    expect(resolveAdaptiveInterfaceElement(campaign, hidden).missing).toBe(true)
+    expect(resolveAdaptiveInterfaceElement(campaign, hidden)).toMatchObject({ missing: false, suppressed: true })
+    expect(adaptiveInterfaceBindingIssues(campaign, [moduleWith(hidden)])).toEqual([])
 
     npc.dossier = { familiarity: 'familiar', revealedSections: [], revealedStatKeys: ['intellect'], revealedResourceKeys: [], revealedAbilityIds: [], evidence: [], updatedTurn: 3 }
     expect(resolveAdaptiveInterfaceElement(campaign, hidden)).toMatchObject({ value: 99, live: true, missing: false })
@@ -50,7 +51,21 @@ describe('adaptive interface live bindings', () => {
   it('keeps hidden metrics unavailable even when the binding knows their exact id', () => {
     const campaign = createDemoCampaign()
     campaign.world.metrics = [{ id: 'secret-cycle', key: 'secret', label: 'Тайный цикл', description: 'Секрет', value: 3, min: 0, max: 10, visibility: 'hidden', source: 'Неизвестно', updatePolicy: 'Скрыто', lastChangedTurn: 1 }]
-    expect(resolveAdaptiveInterfaceElement(campaign, element({ binding: { domain: 'world.metric', target: 'secret-cycle' } })).missing).toBe(true)
+    const source = element({ binding: { domain: 'world.metric', target: 'secret-cycle' } })
+    expect(resolveAdaptiveInterfaceElement(campaign, source)).toMatchObject({ missing: false, suppressed: true })
+    expect(adaptiveInterfaceBindingIssues(campaign, [moduleWith(source)])).toEqual([])
+  })
+
+  it('treats an existing hidden faction as secret rather than as a broken binding', () => {
+    const campaign = createDemoCampaign()
+    const faction = campaign.world.factions[0]
+    faction.visibility = 'hidden'
+    const reputation = campaign.factionReputation?.find((entry) => entry.factionName === faction.name)
+    expect(reputation).toBeDefined()
+    const source = element({ binding: { domain: 'faction.reputation', key: faction.name } })
+
+    expect(resolveAdaptiveInterfaceElement(campaign, source)).toMatchObject({ missing: false, suppressed: true })
+    expect(adaptiveInterfaceBindingIssues(campaign, [moduleWith(source)])).toEqual([])
   })
 
   it('keeps rumored world values connected without exposing their exact numbers', () => {

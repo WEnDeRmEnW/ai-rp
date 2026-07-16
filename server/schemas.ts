@@ -2353,6 +2353,13 @@ const generatedWorldStructuralContract = z.object({
 }).strict()
 
 const generatedWorldContract = generatedWorldStructuralContract.superRefine((world, context) => {
+  const normalizeBindingReference = (value?: string) => value?.trim().toLocaleLowerCase('ru-RU').replaceAll('ё', 'е') ?? ''
+  const sameBindingReference = (left?: string, right?: string) => normalizeBindingReference(left) === normalizeBindingReference(right)
+  const matchesGeneratedKey = (key: string | undefined, entity: { key: string; label: string; aliases?: string[] }) => (
+    sameBindingReference(key, entity.key)
+    || sameBindingReference(key, entity.label)
+    || entity.aliases?.some((alias) => sameBindingReference(key, alias))
+  )
   const npcNames = new Set(world.npcs.map((npc) => npc.name.toLocaleLowerCase('ru-RU')))
   const entityNames = new Set([...npcNames, world.player.name.toLocaleLowerCase('ru-RU')])
   const placeNames = new Set(world.world.places.map((place) => place.name.toLocaleLowerCase('ru-RU')))
@@ -2371,6 +2378,93 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
       message: `Unknown character reference: ${name}`,
     })
   }
+  const interfaceBindingIssue = (moduleIndex: number, elementIndex: number, message: string) => context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['world', 'interfaceModules', moduleIndex, 'elements', elementIndex, 'binding'],
+    message,
+  })
+  world.world.interfaceModules.forEach((module, moduleIndex) => {
+    module.elements.forEach((element, elementIndex) => {
+      const binding = element.binding
+      if (!binding || binding.domain === 'custom') return
+      const reference = binding.target ?? binding.key
+      const visibleModule = module.visibility !== 'hidden'
+      const playerResource = () => world.player.resources.find((entry) => matchesGeneratedKey(binding.key, entry))
+      const playerStat = () => world.player.stats.find((entry) => matchesGeneratedKey(binding.key, entry))
+      const item = () => world.inventory.find((entry) => sameBindingReference(entry.name, binding.target))
+      const npc = () => world.npcs.find((entry) => sameBindingReference(entry.name, binding.target))
+      const invalid = (message: string) => interfaceBindingIssue(moduleIndex, elementIndex, message)
+
+      if (binding.domain === 'player.resource' && !playerResource()) invalid(`Unknown player resource binding: ${binding.key}`)
+      else if (binding.domain === 'player.stat' && !playerStat()) invalid(`Unknown player stat binding: ${binding.key}`)
+      else if (binding.domain === 'player.currency' && !Object.keys(world.player.currency).some((key) => sameBindingReference(key, binding.key))) invalid(`Unknown player currency binding: ${binding.key}`)
+      else if (binding.domain === 'player.ability-mastery' && !world.player.abilities.some((ability) => sameBindingReference(ability.name, reference))) invalid(`Unknown player ability binding: ${reference}`)
+      else if (binding.domain === 'conflict.round' || binding.domain === 'conflict.participant-readiness' || binding.domain === 'conflict.participant-morale') {
+        invalid('A generated opening has no persisted active conflict; use scene.tension or a custom qualitative element until a conflict exists')
+      } else if (binding.domain === 'world.metric') {
+        const metric = (world.world.metrics ?? []).find((entry) => sameBindingReference(entry.id, reference) || sameBindingReference(entry.key, reference) || sameBindingReference(entry.label, reference))
+        if (!metric) invalid(`Unknown world metric binding: ${reference}`)
+        else if (visibleModule && metric.visibility === 'hidden') invalid(`A visible module cannot bind hidden world metric: ${reference}`)
+      } else if (binding.domain === 'world.location-danger' && !world.world.locations.some((location) => sameBindingReference(location.name, reference))) invalid(`Unknown world location binding: ${reference}`)
+      else if (binding.domain === 'world.process-momentum') {
+        const process = world.world.processes.find((entry) => sameBindingReference(entry.title, binding.target))
+        if (!process) invalid(`Unknown world process binding: ${binding.target}`)
+        else if (visibleModule && process.visibility === 'hidden') invalid(`A visible module cannot bind hidden world process: ${binding.target}`)
+      } else if (binding.domain === 'world.pressure') {
+        const pressure = world.worldPressures.find((entry) => sameBindingReference(entry.sourceName, binding.target))
+        if (!pressure) invalid(`Unknown world pressure binding: ${binding.target}`)
+        else if (visibleModule && pressure.visibility === 'hidden') invalid(`A visible module cannot bind hidden world pressure: ${binding.target}`)
+      } else if (binding.domain === 'faction.reputation') {
+        const faction = world.world.factions.find((entry) => sameBindingReference(entry.name, reference))
+        const reputation = world.factionReputation.find((entry) => sameBindingReference(entry.factionName, reference))
+        if (!faction || !reputation) invalid(`Faction reputation binding must match both faction and reputation records: ${reference}`)
+        else if (visibleModule && faction.visibility === 'hidden') invalid(`A visible module cannot reveal hidden faction reputation: ${reference}`)
+      } else if (binding.domain === 'faction.power') {
+        const faction = world.world.factions.find((entry) => sameBindingReference(entry.name, reference))
+        if (!faction) invalid(`Unknown faction power binding: ${reference}`)
+        else if (visibleModule && faction.visibility === 'hidden') invalid(`A visible module cannot reveal hidden faction power: ${reference}`)
+      } else if (binding.domain === 'inventory.item-charges') {
+        const target = item()
+        if (!target || target.charges === undefined) invalid(`Item charges binding requires an existing item with charges: ${binding.target}`)
+      } else if (binding.domain === 'inventory.item-quantity') {
+        if (!item()) invalid(`Unknown inventory item binding: ${binding.target}`)
+      } else if (binding.domain === 'inventory.item-durability') {
+        const target = item()
+        if (!target || target.durability === undefined) invalid(`Item durability binding requires an existing item with durability: ${binding.target}`)
+      } else if (binding.domain === 'artifact.mastery' || binding.domain === 'artifact.attunement' || binding.domain === 'artifact.bond') {
+        const target = item()
+        if (!target?.artifact) invalid(`Artifact binding requires an existing artifact item: ${binding.target}`)
+      } else if (binding.domain === 'artifact.power-mastery') {
+        const target = item()
+        if (!target?.artifact?.powers.some((power) => sameBindingReference(power.name, binding.key))) invalid(`Artifact power binding requires an existing exact power: ${binding.target} / ${binding.key}`)
+      } else if (binding.domain === 'quest.objective-progress' && !world.quests.some((quest) => sameBindingReference(quest.title, binding.target))) invalid(`Unknown quest binding: ${binding.target}`)
+      else if (binding.domain === 'mystery.progress' && !world.mysteryCases.some((mystery) => sameBindingReference(mystery.title, binding.target))) invalid(`Unknown mystery binding: ${binding.target}`)
+      else if (binding.domain.startsWith('npc.')) {
+        const target = npc()
+        if (!target) {
+          invalid(`Unknown NPC binding target: ${binding.target}`)
+          return
+        }
+        const dossier = target.dossier
+        if (binding.domain === 'npc.stat') {
+          const stat = target.stats.find((entry) => matchesGeneratedKey(binding.key, entry))
+          if (!stat) invalid(`Unknown NPC stat binding: ${binding.target} / ${binding.key}`)
+          else if (visibleModule && !dossier?.revealedSections.includes('stats') && !dossier?.revealedStatKeys.some((key) => sameBindingReference(key, stat.key))) invalid(`A visible module cannot reveal an undisclosed NPC stat: ${binding.target} / ${binding.key}`)
+        } else if (binding.domain === 'npc.resource') {
+          const resource = target.resources.find((entry) => matchesGeneratedKey(binding.key, entry))
+          if (!resource) invalid(`Unknown NPC resource binding: ${binding.target} / ${binding.key}`)
+          else if (visibleModule && !dossier?.revealedSections.includes('resources') && !dossier?.revealedResourceKeys.some((key) => sameBindingReference(key, resource.key))) invalid(`A visible module cannot reveal an undisclosed NPC resource: ${binding.target} / ${binding.key}`)
+        } else if (binding.domain === 'npc.initiative-urgency') {
+          if (visibleModule && (!dossier?.revealedSections.includes('initiative') || target.initiative.visibility === 'hidden')) invalid(`A visible module cannot reveal hidden NPC initiative: ${binding.target}`)
+        } else if (binding.domain === 'npc.relationship' && visibleModule && !dossier?.revealedSections.includes('relationship')) invalid(`A visible module cannot reveal an undisclosed NPC relationship: ${binding.target}`)
+        else if (binding.domain === 'npc.relationship-dimension') {
+          const dimension = normalizeBindingReference(binding.key)
+          if (!['trust', 'respect', 'affection', 'fear', 'suspicion', 'dependence'].includes(dimension)) invalid(`Unknown NPC relationship dimension: ${binding.key}`)
+          else if (visibleModule && !dossier?.revealedSections.includes('relationshipDimensions')) invalid(`A visible module cannot reveal undisclosed NPC relationship dimensions: ${binding.target}`)
+        }
+      }
+    })
+  })
   world.characterArcs.forEach((arc, index) => requireEntity(arc.ownerName, ['characterArcs', index, 'ownerName']))
   world.mysteryCases.forEach((mystery, index) => {
     if (mystery.culpritName) requireEntity(mystery.culpritName, ['mysteryCases', index, 'culpritName'])

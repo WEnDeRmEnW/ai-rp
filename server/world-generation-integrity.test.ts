@@ -88,4 +88,42 @@ describe('generated world integrity pipeline', () => {
       legends: world.world.legends,
     }).success).toBe(false)
   })
+
+  it('rejects visible interface bindings to hidden or nonexistent generated data', () => {
+    const world = validWorld()
+    const module = world.world.interfaceModules[0]
+    const metric = {
+      id: 'secret-metric', key: 'secret_metric', label: 'Скрытый показатель', description: 'Пока не известен герою',
+      value: 50, min: 0, max: 100, unit: '%', visibility: 'hidden' as const,
+      source: 'Скрытый процесс', updatePolicy: 'Меняется по установленным причинам',
+    }
+    world.world.metrics = [metric]
+    expect(module).toBeDefined()
+    if (!module) return
+
+    module.visibility = 'known'
+    metric.visibility = 'hidden'
+    module.elements[0].binding = { domain: 'world.metric', key: metric.key }
+    expect(generatedWorldDraftSchema.safeParse(world).success).toBe(true)
+
+    const hidden = generatedWorldSchema.safeParse(world)
+    expect(hidden.success).toBe(false)
+    if (!hidden.success) expect(hidden.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: ['world', 'interfaceModules', 0, 'elements', 0, 'binding'],
+        message: expect.stringContaining('cannot bind hidden world metric'),
+      }),
+    ]))
+
+    metric.visibility = 'known'
+    module.elements[0].binding = { domain: 'world.metric', key: 'missing-metric' }
+    const missing = generatedWorldSchema.safeParse(world)
+    expect(missing.success).toBe(false)
+    if (!missing.success) expect(missing.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: ['world', 'interfaceModules', 0, 'elements', 0, 'binding'],
+        message: expect.stringContaining('Unknown world metric binding'),
+      }),
+    ]))
+  })
 })

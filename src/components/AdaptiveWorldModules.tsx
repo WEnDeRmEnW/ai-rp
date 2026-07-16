@@ -162,14 +162,18 @@ function Radar({ campaign, module }: { campaign: Campaign; module: AdaptiveInter
 }
 
 function ModuleVisual({ campaign, module }: { campaign: Campaign; module: AdaptiveInterfaceModule }) {
-  if (module.visual === 'nodes') return <Nodes campaign={campaign} module={module} />
-  if (module.visual === 'slots') return <Slots campaign={campaign} module={module} />
-  if (module.visual === 'track') return <Track campaign={campaign} module={module} />
-  if (module.visual === 'ledger') return <Ledger campaign={campaign} module={module} />
-  if (module.visual === 'signals') return <Signals campaign={campaign} module={module} />
-  if (module.visual === 'radar') return <Radar campaign={campaign} module={module} />
-  if (module.visual === 'cards') return <Cards campaign={campaign} module={module} />
-  return <Meters campaign={campaign} module={module} />
+  const visibleModule = {
+    ...module,
+    elements: module.elements.filter((element) => !resolveAdaptiveInterfaceElement(campaign, element).suppressed),
+  }
+  if (module.visual === 'nodes') return <Nodes campaign={campaign} module={visibleModule} />
+  if (module.visual === 'slots') return <Slots campaign={campaign} module={visibleModule} />
+  if (module.visual === 'track') return <Track campaign={campaign} module={visibleModule} />
+  if (module.visual === 'ledger') return <Ledger campaign={campaign} module={visibleModule} />
+  if (module.visual === 'signals') return <Signals campaign={campaign} module={visibleModule} />
+  if (module.visual === 'radar') return <Radar campaign={campaign} module={visibleModule} />
+  if (module.visual === 'cards') return <Cards campaign={campaign} module={visibleModule} />
+  return <Meters campaign={campaign} module={visibleModule} />
 }
 
 function ModuleFrame({ campaign, module }: { campaign: Campaign; module: AdaptiveInterfaceModule }) {
@@ -183,16 +187,20 @@ function ModuleFrame({ campaign, module }: { campaign: Campaign; module: Adaptiv
 }
 
 export function AdaptiveWorldModules({ campaign, placement, onDesign, designing }: AdaptiveWorldModulesProps) {
-  const modules = (campaign.world.interfaceModules ?? [])
+  const authoredModules = (campaign.world.interfaceModules ?? [])
+    .filter((module) => module.visibility !== 'hidden')
+  const modules = authoredModules
     .filter((module) => (module.placement === placement || (placement === 'dashboard' && module.pinned)) && module.visibility !== 'hidden')
+    .filter((module) => module.elements.some((element) => !resolveAdaptiveInterfaceElement(campaign, element).suppressed))
     .sort((left, right) => right.priority - left.priority)
 
   if (!modules.length) {
     if (!['world', 'dashboard'].includes(placement) || !onDesign) return null
+    const hasAuthoredModules = authoredModules.length > 0
     return <section className="adaptive-empty">
       <span><Orbit size={22} /><i /></span>
-      <div><small>У этого мира ещё нет собственного слоя</small><strong>Пусть ИИ спроектирует интерфейс</strong><p>Нейросеть изучит силы, законы, фракции, ресурсы и особенности кампании, а затем сама решит, что действительно стоит показывать и как это должно выглядеть.</p></div>
-      <button disabled={designing} onClick={onDesign}>{designing ? <><Activity className="spin" size={15} /> Проектирование…</> : <><Sparkles size={15} /> Спроектировать</>}</button>
+      <div><small>{hasAuthoredModules ? 'В этом разделе пока нет отдельной панели' : 'У этого мира ещё нет собственного слоя'}</small><strong>{hasAuthoredModules ? 'Модули уже работают в других разделах' : 'Пусть ИИ спроектирует интерфейс'}</strong><p>{hasAuthoredModules ? 'Интерфейс мира создан, но ни один открытый модуль пока не назначен этому разделу. Можно перенести сюда существующий модуль или попросить ИИ создать новый.' : 'Нейросеть изучит силы, законы, фракции, ресурсы и особенности кампании, а затем сама решит, что действительно стоит показывать и как это должно выглядеть.'}</p></div>
+      <button disabled={designing} onClick={onDesign}>{designing ? <><Activity className="spin" size={15} /> Проектирование…</> : <><Sparkles size={15} /> {hasAuthoredModules ? 'Настроить раздел' : 'Спроектировать'}</>}</button>
     </section>
   }
 
