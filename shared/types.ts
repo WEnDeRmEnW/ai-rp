@@ -1739,6 +1739,50 @@ export interface WorldGenerationRequest {
   provider: ProviderConfig
 }
 
+export interface WorldIdeaRequest {
+  /** Optional motifs the user wants to keep; an empty value gives the inventor complete freedom. */
+  hint: string
+  contentBoundaries: string
+  /** Recently rejected concepts that the model must not paraphrase on regeneration. */
+  previousIdeas: string[]
+  /** Per-click entropy so deterministic JSON providers still explore a new design direction. */
+  creativeSeed: string
+  provider: ProviderConfig
+}
+
+export interface WorldIdea {
+  title: string
+  tagline: string
+  corePremise: string
+  /** A complete architect-ready brief, applied to WorldGenerationRequest.inspiration. */
+  inspiration: string
+  genre: string
+  tone: string
+  heroName: string
+  heroConcept: string
+  opening: string
+  pillars: Array<{
+    title: string
+    description: string
+    worldImpact: string
+  }>
+  signatureMechanic: {
+    name: string
+    principle: string
+    playerUse: string
+    worldConsequences: string[]
+  }
+  livingWorld: {
+    everydayLife: string
+    autonomousForces: string[]
+    distantHorizons: string[]
+  }
+  centralTensions: string[]
+  uniquePromises: string[]
+  avoidedCliches: string[]
+  originalityScore: number
+}
+
 export interface TurnRequest {
   campaign: Campaign
   input: string

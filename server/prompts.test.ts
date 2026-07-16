@@ -1,7 +1,47 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt } from './prompts'
+import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldIdeaCriticPrompt, worldIdeaPrompt, worldQualityCriticPrompt } from './prompts'
 import { demoWorld } from './demo'
+
+describe('automatic world inventor prompt', () => {
+  const request = {
+    hint: '',
+    contentBoundaries: '',
+    previousIdeas: ['Плавающий город на ките'],
+    creativeSeed: 'seed-unique-123456',
+    provider: { provider: 'ollama' as const, model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', temperature: 0.9 },
+  }
+
+  it('demands a causal original world instead of a renamed franchise or random genre mixture', () => {
+    const [system, user] = worldIdeaPrompt(request)
+    expect(system.content).toContain('Не копируй известную франшизу')
+    expect(system.content).toContain('2–4 совместимых необычных принципа')
+    expect(system.content).toContain('Мир существует далеко за пределами героя')
+    expect(system.content).toContain('Герой важен благодаря решениям')
+    expect(system.content).toContain('"signatureMechanic"')
+    expect(system.content).toContain('"livingWorld"')
+    expect(user.content).toContain('Плавающий город на ките')
+    expect(user.content).toContain('seed-unique-123456')
+  })
+
+  it('uses a strict independent originality gate before accepting the concept', () => {
+    const idea = {
+      title: 'Город обратных приливов', tagline: 'Берега помнят будущие корабли.', corePremise: 'Приливы приносят последствия ещё не совершённых решений.',
+      inspiration: 'Подробный замысел мира.', genre: 'Социальная научная фантастика', tone: 'Живой и тревожный', heroName: 'Мира', heroConcept: 'Картограф причин.',
+      opening: 'На городской пристани появляется обломок корабля, который ещё не построен.',
+      pillars: Array.from({ length: 3 }, (_, index) => ({ title: `Опора ${index}`, description: 'Устройство.', worldImpact: 'Меняет общество.' })),
+      signatureMechanic: { name: 'Обратный след', principle: 'Будущие последствия оставляют следы.', playerUse: 'Герой сверяет возможные решения.', worldConsequences: ['Ложные прогнозы', 'Борьба за свидетельства'] },
+      livingWorld: { everydayLife: 'Рыбаки страхуют ещё не случившийся улов.', autonomousForces: ['Архив порта', 'Союз судовладельцев', 'Береговые общины'], distantHorizons: ['Сухое море', 'Архипелаг долгов', 'Верфи без имён'] },
+      centralTensions: ['Свобода против прогнозирования', 'Общее благо против частной тайны', 'Память против доказательства'],
+      uniquePromises: ['Расследование будущих последствий', 'Политика вероятностей', 'Путешествия по изменчивым берегам'],
+      avoidedCliches: ['Нет избранного', 'Нет безликой империи', 'Нет стандартной маны'], originalityScore: 90,
+    }
+    const [critic] = worldIdeaCriticPrompt(request, idea)
+    expect(critic.content).toContain('pass=true допустим только при originality>=85')
+    expect(critic.content).toContain('механика является обычной маной')
+    expect(critic.content).toContain('весь мир существует только вокруг героя')
+  })
+})
 
 describe('world architect prompt', () => {
   it('requires complete, model-authored NPC records', () => {

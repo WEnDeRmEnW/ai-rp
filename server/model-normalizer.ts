@@ -41,6 +41,7 @@ const ARRAY_KEYS = new Set([
   'upsertLegends', 'removeLegendIds', 'deeds', 'myths', 'legacies', 'associatedFactionNames', 'relatedNpcIds', 'successorNpcIds',
   'relatedNpcNames', 'successorNpcNames', 'factionNames', 'witnesses', 'believers', 'holderNpcIds', 'holderNpcNames',
   'accessConditions', 'encounterConditions', 'qualifyingSigns', 'disqualifiers', 'anchorFacts', 'forbiddenContradictions', 'divergenceNotes',
+  'previousIdeas', 'pillars', 'worldConsequences', 'autonomousForces', 'distantHorizons', 'centralTensions', 'uniquePromises', 'avoidedCliches', 'detectedCliches',
 ])
 
 const ARRAY_LIMITS: Record<string, number> = {
@@ -84,6 +85,7 @@ const ARRAY_LIMITS: Record<string, number> = {
   upsertLegends: 24, removeLegendIds: 24, deeds: 40, myths: 40, legacies: 40, associatedFactionNames: 20, relatedNpcIds: 24, successorNpcIds: 24,
   relatedNpcNames: 24, successorNpcNames: 24, factionNames: 20, witnesses: 20, believers: 20, holderNpcIds: 20, holderNpcNames: 20,
   accessConditions: 16, encounterConditions: 16, qualifyingSigns: 16, disqualifiers: 16, anchorFacts: 24, forbiddenContradictions: 24, divergenceNotes: 24,
+  previousIdeas: 8, pillars: 7, worldConsequences: 8, autonomousForces: 10, distantHorizons: 10, centralTensions: 10, uniquePromises: 10, avoidedCliches: 10, detectedCliches: 12,
 }
 
 const BOOLEAN_KEYS = new Set([
@@ -104,6 +106,7 @@ const NUMBER_KEYS = new Set([
   'criticalBelow', 'charges', 'maxCharges', 'stacks', 'remaining', 'expiresTurn', 'appliedTurn',
   'masteryDelta', 'attunementDelta', 'bondDelta', 'powerMasteryDelta', 'power', 'lastChangedTurn', 'min', 'intensity',
   'minRenown', 'renown', 'influence', 'renownImpact', 'reliability', 'awareness', 'encounterReadiness', 'lastEvaluatedTurn',
+  'originalityScore', 'originality', 'coherence', 'longTermDepth', 'playability', 'livingWorld',
 ])
 
 const ID_KEYS = new Set([
@@ -134,6 +137,7 @@ const ARRAY_IDENTITY: Record<string, string> = {
   techniques: 'name', addTechniques: 'name', techniqueChanges: 'techniqueId',
   worldPressures: 'id', upsertWorldPressures: 'id', measures: 'id',
   npcAbilityChanges: 'npcId',
+  pillars: 'title', detectedCliches: 'fragment',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

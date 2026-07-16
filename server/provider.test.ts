@@ -4,6 +4,25 @@ import { completeJson, completeText } from './provider'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('structured provider recovery', () => {
+  it('allows an explicit creative temperature only for the pre-generation idea stage', async () => {
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"Новый мир"}' }, finish_reason: 'stop' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    await completeJson(
+      { provider: 'ollama', model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', apiKey: 'test', temperature: 0.4 },
+      [{ role: 'system', content: 'Ты — изобретатель миров.' }],
+      { stage: 'idea', temperature: 0.93 },
+    )
+
+    expect(bodies[0]).toMatchObject({ temperature: 0.93, max_tokens: 12_288 })
+  })
+
   it('uses deterministic temperature and repairs invalid JSON syntax automatically', async () => {
     const bodies: any[] = []
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

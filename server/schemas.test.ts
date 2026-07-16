@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
+import { backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, turnPatchSchema, turnPlanSchema, worldIdeaReviewSchema, worldIdeaSchema, worldQualityReviewSchema } from './schemas'
 import { demoWorld } from './demo'
 import { normalizeWorld } from './world-normalizer'
 
@@ -8,6 +8,50 @@ const plan = (relationships: unknown) => ({
   beats: ['NPC оценил поступок героя.'],
   suggestions: ['Продолжить разговор', 'Сменить тему'],
   statePatch: { relationships },
+})
+
+describe('automatic world idea contract', () => {
+  it('normalizes a complete creative concept and its independent review', () => {
+    const idea = worldIdeaSchema.parse({
+      title: 'Латунный отлив',
+      tagline: 'Море возвращает то, что города ещё не потеряли.',
+      corePremise: 'При отливе на дне появляются последствия будущих решений.',
+      inspiration: 'Подробный самостоятельный мир, где прибрежные общества исследуют материальные следы возможного будущего и спорят о праве менять ещё не совершённые решения.',
+      genre: 'Социальная фантастика и приключение',
+      tone: 'Живой, загадочный, от уютных портовых сцен до тяжёлых политических решений',
+      heroName: 'Ина',
+      heroConcept: 'Молодая картографка отливов, которая умеет сопоставлять противоречивые следы, но не знает, можно ли считать их судьбой.',
+      opening: 'На рассвете Ина находит на дне гавани памятник собственной гибели, установленный городом, которого ещё нет.',
+      pillars: [
+        { title: 'Будущие обломки', description: 'Отлив оставляет предметы возможных событий.', worldImpact: 'Порты строят право, страхование и разведку вокруг достоверности находок.' },
+        { title: 'Спорные берега', description: 'Разные побережья видят разные варианты.', worldImpact: 'Государства борются не за пророчество, а за право объявлять вариант официальным.' },
+        { title: 'Труд памяти', description: 'Следы нужно проверять человеческими свидетельствами.', worldImpact: 'Обычные архивисты и рыбаки становятся политически важными.' },
+      ],
+      signatureMechanic: { name: 'Сверка отлива', principle: 'След показывает последствие, но не единственную причину.', playerUse: 'Герой сопоставляет следы и выбирает, чему доверять.', worldConsequences: ['Ошибочное толкование само приближает событие', 'Скрытый след может изменить торговые и военные планы'] },
+      livingWorld: { everydayLife: 'Рыбаки продают не только улов, но и заверенные наблюдения.', autonomousForces: ['Архив гавани', 'Союз страховых домов', 'Независимые береговые общины'], distantHorizons: ['Сухое внутреннее море', 'Архипелаг без будущих следов', 'Плавучие суды достоверности'] },
+      centralTensions: ['Свобода решения против общественной безопасности', 'Открытые сведения против права на неизвестность', 'Единый закон против разных вариантов будущего'],
+      uniquePromises: ['Расследовать последствия до их причин', 'Менять мир через доверие к свидетельствам', 'Путешествовать между культурами с разным отношением к будущему'],
+      avoidedCliches: ['Герой не избран', 'Следы не являются точным пророчеством', 'Нет единой злой империи'],
+      originalityScore: '91%',
+    })
+    const review = worldIdeaReviewSchema.parse({
+      pass: 'да', originality: '92%', coherence: 88, longTermDepth: 94, playability: 89, livingWorld: 93,
+      detectedCliches: [], issues: [], rewriteInstructions: 'Сохранить причинную основу.',
+    })
+    expect(idea).toMatchObject({ title: 'Латунный отлив', originalityScore: 91 })
+    expect(idea.pillars[0]).toMatchObject({ title: 'Будущие обломки' })
+    expect(review).toMatchObject({ pass: true, originality: 92, livingWorld: 93 })
+  })
+
+  it('rejects a shallow concept without enough pillars and autonomous forces', () => {
+    expect(worldIdeaSchema.safeParse({
+      title: 'Пусто', tagline: 'Пусто', corePremise: 'Пусто', inspiration: 'Пусто', genre: 'Пусто', tone: 'Пусто',
+      heroName: 'Пусто', heroConcept: 'Пусто', opening: 'Пусто', pillars: [],
+      signatureMechanic: { name: 'Пусто', principle: 'Пусто', playerUse: 'Пусто', worldConsequences: [] },
+      livingWorld: { everydayLife: 'Пусто', autonomousForces: [], distantHorizons: [] },
+      centralTensions: [], uniquePromises: [], avoidedCliches: [], originalityScore: 100,
+    }).success).toBe(false)
+  })
 })
 
 describe('campaign editor contract', () => {

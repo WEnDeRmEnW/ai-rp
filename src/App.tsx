@@ -167,11 +167,15 @@ export function App() {
     <NewWorldDialog
       open={newWorldOpen}
       generating={app.generating}
+      ideating={app.ideating}
       progress={app.operationProgress}
+      ideaProgress={app.ideaProgress}
       providerName={app.provider.model}
       isDemo={app.provider.provider === 'demo'}
       onClose={() => setNewWorldOpen(false)}
       onCreate={app.createCampaign}
+      onInvent={app.createWorldIdea}
+      onCancelIdea={app.cancelWorldIdea}
     />
     <SettingsDialog open={settingsOpen} provider={app.provider} theme={app.theme} interfacePreferences={interfacePreferences} campaign={campaign} onClose={() => setSettingsOpen(false)} onProvider={app.setProvider} onTheme={app.setTheme} onInterface={setInterfacePreferences} onCampaign={app.updateActiveCampaign} />
     <CampaignEditorDialog open={editorOpen} campaign={campaign} generating={app.generating} progress={app.operationProgress} onClose={() => setEditorOpen(false)} onManual={app.updateActiveCampaign} onAi={app.aiEditCampaign} onUndoEdit={app.undoLastEdit} canUndoEdit={app.canUndoEdit} />

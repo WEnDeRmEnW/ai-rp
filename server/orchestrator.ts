@@ -1,10 +1,10 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest } from '../shared/types.js'
+import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest, WorldIdea, WorldIdeaRequest } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
-import { backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
+import { backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldIdeaCriticPrompt, worldIdeaPrompt, worldIdeaRewritePrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
+import { backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldIdeaReviewSchema, worldIdeaSchema, worldQualityReviewSchema, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldIdeaReview, type WorldQualityReview } from './schemas.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 
@@ -1761,6 +1761,52 @@ export async function editCampaign(request: CampaignEditRequest, report?: Progre
     summary: sanitized.notes.length ? `${parsed.summary} Часть небезопасных ссылок отклонена: ${sanitized.notes.join(' ')}` : parsed.summary,
     statePatch: sanitized.plan.statePatch,
   }
+}
+
+function reviewedIdea(idea: WorldIdea, review: WorldIdeaReview): WorldIdea {
+  const score = Math.round((review.originality + review.coherence + review.longTermDepth + review.playability + review.livingWorld) / 5)
+  return { ...idea, originalityScore: score }
+}
+
+function passesWorldIdeaReview(review: WorldIdeaReview) {
+  return review.pass
+    && review.originality >= 85
+    && review.coherence >= 80
+    && review.longTermDepth >= 85
+    && review.playability >= 80
+    && review.livingWorld >= 85
+    && review.detectedCliches.length === 0
+}
+
+export async function generateWorldIdea(request: WorldIdeaRequest, report?: ProgressReporter): Promise<WorldIdea> {
+  if (request.provider.provider === 'demo') throw new Error('Автоматическое изобретение мира требует подключённую модель. Выберите DeepSeek V4 Flash в настройках.')
+
+  reportProgress(report, 6, 'idea-seed', 'Ищем необычный причинный фундамент мира', 1, 4)
+  const creatorMessages = worldIdeaPrompt(request)
+  const rawIdea = await completeJson(request.provider, creatorMessages, { stage: 'idea', temperature: Math.max(0.85, request.provider.temperature) })
+  let idea = await parseWithRepair<WorldIdea>(rawIdea, worldIdeaSchema, request.provider, creatorMessages)
+
+  reportProgress(report, 46, 'idea-critic', 'Независимый редактор ищет заимствования и жанровые клише', 2, 4)
+  let criticMessages = worldIdeaCriticPrompt(request, idea)
+  let rawReview = await completeJson(request.provider, criticMessages, { stage: 'idea', temperature: 0.1 })
+  let review = await parseWithRepair<WorldIdeaReview>(rawReview, worldIdeaReviewSchema, request.provider, criticMessages)
+  idea = reviewedIdea(idea, review)
+
+  if (!passesWorldIdeaReview(review)) {
+    reportProgress(report, 68, 'idea-rewrite', 'Пересобираем слабые и слишком знакомые части концепции', 3, 4)
+    const rewriteMessages = worldIdeaRewritePrompt(request, idea, review)
+    const rawRewrite = await completeJson(request.provider, rewriteMessages, { stage: 'idea', temperature: Math.max(0.8, request.provider.temperature) })
+    idea = await parseWithRepair<WorldIdea>(rawRewrite, worldIdeaSchema, request.provider, rewriteMessages)
+
+    reportProgress(report, 88, 'idea-verification', 'Проверяем, что новый вариант связный, игровой и действительно самостоятельный', 4, 4)
+    criticMessages = worldIdeaCriticPrompt(request, idea)
+    rawReview = await completeJson(request.provider, criticMessages, { stage: 'idea', temperature: 0.1 })
+    review = await parseWithRepair<WorldIdeaReview>(rawReview, worldIdeaReviewSchema, request.provider, criticMessages)
+    idea = reviewedIdea(idea, review)
+  }
+
+  reportProgress(report, 98, 'idea-ready', 'Концепция готова и поля Кузницы заполнены', 4, 4)
+  return idea
 }
 
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {

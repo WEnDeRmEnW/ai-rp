@@ -1698,6 +1698,63 @@ export const worldRequestSchema = z.object({
   provider: providerSchema,
 })
 
+export const worldIdeaRequestSchema = z.object({
+  hint: z.string().trim().max(12_000),
+  contentBoundaries: z.string().trim().max(2000),
+  previousIdeas: z.array(z.string().trim().min(1).max(3000)).max(8),
+  creativeSeed: z.string().trim().min(8).max(160),
+  provider: providerSchema,
+}).strict()
+
+const worldIdeaContract = z.object({
+  title: shortText,
+  tagline: shortText,
+  corePremise: longText,
+  inspiration: longText,
+  genre: shortText,
+  tone: shortText,
+  heroName: shortText,
+  heroConcept: longText,
+  opening: longText,
+  pillars: z.array(z.object({
+    title: shortText,
+    description: longText,
+    worldImpact: longText,
+  }).strict()).min(3).max(7),
+  signatureMechanic: z.object({
+    name: shortText,
+    principle: longText,
+    playerUse: longText,
+    worldConsequences: z.array(longText).min(2).max(8),
+  }).strict(),
+  livingWorld: z.object({
+    everydayLife: longText,
+    autonomousForces: z.array(longText).min(3).max(10),
+    distantHorizons: z.array(longText).min(3).max(10),
+  }).strict(),
+  centralTensions: z.array(longText).min(3).max(10),
+  uniquePromises: z.array(longText).min(3).max(10),
+  avoidedCliches: z.array(longText).min(3).max(10),
+  originalityScore: modelNumber(z.number().min(0).max(100)),
+}).strict()
+
+export const worldIdeaSchema = z.preprocess((value) => normalizeModelOutput(value), worldIdeaContract)
+
+export const worldIdeaReviewSchema = z.preprocess((value) => normalizeModelOutput(value), z.object({
+  pass: modelBoolean,
+  originality: modelNumber(z.number().min(0).max(100)),
+  coherence: modelNumber(z.number().min(0).max(100)),
+  longTermDepth: modelNumber(z.number().min(0).max(100)),
+  playability: modelNumber(z.number().min(0).max(100)),
+  livingWorld: modelNumber(z.number().min(0).max(100)),
+  detectedCliches: z.array(z.object({
+    fragment: longText,
+    reason: longText,
+  }).strict()).max(12),
+  issues: z.array(longText).max(16),
+  rewriteInstructions: longText,
+}).strict())
+
 export const campaignEditRequestSchema = z.object({
   campaign: turnRequestSchema.shape.campaign,
   instruction: z.string().trim().min(3).max(20_000),
@@ -2356,3 +2413,5 @@ export type GeneratedWorld = z.infer<typeof generatedWorldSchema>
 export type ConceptAnalysis = z.infer<typeof conceptAnalysisSchema>
 export type WorldQualityReview = z.infer<typeof worldQualityReviewSchema>
 export type ConsequenceAudit = z.infer<typeof consequenceAuditSchema>
+export type WorldIdea = z.infer<typeof worldIdeaSchema>
+export type WorldIdeaReview = z.infer<typeof worldIdeaReviewSchema>
