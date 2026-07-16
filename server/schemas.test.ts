@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, narrativeEventDecisionSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
+import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, narrativeEventDecisionSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
 import { demoWorld } from './demo'
 import { normalizeWorld } from './world-normalizer'
 
@@ -506,6 +506,26 @@ describe('consequence completeness audit', () => {
     const result = consequenceAuditSchema.safeParse({ pass: true, narrativePass: true, narrativeIssues: [], verifiedDomains: duplicated, omissions: [], statePatch: {} })
 
     expect(result.success).toBe(false)
+  })
+})
+
+describe('player agency audit contract', () => {
+  it('normalizes DeepSeek Russian labels but never accepts an empty failed audit', () => {
+    expect(agencyAuditSchema.parse({
+      pass: 'нет',
+      violations: [{
+        kind: 'реплика',
+        evidence: '— Я согласен, — говорит герой.',
+        reason: 'Игрок этого не писал.',
+        instruction: 'Удалить реплику героя.',
+        severity: 'высокая',
+      }],
+    })).toMatchObject({
+      pass: false,
+      violations: [{ kind: 'speech', severity: 'high' }],
+    })
+
+    expect(() => agencyAuditSchema.parse({ pass: false, violations: [] })).toThrow()
   })
 })
 

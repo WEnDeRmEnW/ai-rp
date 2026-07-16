@@ -4,10 +4,11 @@ import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEve
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
-import { backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
+import { agencyRevisionPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
+import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
+import { findAgencyViolations, type AgencyViolation } from './agency-guard.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
 
@@ -1585,17 +1586,17 @@ function startingAccessIssues(concept: ConceptAnalysis, world: GeneratedWorld): 
 }
 
 export async function runTurn(request: TurnRequest, report?: ProgressReporter): Promise<TurnResponse> {
-  reportProgress(report, 3, 'preparing', 'Проверяем ввод и собираем актуальное состояние', 1, 10)
+  reportProgress(report, 3, 'preparing', 'Проверяем ввод и собираем актуальное состояние', 1, 11)
   const check = resolveActionCheck(request.campaign, request.input, request.actionType)
   const preparedEventState = prepareEventDirectorState(request.campaign)
   if (request.provider.provider === 'demo') {
-    reportProgress(report, 80, 'narrating', 'Собираем демонстрационный ответ', 9, 10)
+    reportProgress(report, 80, 'narrating', 'Собираем демонстрационный ответ', 11, 11)
     const response = demoTurn(request.campaign, request.input)
     response.statePatch.eventDirectorState = preparedEventState
     return { ...response, check }
   }
 
-  reportProgress(report, 8, 'world-simulation', 'Персонажи и мир делают свои независимые шаги', 2, 10)
+  reportProgress(report, 8, 'world-simulation', 'Персонажи и мир делают свои независимые шаги', 2, 11)
   const backgroundMessages = backgroundSimulatorPrompt(request.campaign, request.input)
   const emptyBackground: ReturnType<typeof backgroundSimulationSchema.parse> = { signals: [], statePatch: {} }
   const background = await optionalStage<ReturnType<typeof backgroundSimulationSchema.parse>>('background', async () => {
@@ -1606,7 +1607,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   let eventDirectorConsulted = false
   if (shouldConsultEventDirector(request.campaign, preparedEventState)) {
     eventDirectorConsulted = true
-    reportProgress(report, 17, 'event-director', 'Проверяем, созрело ли редкое необычное событие', 3, 10)
+    reportProgress(report, 17, 'event-director', 'Проверяем, созрело ли редкое необычное событие', 3, 11)
     const eventMessages = eventDirectorPrompt(request.campaign, request.input, background, preparedEventState)
     eventDecision = await optionalStage<NarrativeEventDecision>('event-director', async () => {
       const rawDecision = await completeJson(request.provider, eventMessages)
@@ -1633,7 +1634,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     }, { mode: 'none', reason: 'Этап необычного события не завершился и был безопасно пропущен.' })
   }
 
-  reportProgress(report, 26, 'directing', 'Режиссёр строит причинный план и последствия', 4, 10)
+  reportProgress(report, 26, 'directing', 'Режиссёр строит причинный план и последствия', 4, 11)
   let director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
   const createPlan = async () => {
     const rawPlan = await completeJson(request.provider, director.messages)
@@ -1644,7 +1645,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed') {
     const complianceIssues = narrativeEventComplianceIssues(eventDecision, validPlan.statePatch)
     if (complianceIssues.length) {
-      reportProgress(report, 34, 'event-compliance', 'Связываем событие с настоящими данными мира', 5, 10)
+      reportProgress(report, 34, 'event-compliance', 'Связываем событие с настоящими данными мира', 5, 11)
       try {
         const repairMessages = eventComplianceRepairPrompt(director.messages, eventDecision, validPlan, complianceIssues)
         const repairedRaw = await completeJson(request.provider, repairMessages)
@@ -1664,7 +1665,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   const applyProgressionAudit = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
     const progressionMessages = progressionAuditPrompt(request.campaign, request.input, plan)
     if (!progressionMessages) return plan
-    reportProgress(report, 41, 'progression', 'Сверяем развитие способностей, предметов и персонажей', 5, 10)
+    reportProgress(report, 41, 'progression', 'Сверяем развитие способностей, предметов и персонажей', 5, 11)
     const emptyProgression: ReturnType<typeof progressionAuditSchema.parse> = {}
     const progression = await optionalStage<ReturnType<typeof progressionAuditSchema.parse>>('progression', async () => {
       const rawProgression = await completeJson(request.provider, progressionMessages)
@@ -1705,7 +1706,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     validPlan.statePatch = mergeAuditPatch(validPlan.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof validPlan.statePatch
     sanitized = sanitizePlan(request.campaign, validPlan)
   }
-  reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 10)
+  reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
   const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
   const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
     ? await firstDraft.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
@@ -1713,7 +1714,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
   const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
   const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
-  reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 10)
+  reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 11)
   const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB)
   const review = await optionalStage('critic', async () => {
     const rawReview = await completeJson(request.provider, criticMessages)
@@ -1726,6 +1727,57 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     chosenDraft,
   )
 
+  const agencyAuditNotes: string[] = []
+  let agencyPassed = false
+  for (let agencyAttempt = 0; agencyAttempt < 3; agencyAttempt += 1) {
+    const deterministicViolations = findAgencyViolations({
+      playerName: request.campaign.player.name,
+      input: request.input,
+      actionType: request.actionType,
+      narrative,
+      agencyMode: request.campaign.settings.playerAgency,
+    })
+    reportProgress(report, 70 + agencyAttempt * 2, 'agency-audit', agencyAttempt === 0
+      ? 'Проверяем, что герой принадлежит только игроку'
+      : `Убираем присвоенные герою решения: попытка ${agencyAttempt + 1}`, 8, 11)
+    const auditMessages = playerAgencyAuditorPrompt(
+      request.campaign,
+      request.input,
+      request.actionType,
+      sanitized.plan,
+      narrative,
+      deterministicViolations,
+    )
+    const fallbackAgencyAudit: AgencyAudit = {
+      pass: deterministicViolations.length === 0,
+      violations: deterministicViolations,
+    }
+    const agencyAudit = await optionalStage<AgencyAudit>('agency-audit', async () => {
+      const rawAgencyAudit = await completeJson(request.provider, auditMessages)
+      return parseWithRepair<AgencyAudit>(rawAgencyAudit, agencyAuditSchema, request.provider, auditMessages)
+    }, fallbackAgencyAudit)
+    const violations = [...deterministicViolations, ...agencyAudit.violations].filter((violation, index, all) => (
+      all.findIndex((candidate) => candidate.kind === violation.kind && candidate.evidence === violation.evidence) === index
+    ))
+    agencyAuditNotes.push(...violations.map((violation) => `Агентность ${violation.kind}: ${violation.reason}`))
+    if (agencyAudit.pass && violations.length === 0) {
+      agencyPassed = true
+      break
+    }
+    if (agencyAttempt === 2) break
+    narrative = await completeText(request.provider, agencyRevisionPrompt(
+      request.campaign,
+      request.input,
+      request.actionType,
+      sanitized.plan,
+      narrative,
+      violations as AgencyViolation[],
+    ))
+  }
+  if (!agencyPassed) {
+    throw new Error(`DeepSeek не смог сохранить свободу героя после трёх обязательных исправлений. Ход не применён, чтобы ИИ не решил за ${request.campaign.player.name}.`)
+  }
+
   const repairedOmissions: ConsequenceAudit['omissions'] = []
   const narrativeAuditNotes: string[] = []
   let consequenceAudit: ConsequenceAudit | undefined
@@ -1737,7 +1789,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   // Audit state and prose together. If the model replaced a binding story direction with its
   // own scene, rewrite the prose and audit the corrected result again before committing anything.
   for (let narrativeAttempt = 0; narrativeAttempt < 3; narrativeAttempt += 1) {
-    reportProgress(report, 74 + narrativeAttempt * 6, 'consequence-audit', narrativeAttempt === 0 ? 'Проверяем все 17 областей состояния' : `Исправляем пропущенные последствия: попытка ${narrativeAttempt + 1}`, 8, 10)
+    reportProgress(report, 76 + narrativeAttempt * 5, 'consequence-audit', narrativeAttempt === 0 ? 'Проверяем все 17 областей состояния' : `Исправляем пропущенные последствия: попытка ${narrativeAttempt + 1}`, 9, 11)
     const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, reconciled.plan, narrative, check)
     const rawAudit = await completeJson(request.provider, auditMessages)
     consequenceAudit = await parseWithRepair<ConsequenceAudit>(rawAudit, consequenceAuditSchema, request.provider, auditMessages)
@@ -1781,7 +1833,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
   if (!consequenceAudit) throw new Error('Не удалось выполнить обязательную сверку последствий.')
 
-  reportProgress(report, 93, 'memory', 'Закрепляем факты и долгую память истории', 9, 10)
+  reportProgress(report, 93, 'memory', 'Закрепляем факты и долгую память истории', 10, 11)
   const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, narrative, reconciled.plan)
   const curator = await optionalStage('memory', async () => {
     const rawCurator = await completeJson(request.provider, curatorMessages)
@@ -1815,7 +1867,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     ? applyNarrativeEventProposal(request.campaign, preparedEventState, eventDecision, randomUUID)
     : preparedEventState
 
-  reportProgress(report, 98, 'finalizing', 'Формируем атомарный ответ и изменения', 10, 10)
+  reportProgress(report, 98, 'finalizing', 'Формируем атомарный ответ и изменения', 11, 11)
   return {
     narrative,
     suggestions: reconciled.plan.suggestions,
@@ -1823,7 +1875,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     activeLoreIds: director.selection.activeLoreIds,
     recalledMemoryIds: director.selection.recalledMemoryIds,
     activeDocumentChunkIds: director.selection.activeDocumentChunkIds,
-    continuityNotes: [...new Set([...sanitized.notes, ...reconciled.notes, ...reviewNotes, ...narrativeAuditNotes, ...auditNotes])],
+    continuityNotes: [...new Set([...sanitized.notes, ...reconciled.notes, ...reviewNotes, ...agencyAuditNotes, ...narrativeAuditNotes, ...auditNotes])],
     check,
     archives,
   }

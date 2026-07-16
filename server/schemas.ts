@@ -1736,6 +1736,42 @@ const continuityReviewContract = z.object({
 
 export const continuityReviewSchema = z.preprocess((value) => normalizeModelOutput(value), continuityReviewContract)
 
+const agencyViolationKindSchema = z.preprocess(alias({
+  речь: 'speech', реплика: 'speech', слова: 'speech',
+  действие: 'action', поступок: 'action',
+  мысль: 'thought', мысли: 'thought',
+  эмоция: 'emotion', чувство: 'emotion',
+  решение: 'decision', выбор: 'decision',
+  мотив: 'motive', намерение: 'motive',
+}), z.enum(['speech', 'action', 'thought', 'emotion', 'decision', 'motive']))
+const agencyText = z.preprocess((value) => (
+  Array.isArray(value) ? value.map((entry) => String(entry)).join('\n') : value
+), longText)
+
+const agencyAuditContract = z.object({
+  pass: modelBoolean,
+  violations: z.array(z.object({
+    kind: agencyViolationKindSchema,
+    evidence: agencyText,
+    reason: agencyText,
+    instruction: agencyText,
+    severity: z.enum(['high']),
+  }).strict()).max(24),
+}).strict().superRefine((audit, context) => {
+  if (audit.pass && audit.violations.length > 0) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['pass'],
+    message: 'A passing agency audit cannot contain violations',
+  })
+  if (!audit.pass && audit.violations.length === 0) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['violations'],
+    message: 'A failed agency audit must contain exact violations',
+  })
+})
+
+export const agencyAuditSchema = z.preprocess((value) => normalizeModelOutput(value), agencyAuditContract)
+
 const memoryCuratorContract = z.object({
   memories: z.array(z.object({
     kind: memoryKindSchema,
@@ -2475,3 +2511,4 @@ export type GeneratedWorld = z.infer<typeof generatedWorldSchema>
 export type ConceptAnalysis = z.infer<typeof conceptAnalysisSchema>
 export type WorldQualityReview = z.infer<typeof worldQualityReviewSchema>
 export type ConsequenceAudit = z.infer<typeof consequenceAuditSchema>
+export type AgencyAudit = z.infer<typeof agencyAuditSchema>

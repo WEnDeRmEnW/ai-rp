@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt } from './prompts'
+import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt } from './prompts'
 import { demoWorld } from './demo'
 
 describe('world architect prompt', () => {
@@ -138,6 +138,24 @@ describe('world architect prompt', () => {
 })
 
 describe('runtime customization prompts', () => {
+  it('treats player agency as a separate hard contract in planning, narration, and final audit', () => {
+    const campaign = createDemoCampaign()
+    campaign.player.name = 'Фейн'
+    campaign.settings.playerAgency = 'strict'
+    const input = 'Они не тронут тебя, если ты останешься со мной.'
+    const director = directorPrompt(campaign, input, 'do').messages[0].content
+    const narrator = narratorPrompt(campaign, input, 'do', { outcome: 'Элира реагирует.', beats: ['Элира реагирует.'], statePatch: {} })[0].content
+    const agency = playerAgencyAuditorPrompt(campaign, input, 'do', {}, 'Фейн продолжает говорить.')[0].content
+    const consequence = consequenceAuditorPrompt(campaign, input, 'do', {}, 'Фейн продолжает говорить.')[0].content
+
+    expect(director).toContain('после его результата не планируй новый жест, взгляд, речь, движение или решение')
+    expect(narrator).toContain('АГЕНТНОСТЬ ГЕРОЯ — ЖЁСТКИЙ КОНТРАКТ')
+    expect(narrator).toContain('слова приходят сами')
+    expect(agency).toContain('Проверь каждое предложение и каждую прямую речь')
+    expect(agency).toContain('дописывать продолжение')
+    expect(consequence).toContain('Проверь отдельно каждую его прямую речь')
+  })
+
   it('turns campaign settings into explicit director rules and gives the editor full state vocabulary', () => {
     const campaign = createDemoCampaign()
     campaign.settings.playerAgency = 'cinematic'
