@@ -22,6 +22,12 @@ describe('state receipt transitions', () => {
     expect(formatStateChangeTransition(change({ delta: 3 }))).toBe('+3')
   })
 
+  it('does not show a fake transition when the value did not change', () => {
+    expect(formatStateChangeTransition(change({ before: 85, after: 85 }))).toBeUndefined()
+    expect(formatStateChangeTransition(change({ before: 'active', after: 'active' }))).toBeUndefined()
+    expect(formatStateChangeTransition(change({ delta: 0 }))).toBeUndefined()
+  })
+
   it('does not duplicate long world descriptions in the compact value column', () => {
     expect(formatStateChangeTransition(change({
       before: 'Башня оставалась запечатанной и не отвечала на внешние сигналы.',

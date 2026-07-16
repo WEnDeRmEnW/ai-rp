@@ -14,12 +14,14 @@ export function formatStateChangeTransition(change: StateChange) {
     const before = typeof change.before === 'string' ? uiLabel(change.before, '') : String(change.before)
     const after = typeof change.after === 'string' ? uiLabel(change.after, '') : String(change.after)
     if (!before || !after) return undefined
+    if (before === after) return undefined
     const transition = `${before} → ${after}`
     if (transition.length > MAX_COMPACT_TRANSITION_LENGTH || /[\r\n]/.test(transition)) return undefined
     if (normalizedDetail(change.detail).includes(transition)) return undefined
     return transition
   }
   if (change.delta !== undefined) {
+    if (change.delta === 0) return undefined
     const delta = `${change.delta > 0 ? '+' : ''}${change.delta}`
     if (normalizedDetail(change.detail).includes(delta)) return undefined
     return delta

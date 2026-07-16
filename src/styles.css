@@ -840,7 +840,17 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .change-turn > header span { color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .change-turn > header time { white-space: nowrap; }
 .change-turn-list { display: grid; }
-.change-turn .state-change-line { padding-right: 9px; padding-left: 9px; }
+.change-turn .state-change-line {
+  grid-template-columns: 27px minmax(0, 1fr);
+  padding-right: 9px;
+  padding-left: 9px;
+}
+.change-turn .state-change-value {
+  grid-column: 2;
+  width: max-content;
+  max-width: 100%;
+  justify-self: start;
+}
 .load-more-changes { width: 100%; min-height: 39px; margin-top: 10px; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--surface-1); color: var(--muted); font-size: 10px; }
 .load-more-changes:hover { background: var(--surface-2); color: var(--text); }
 
@@ -1561,7 +1571,12 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   .story-column { padding-right: 14px; padding-left: 12px; }
   .story-prose { font-size: 16px; }
   .state-change-line { grid-template-columns: 25px minmax(0, 1fr); }
-  .state-change-line .state-change-value { grid-column: 2; width: fit-content; }
+  .state-change-line .state-change-value {
+    grid-column: 2;
+    width: fit-content;
+    max-width: 100%;
+    justify-self: start;
+  }
   .state-change-icon { width: 25px; height: 25px; }
   .hero-vitals-identity { flex-basis: 90px; }
   .hero-vitals-identity small { display: none; }
@@ -2118,7 +2133,6 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .count-badge {
   font-size: calc(9.5px * var(--panel-scale));
 }
-.state-change-value,
 .change-vital > span,
 .change-active-effects span {
   overflow: visible;
@@ -2129,7 +2143,13 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 }
 .state-change-value {
   max-width: min(240px, 46%);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  font-size: calc(10px * var(--panel-scale));
+  line-height: 1.4;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 @media (max-width: 800px) {
