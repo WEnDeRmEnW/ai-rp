@@ -174,7 +174,7 @@ export function App() {
       onClose={() => setInspectorOpen(false)}
       onUpdate={app.updateActiveCampaign}
       designingInterface={app.generating}
-      onDesignInterface={(instruction) => void app.aiEditCampaign(instruction?.trim() || 'Полностью и безопасно перестрой правую панель именно под этот мир. Создай или обнови world.interfaceBlueprint, настоящие world.metrics и 2–6 уникальных адаптивных модулей с живыми привязками. Сохрани закреплённые пользователем модули, не раскрывай скрытые знания и не меняй сюжет, время или установленные факты.')}
+      onDesignInterface={(instruction) => void app.aiEditCampaign(instruction?.trim() || 'Полностью и безопасно перестрой правую панель именно под этот мир. Сохрани все шесть основных вкладок видимыми, создай или обнови world.interfaceBlueprint, настоящие world.metrics и 2–6 уникальных адаптивных модулей с живыми привязками. Сохрани закреплённые пользователем модули, не раскрывай скрытые знания и не меняй сюжет, время или установленные факты.')}
     />
 
     <NewWorldDialog

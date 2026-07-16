@@ -687,13 +687,20 @@ const worldInterfaceBlueprintDraftSchema = z.object({
   title: shortText,
   subtitle: shortText,
   defaultTab: inspectorTabIdSchema,
-  tabs: z.array(z.object({ id: inspectorTabIdSchema, label: shortText, visible: modelBoolean }).strict()).min(1).max(6),
+  tabs: z.array(z.object({ id: inspectorTabIdSchema, label: shortText, visible: modelBoolean }).strict()).length(6),
   dashboardSections: z.array(dashboardSectionIdSchema).min(1).max(7),
   reason: longText,
   updatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
 }).strict().superRefine((blueprint, context) => {
   const tabIds = blueprint.tabs.map((tab) => tab.id)
   if (new Set(tabIds).size !== tabIds.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ['tabs'], message: 'Вкладки пульта должны иметь уникальные id.' })
+  const requiredTabs = ['dashboard', 'scene', 'hero', 'inventory', 'changes', 'world'] as const
+  requiredTabs.forEach((tabId) => {
+    if (!tabIds.includes(tabId)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['tabs'], message: `Обязательная вкладка ${tabId} отсутствует.` })
+  })
+  blueprint.tabs.forEach((tab, index) => {
+    if (!tab.visible) context.addIssue({ code: z.ZodIssueCode.custom, path: ['tabs', index, 'visible'], message: 'Все шесть основных вкладок должны оставаться видимыми.' })
+  })
   if (!blueprint.tabs.some((tab) => tab.id === blueprint.defaultTab && tab.visible)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['defaultTab'], message: 'Стартовая вкладка должна существовать и быть видимой.' })
   if (new Set(blueprint.dashboardSections).size !== blueprint.dashboardSections.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ['dashboardSections'], message: 'Разделы пульта не должны повторяться.' })
 })

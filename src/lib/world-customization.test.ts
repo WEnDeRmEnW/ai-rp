@@ -23,7 +23,7 @@ describe('world customization compatibility', () => {
     expect(blueprint.dashboardSections).toContain('interfaceHealth')
   })
 
-  it('never lets an AI blueprint hide the recovery dashboard', () => {
+  it('never lets an AI blueprint hide any of the six useful screens', () => {
     const world = createDemoCampaign().world
     world.interfaceBlueprint = {
       title: 'Боевой HUD', subtitle: 'Только бой', defaultTab: 'world', reason: 'Под сцену', updatedTurn: 7,
@@ -31,8 +31,11 @@ describe('world customization compatibility', () => {
       dashboardSections: ['modules'],
     }
     const blueprint = getWorldInterfaceBlueprint(world)
+    expect(blueprint.tabs).toHaveLength(6)
+    expect(blueprint.tabs.every((tab) => tab.visible)).toBe(true)
     expect(blueprint.tabs.find((tab) => tab.id === 'dashboard')).toMatchObject({ visible: true, label: 'Пульт' })
-    expect(blueprint.defaultTab).toBe('dashboard')
+    expect(blueprint.tabs.find((tab) => tab.id === 'world')).toMatchObject({ visible: true, label: 'Архив' })
+    expect(blueprint.defaultTab).toBe('world')
     expect(blueprint.dashboardSections).toEqual(expect.arrayContaining(['modules', 'interfaceHealth']))
   })
 })

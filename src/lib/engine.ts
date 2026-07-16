@@ -27,6 +27,7 @@ import type {
   AdaptiveInterfaceElement,
   AdaptiveInterfaceModule,
   WorldInterfaceBlueprint,
+  InspectorTabId,
   WorldMetric,
   WorldChronicleEntry,
   WorldScale,
@@ -140,9 +141,12 @@ function normalizeInterfaceModule(
 
 function validInterfaceBlueprint(blueprint: WorldInterfaceBlueprint): boolean {
   const tabIds = blueprint.tabs.map((tab) => tab.id)
-  return tabIds.length > 0
+  const requiredTabIds: InspectorTabId[] = ['dashboard', 'scene', 'hero', 'inventory', 'changes', 'world']
+  return tabIds.length === requiredTabIds.length
     && new Set(tabIds).size === tabIds.length
-    && blueprint.tabs.some((tab) => tab.id === blueprint.defaultTab && tab.visible)
+    && requiredTabIds.every((id) => tabIds.includes(id))
+    && blueprint.tabs.every((tab) => tab.visible)
+    && blueprint.tabs.some((tab) => tab.id === blueprint.defaultTab)
     && blueprint.dashboardSections.length > 0
     && new Set(blueprint.dashboardSections).size === blueprint.dashboardSections.length
 }

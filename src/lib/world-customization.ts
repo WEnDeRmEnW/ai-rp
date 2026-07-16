@@ -54,7 +54,8 @@ const defaultDashboardSections: DashboardSectionId[] = ['scene', 'stakes', 'modu
 
 /**
  * Resolves a safe, recoverable right-panel layout for both legacy and AI-designed worlds.
- * Dashboard is always available so the player can repair or reconfigure a broken design.
+ * All six primary screens are always available. A world may rename them, but neither
+ * an AI-authored blueprint nor an old save may remove useful navigation.
  */
 export function getWorldInterfaceBlueprint(world: World): WorldInterfaceBlueprint {
   const labels = getWorldPresentation(world).labels
@@ -71,7 +72,7 @@ export function getWorldInterfaceBlueprint(world: World): WorldInterfaceBlueprin
   const tabs = defaultTabOrder.map((id) => ({
     id,
     label: storedTabs.get(id)?.label?.trim() || defaults[id],
-    visible: id === 'dashboard' ? true : stored ? (storedTabs.get(id)?.visible ?? false) : true,
+    visible: true,
   }))
   const visibleIds = new Set(tabs.filter((tab) => tab.visible).map((tab) => tab.id))
   const requestedDefault = stored?.defaultTab

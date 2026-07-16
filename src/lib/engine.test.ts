@@ -499,7 +499,11 @@ describe('state engine', () => {
     const created = applyPatch(campaign, { world: {
       interfaceBlueprint: {
         title: 'Пульт розыска', subtitle: 'Живая обстановка', defaultTab: 'dashboard',
-        tabs: [{ id: 'dashboard', label: 'Пульт', visible: true }, { id: 'world', label: 'Мир', visible: true }],
+        tabs: [
+          { id: 'dashboard', label: 'Пульт', visible: true }, { id: 'scene', label: 'Сцена', visible: true },
+          { id: 'hero', label: 'Герой', visible: true }, { id: 'inventory', label: 'Рюкзак', visible: true },
+          { id: 'changes', label: 'Изменения', visible: true }, { id: 'world', label: 'Мир', visible: true },
+        ],
         dashboardSections: ['stakes', 'modules'], reason: 'Розыск определяет реакцию города.', updatedTurn: 999,
       },
       upsertMetrics: [

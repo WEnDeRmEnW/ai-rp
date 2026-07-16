@@ -204,7 +204,11 @@ describe('safe adaptive cockpit contract', () => {
     const parsed = turnPatchSchema.parse({ world: {
       interfaceBlueprint: {
         title: 'Пульт беглеца', subtitle: 'Внимание города', defaultTab: 'dashboard', reason: 'Мир реагирует на героя.',
-        tabs: [{ id: 'dashboard', label: 'Пульт', visible: true }, { id: 'world', label: 'Город', visible: true }],
+        tabs: [
+          { id: 'dashboard', label: 'Пульт', visible: true }, { id: 'scene', label: 'Сцена', visible: true },
+          { id: 'hero', label: 'Герой', visible: true }, { id: 'inventory', label: 'Рюкзак', visible: true },
+          { id: 'changes', label: 'Изменения', visible: true }, { id: 'world', label: 'Город', visible: true },
+        ],
         dashboardSections: ['scene', 'modules', 'worldPulse', 'interfaceHealth'],
       },
       upsertMetrics: [{ id: 'metric-alert', key: 'alert', label: 'Розыск', description: 'Насколько активно героя ищут.', value: 35, min: 0, max: 100, unit: '%', visibility: 'known', source: 'Городская стража', updatePolicy: 'Растёт от известных преступлений.' }],
@@ -217,6 +221,22 @@ describe('safe adaptive cockpit contract', () => {
     expect(parsed.world?.upsertInterfaceModules?.[0]).toMatchObject({ placement: 'dashboard', visual: 'cards', pinned: true, density: 'compact', emphasis: 'prominent' })
     expect(parsed.world?.interfaceModuleChanges?.[0]).toMatchObject({ moduleId: 'ui-alert', module: { priority: 95 } })
     expect(parsed.world?.metricDeltas).toEqual({ alert: 12 })
+  })
+
+  it('rejects an interface blueprint that hides or omits a primary screen', () => {
+    const hidden = [
+      { id: 'dashboard', label: 'Пульт', visible: true }, { id: 'scene', label: 'Сцена', visible: true },
+      { id: 'hero', label: 'Герой', visible: true }, { id: 'inventory', label: 'Рюкзак', visible: true },
+      { id: 'changes', label: 'Изменения', visible: false }, { id: 'world', label: 'Мир', visible: true },
+    ]
+    expect(turnPatchSchema.safeParse({ world: { interfaceBlueprint: {
+      title: 'Неполный пульт', subtitle: 'Скрытый раздел', defaultTab: 'dashboard', tabs: hidden,
+      dashboardSections: ['scene'], reason: 'Попытка скрыть полезную вкладку.',
+    } } }).success).toBe(false)
+    expect(turnPatchSchema.safeParse({ world: { interfaceBlueprint: {
+      title: 'Неполный пульт', subtitle: 'Нет раздела', defaultTab: 'dashboard', tabs: hidden.slice(0, 5).map((tab) => ({ ...tab, visible: true })),
+      dashboardSections: ['scene'], reason: 'Попытка удалить полезную вкладку.',
+    } } }).success).toBe(false)
   })
 
   it('rejects ambiguous live bindings, duplicate ids, invalid links and inverted ranges', () => {

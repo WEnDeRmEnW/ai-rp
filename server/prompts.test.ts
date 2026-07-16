@@ -55,6 +55,7 @@ describe('world architect prompt', () => {
     expect(system.content).toContain('pinned?,density?,emphasis?')
     expect(system.content).toContain('stateRules?{dangerBelow?,warningBelow?,positiveBelow?,positiveAbove?,warningAbove?,dangerAbove?}')
     expect(system.content).toContain('Допустимые interfaceBlueprint tab.id/defaultTab: dashboard, scene, hero, inventory, changes, world')
+    expect(system.content).toContain('Всегда верни все шесть основных вкладок dashboard, scene, hero, inventory, changes, world с visible=true')
     expect(system.content).toContain('Допустимые interfaceModules.placement: dashboard, scene, hero, inventory, world')
     expect(system.content).toContain('visual: meters, nodes, slots, track, ledger, signals, radar, cards')
     expect(system.content).toContain('binding.domain: custom, player.level, player.resource')

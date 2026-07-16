@@ -136,8 +136,8 @@ function InterfaceStudio({ campaign, open, onClose, onUpdate, onDesign, designin
       </section>
 
       <section className="studio-section">
-        <header><div><LayoutDashboard size={15} /><span><strong>Вкладки пульта</strong><small>Пульт всегда остаётся доступен как точка восстановления.</small></span></div></header>
-        <div className="studio-tab-grid">{blueprint.tabs.map((item) => <button key={item.id} role="switch" aria-checked={item.visible} disabled={item.id === 'dashboard'} className={item.visible ? 'is-on' : ''} onClick={() => updateBlueprint((current) => ({ ...current, tabs: current.tabs.map((tab) => tab.id === item.id ? { ...tab, visible: !tab.visible } : tab) }))}>{item.visible ? <Eye size={14} /> : <EyeOff size={14} />}<span>{item.label || tabLabels[item.id]}</span></button>)}</div>
+        <header><div><LayoutDashboard size={15} /><span><strong>Вкладки пульта</strong><small>Все шесть основных разделов всегда доступны; мир может менять только их названия.</small></span></div></header>
+        <div className="studio-tab-grid">{blueprint.tabs.map((item) => <button key={item.id} role="switch" aria-checked="true" disabled className="is-on" title="Обязательная вкладка"><Eye size={14} /><span>{item.label || tabLabels[item.id]}</span></button>)}</div>
       </section>
 
       <section className="studio-section">
