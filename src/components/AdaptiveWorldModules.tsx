@@ -42,7 +42,7 @@ const stateLabels: Record<AdaptiveInterfaceElementState, string> = {
 
 const textValue = (resolved: ResolvedInterfaceElement) => {
   if (resolved.missing) return 'Нет связи'
-  if (resolved.concealed) return 'Точное значение пока неизвестно'
+  if (resolved.concealed) return 'Пока неизвестно'
   if (typeof resolved.value === 'boolean') return resolved.value ? 'Да' : 'Нет'
   return `${resolved.value}${resolved.unit ?? ''}`
 }
