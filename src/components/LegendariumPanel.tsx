@@ -11,7 +11,7 @@ import type {
   LegendaryFigure,
 } from '../../shared/types'
 
-type LegendFilter = 'all' | 'living' | 'historical' | 'emerging'
+type LegendFilter = 'all' | 'living' | 'historical' | 'emerging' | 'rumored'
 
 const stageLabels: Record<LegendStage, string> = {
   notable: 'Заметная фигура',
@@ -75,6 +75,7 @@ function legendMatchesFilter(legend: LegendaryFigure, filter: LegendFilter) {
   if (filter === 'living') return livingStatuses.has(legend.lifeStatus)
   if (filter === 'historical') return historicalStatuses.has(legend.lifeStatus)
   if (filter === 'emerging') return legend.stage === 'notable' || legend.stage === 'renowned'
+  if (filter === 'rumored') return legend.discovery.visibility === 'rumored'
   return true
 }
 
@@ -209,10 +210,19 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<LegendFilter>('all')
   const legendarium = campaign.world.legendarium
+  const discoverableLegends = useMemo(
+    () => (campaign.world.legends ?? []).filter((legend) => legend.discovery.visibility !== 'hidden'),
+    [campaign.world.legends],
+  )
+  const overview = useMemo(() => ({
+    known: discoverableLegends.length,
+    living: discoverableLegends.filter((legend) => livingStatuses.has(legend.lifeStatus)).length,
+    historical: discoverableLegends.filter((legend) => historicalStatuses.has(legend.lifeStatus)).length,
+    rumored: discoverableLegends.filter((legend) => legend.discovery.visibility === 'rumored').length,
+  }), [discoverableLegends])
   const visibleLegends = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('ru-RU')
-    return (campaign.world.legends ?? [])
-      .filter((legend) => legend.discovery.visibility !== 'hidden')
+    return discoverableLegends
       .filter((legend) => legendMatchesFilter(legend, filter))
       .filter((legend) => !normalized || [
         legend.name,
@@ -223,7 +233,7 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
         hasSection(legend, 'summary') ? legend.summary : '',
       ].join(' ').toLocaleLowerCase('ru-RU').includes(normalized))
       .sort((left, right) => right.discovery.awareness - left.discovery.awareness || right.renown - left.renown)
-  }, [campaign.world.legends, filter, query])
+  }, [discoverableLegends, filter, query])
 
   if (!legendarium && !(campaign.world.legends ?? []).some((legend) => legend.discovery.visibility !== 'hidden')) {
     return <div className="mini-empty">Исторические личности и предания этого мира ещё не выделены в отдельную систему.</div>
@@ -253,6 +263,15 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
         </div>
       </details>
     </article>}
+    <section className="legend-overview" aria-label="Панорама известных герою выдающихся личностей">
+      <header><div><small>Панорама мира</small><strong>Известные герою сильные фигуры</strong></div><span>{overview.known}</span></header>
+      <div>
+        <button className={filter === 'living' ? 'is-active' : ''} onClick={() => setFilter('living')}><strong>{overview.living}</strong><span>действуют сейчас</span></button>
+        <button className={filter === 'historical' ? 'is-active' : ''} onClick={() => setFilter('historical')}><strong>{overview.historical}</strong><span>остались в истории</span></button>
+        <button className={filter === 'rumored' ? 'is-active' : ''} onClick={() => setFilter('rumored')}><strong>{overview.rumored}</strong><span>известны по слухам</span></button>
+      </div>
+      <p>Это только открытые сведения. Неизвестные личности и скрытые центры силы не показываются до появления достоверного следа.</p>
+    </section>
     <div className="legend-toolbar">
       <label><Search size={13} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Найти имя, титул или роль" /></label>
       <div role="group" aria-label="Фильтр легендарных фигур">
@@ -261,6 +280,7 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
           ['living', 'Живые'],
           ['historical', 'История'],
           ['emerging', 'Новые имена'],
+          ['rumored', 'Слухи'],
         ] as const).map(([value, label]) => <button className={filter === value ? 'is-active' : ''} key={value} onClick={() => setFilter(value)}>{label}</button>)}
       </div>
     </div>

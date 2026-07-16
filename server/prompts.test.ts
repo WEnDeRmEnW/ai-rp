@@ -67,9 +67,12 @@ describe('world architect prompt', () => {
     expect(system.content).toContain('dossier{familiarity,revealedSections[]')
     expect(system.content).toContain('Не копируй туда весь внутренний профиль')
     expect(system.content).toContain('Не создавай легендарного врага или бога по квоте')
+    expect(system.content).toContain('В каждом мире создай минимум 10 полноценных исключительных фигур')
+    expect(system.content).toContain('3 discovery.visibility=hidden')
+    expect(system.content).toContain('минимум 4 полноценных действующих NPC')
   })
 
-  it('scales the generated structures to the concept instead of enforcing a universal quota', () => {
+  it('scales optional systems to the concept while preserving a rich legend ecology', () => {
     const [system] = worldArchitectPrompt({
       inspiration: 'Одинокий смотритель разговаривает с океаном на необитаемом маяке',
       genre: 'Камерная драма',
@@ -90,8 +93,8 @@ describe('world architect prompt', () => {
     expect(system.content).toContain('миру обычно нужны несколько процессов разных масштабов (часто 3 и более)')
     expect(system.content).not.toContain('places-атлас минимум из 8')
     expect(system.content).not.toContain('Создай минимум три автономных processes')
-    expect(system.content).toContain('legends=[] допустим')
-    expect(system.content).not.toContain('world.legends содержит минимум три')
+    expect(system.content).toContain('минимум 10 полноценных исключительных фигур')
+    expect(system.content).toContain('Не раскрывай внутренний состав игроку')
     expect(system.content).not.toContain('минимум две персональные арки')
   })
 
@@ -130,6 +133,8 @@ describe('world architect prompt', () => {
     expect(critic).toContain('Стартовое dossier каждого NPC')
     expect(critic).toContain('opening.pacing совпадает с реальной первой сценой')
     expect(critic).toContain('legendarium уникален для культуры мира')
+    expect(critic).toContain('полноценная экология минимум из 10 фигур')
+    expect(critic).toContain('минимум 4 действующих NPC dangerous+')
     expect(critic).toContain('Канонические легендарные фигуры соответствуют точной continuity и эпохе')
     expect(critic).toContain('discovery не раскрывает лишнее')
     expect(critic).toContain('Структура живого мира соразмерна замыслу, а не квоте')

@@ -114,6 +114,25 @@ describe('universal narrative event contract', () => {
 })
 
 describe('legend ecosystem patch contract', () => {
+  it('rejects an initial world with too few hidden legends or strong independent NPCs', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const withoutHiddenLegends = demoWorld(request)
+    withoutHiddenLegends.world.legends.forEach((legend) => {
+      if (legend.discovery.visibility === 'hidden') legend.discovery.visibility = 'rumored'
+    })
+    expect(generatedWorldSchema.safeParse(withoutHiddenLegends).success).toBe(false)
+
+    const withoutStrongNpcs = demoWorld(request)
+    withoutStrongNpcs.npcs.forEach((npc) => { delete npc.threatProfile })
+    const parsed = generatedWorldSchema.safeParse(withoutStrongNpcs)
+    expect(parsed.success).toBe(false)
+    if (!parsed.success) expect(parsed.error.issues.some((issue) => issue.message.includes('Strong character ecology'))).toBe(true)
+  })
+
   it('allows the player to become a living legendary figure and preserves the live character link', () => {
     const request = {
       inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { assessLegendEcology, assessStrongCharacterEcology } from '../shared/legend-ecology.js'
 import { normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
 
 const stringifyScalar = (value: unknown) => typeof value === 'number' || typeof value === 'boolean' ? String(value) : value
@@ -2229,7 +2230,7 @@ const generatedWorldContract = z.object({
     places: z.array(generatedWorldPlaceSchema).max(36),
     processes: z.array(generatedWorldProcessSchema).max(14),
     legendarium: generatedLegendariumSchema,
-    legends: z.array(generatedLegendaryFigureSchema).max(18),
+    legends: z.array(generatedLegendaryFigureSchema).min(10).max(18),
     mysteries: z.array(shortText).max(8),
     routes: z.array(worldRouteSchema).max(30),
     laws: z.array(generatedWorldLawSchema).max(12),
@@ -2492,6 +2493,12 @@ const generatedWorldContract = z.object({
       })
     })
   })
+  const legendEcology = assessLegendEcology(world.world.legends)
+  legendEcology.deficits.forEach((deficit) => context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['world', 'legends'],
+    message: `Legend ecology requires ${deficit.key} >= ${deficit.target}; received ${deficit.current}`,
+  }))
   const combatIdentities = new Set<string>()
   world.npcs.forEach((npc, index) => {
     if (!npc.threatProfile) return
@@ -2525,6 +2532,12 @@ const generatedWorldContract = z.object({
       })
     })
   })
+  const strongCharacterEcology = assessStrongCharacterEcology(world.npcs)
+  strongCharacterEcology.deficits.forEach((deficit) => context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['npcs'],
+    message: `Strong character ecology requires ${deficit.key} >= ${deficit.target}; received ${deficit.current}`,
+  }))
   world.influenceAssets.forEach((asset, index) => {
     requireEntity(asset.holderName, ['influenceAssets', index, 'holderName'])
     if (asset.targetName) requireEntity(asset.targetName, ['influenceAssets', index, 'targetName'])

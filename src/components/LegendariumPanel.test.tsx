@@ -29,6 +29,9 @@ describe('legendarium progressive disclosure', () => {
     const html = renderToStaticMarkup(<LegendariumPanel campaign={campaign} />)
 
     expect(html).toContain('Имена, пережившие печать')
+    expect(html).toContain('Панорама мира')
+    expect(html).toContain('Известные герою сильные фигуры')
+    expect(html).toContain('Это только открытые сведения')
     expect(html).toContain('Ступени признания в этом мире')
     expect(html).toContain('Путь этого имени')
     expect(html).toContain('Подтверждённая сила')

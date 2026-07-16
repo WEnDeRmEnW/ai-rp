@@ -1,4 +1,5 @@
 import type { Campaign, CampaignSettings, CanonDocument, LoreEntry, MemoryEntry, StoryArchive, StoryMessage, WorldChronicleEntry } from './types.js'
+import { assessLegendEcology, assessStrongCharacterEcology, type LegendEcologyAssessment, type StrongCharacterEcologyAssessment } from './legend-ecology.js'
 
 export interface ContextProfile {
   budgetChars: number
@@ -25,6 +26,8 @@ export interface SimulationReview {
   dueProcessIds: string[]
   longUnchangedProcessIds: string[]
   legendReviewIds: string[]
+  legendEcology: LegendEcologyAssessment
+  strongCharacterEcology: StrongCharacterEcologyAssessment
   terminalThreadIds: string[]
   terminalWorldEventIds: string[]
 }
@@ -237,6 +240,8 @@ export function buildSimulationReview(campaign: Campaign): SimulationReview {
       || legend.stage === 'renowned'
       || ['living', 'returned', 'missing', 'sealed', 'dormant'].includes(legend.lifeStatus)
     ) && campaign.turn - Math.max(legend.lastChangedTurn, legend.emergence.lastEvaluatedTurn, legend.currentState.lastUpdatedTurn) >= 6).map((legend) => legend.id),
+    legendEcology: assessLegendEcology(legends),
+    strongCharacterEcology: assessStrongCharacterEcology(campaign.npcs),
     terminalThreadIds: (campaign.threads ?? []).filter((thread) => terminalThreadStatuses.has(thread.status.toLocaleLowerCase('ru-RU'))).map((thread) => thread.id),
     terminalWorldEventIds: (campaign.worldEvents ?? []).filter((event) => ['resolved', 'cancelled'].includes(event.status)).map((event) => event.id),
   }

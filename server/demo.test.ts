@@ -29,7 +29,7 @@ describe('demo storyteller contract', () => {
     expect(parsed.world.places.length).toBeGreaterThanOrEqual(8)
     expect(parsed.world.processes.length).toBeGreaterThanOrEqual(3)
     expect(parsed.world.legendarium.thresholds.map((threshold) => threshold.stage)).toEqual(['notable', 'renowned', 'legendary', 'mythic'])
-    expect(parsed.world.legends).toHaveLength(3)
+    expect(parsed.world.legends).toHaveLength(10)
     expect(parsed.world.legends.every((legend) => legend.deeds.length >= 2 && legend.myths.length + legend.legacies.length >= 2)).toBe(true)
     expect(parsed.world.factions.every((faction) => Boolean(faction.kind && faction.headquarters && faction.reach))).toBe(true)
     const campaign = normalizeWorld(parsed, request)
@@ -47,7 +47,7 @@ describe('demo storyteller contract', () => {
     expect(campaign.settings.responseLength).toBe('adaptive')
   })
 
-  it('accepts a concept-valid minimal world without synthetic factions, powers or plot quotas', () => {
+  it('rejects a world that omits the required ecology of exceptional figures', () => {
     const raw: any = demoWorld({
       inspiration: 'Одинокий смотритель на необитаемом маяке', genre: 'Камерная драма', tone: 'Созерцательный', characterName: 'Мирон',
       characterConcept: 'Обычный человек без сверхъестественных сил', opening: 'Рассвет после шторма', canonMode: 'original', contentBoundaries: '',
@@ -87,15 +87,9 @@ describe('demo storyteller contract', () => {
     raw.lore = []
     raw.opening.scene.presentNpcNames = []
 
-    const parsed = generatedWorldSchema.parse(raw)
-    expect(parsed.world.factions).toEqual([])
-    expect(parsed.world.places).toEqual([])
-    expect(parsed.player.abilities).toEqual([])
-    expect(parsed.mysteryCases).toEqual([])
-    expect(parsed.antagonistPlans).toEqual([])
-    expect(parsed.worldPressures).toEqual([])
-    delete raw.worldPressures
-    expect(generatedWorldSchema.safeParse(raw).success).toBe(false)
+    const parsed = generatedWorldSchema.safeParse(raw)
+    expect(parsed.success).toBe(false)
+    if (!parsed.success) expect(parsed.error.issues.some((issue) => issue.path.join('.') === 'world.legends')).toBe(true)
   })
 
   it('requires visibility and complete fields for every newly generated faction', () => {
