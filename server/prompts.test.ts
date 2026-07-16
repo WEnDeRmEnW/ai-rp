@@ -36,10 +36,12 @@ describe('automatic world inventor prompt', () => {
       uniquePromises: ['Расследование будущих последствий', 'Политика вероятностей', 'Путешествия по изменчивым берегам'],
       avoidedCliches: ['Нет избранного', 'Нет безликой империи', 'Нет стандартной маны'], originalityScore: 90,
     }
-    const [critic] = worldIdeaCriticPrompt(request, idea)
+    const [critic, criticUser] = worldIdeaCriticPrompt(request, idea)
     expect(critic.content).toContain('pass=true допустим только при originality>=85')
     expect(critic.content).toContain('механика является обычной маной')
     expect(critic.content).toContain('весь мир существует только вокруг героя')
+    expect(critic.content).toContain('повторяют любой из перечисленных прошлых вариантов')
+    expect(criticUser.content).toContain('Плавающий город на ките')
   })
 })
 

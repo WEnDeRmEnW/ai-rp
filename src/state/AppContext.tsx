@@ -215,7 +215,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [provider, setActiveCampaignId, upsert])
 
   const createWorldIdea = useCallback(async (request: Omit<WorldIdeaRequest, 'provider'>) => {
-    if (ideating) throw new Error('Изобретатель мира уже работает над концепцией.')
+    if (ideaAbortRef.current) throw new Error('Изобретатель мира уже работает над концепцией.')
     setIdeating(true)
     setIdeaProgress({ percent: 1, stage: 'connecting', detail: 'Передаём свободу изобретателю миров' })
     const controller = new AbortController()
@@ -226,7 +226,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (ideaAbortRef.current === controller) ideaAbortRef.current = undefined
       setIdeating(false)
     }
-  }, [ideating, provider])
+  }, [provider])
 
   const cancelWorldIdea = useCallback(() => {
     ideaAbortRef.current?.abort()

@@ -979,6 +979,45 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   background: color-mix(in srgb, var(--accent) 21%, var(--surface-2));
   transform: translateY(-1px);
 }
+.world-inventor__hint {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-column: 2 / -1;
+  gap: 5px;
+  min-width: 0;
+}
+.world-inventor__hint > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 680;
+}
+.world-inventor__hint > span i {
+  color: var(--faint);
+  font-style: normal;
+  font-weight: 500;
+}
+.world-inventor__hint input {
+  width: 100%;
+  min-height: 35px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  outline: none;
+  background: color-mix(in srgb, var(--surface-3) 72%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+}
+.world-inventor__hint input:focus {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.world-inventor__hint > small {
+  color: var(--faint);
+  font-size: 8.5px;
+  line-height: 1.35;
+}
 .world-inventor__notice,
 .world-inventor > .operation-progress,
 .world-inventor > .inline-error { grid-column: 1 / -1; }
@@ -1736,6 +1775,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   .field-grid { grid-template-columns: 1fr; }
   .world-inventor { grid-template-columns: auto minmax(0, 1fr); }
   .world-inventor__button { grid-column: 1 / -1; width: 100%; }
+  .world-inventor__hint { grid-column: 1 / -1; }
   .world-idea-pillars { grid-template-columns: 1fr; }
   .settings-selects { grid-template-columns: 1fr; }
   .provider-grid { grid-template-columns: repeat(3, 1fr); }

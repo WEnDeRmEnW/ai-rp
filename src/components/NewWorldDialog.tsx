@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, BrainCircuit, Check, Compass, Dices, LoaderCircle, RefreshCw, ShieldCheck, Sparkles, Telescope, UserRound, WandSparkles } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CampaignSettings, OperationProgress, WorldGenerationRequest, WorldIdea, WorldIdeaRequest } from '../../shared/types'
+import { assessWorldIdeaNovelty, worldIdeaSummary } from '../../shared/world-idea-novelty'
 import { Modal } from './Modal'
 import { OperationProgressPanel } from './OperationProgressPanel'
 
@@ -25,6 +26,12 @@ const inspirationSeeds = [
   'Школа магии, построенная внутри спящего дракона',
 ]
 
+const DEFAULT_GENRE = 'Приключение и драма'
+const DEFAULT_TONE = 'Живой, кинематографичный, с серьёзными последствиями'
+const DEFAULT_CHARACTER_NAME = 'Акира'
+const DEFAULT_CHARACTER_CONCEPT = 'Молодой странник со скрытым талантом, который хочет заслужить своё место в мире'
+const DEFAULT_OPENING = 'Начать с события, которое сразу требует решения, но не навязывает действие герою'
+
 function architectBrief(idea: WorldIdea) {
   const sections = [
     `Название мира: ${idea.title}`,
@@ -44,17 +51,20 @@ function architectBrief(idea: WorldIdea) {
 export function NewWorldDialog({ open, generating, ideating, progress, ideaProgress, providerName, isDemo, onClose, onCreate, onInvent, onCancelIdea }: NewWorldDialogProps) {
   const [step, setStep] = useState(1)
   const [inspiration, setInspiration] = useState('')
-  const [genre, setGenre] = useState('Приключение и драма')
-  const [tone, setTone] = useState('Живой, кинематографичный, с серьёзными последствиями')
-  const [characterName, setCharacterName] = useState('Акира')
-  const [characterConcept, setCharacterConcept] = useState('Молодой странник со скрытым талантом, который хочет заслужить своё место в мире')
-  const [opening, setOpening] = useState('Начать с события, которое сразу требует решения, но не навязывает действие герою')
+  const [genre, setGenre] = useState(DEFAULT_GENRE)
+  const [tone, setTone] = useState(DEFAULT_TONE)
+  const [characterName, setCharacterName] = useState(DEFAULT_CHARACTER_NAME)
+  const [characterConcept, setCharacterConcept] = useState(DEFAULT_CHARACTER_CONCEPT)
+  const [opening, setOpening] = useState(DEFAULT_OPENING)
   const [canonMode, setCanonMode] = useState<CampaignSettings['canonMode']>('flexible')
   const [contentBoundaries, setContentBoundaries] = useState('')
   const [submitError, setSubmitError] = useState<string>()
   const [ideaError, setIdeaError] = useState<string>()
   const [idea, setIdea] = useState<WorldIdea>()
   const [previousIdeas, setPreviousIdeas] = useState<string[]>([])
+  const [ideaHint, setIdeaHint] = useState('')
+  const ideaRequestId = useRef(0)
+  const ideaPending = useRef(false)
 
   useEffect(() => {
     if (open) {
@@ -65,28 +75,56 @@ export function NewWorldDialog({ open, generating, ideating, progress, ideaProgr
 
   const canContinue = useMemo(() => step === 1 ? inspiration.trim().length > 0 : step === 2 ? characterName.trim().length > 0 && characterConcept.trim().length > 0 : true, [step, inspiration, characterName, characterConcept])
 
+  const resetWizard = () => {
+    ideaRequestId.current += 1
+    ideaPending.current = false
+    setStep(1)
+    setInspiration('')
+    setGenre(DEFAULT_GENRE)
+    setTone(DEFAULT_TONE)
+    setCharacterName(DEFAULT_CHARACTER_NAME)
+    setCharacterConcept(DEFAULT_CHARACTER_CONCEPT)
+    setOpening(DEFAULT_OPENING)
+    setCanonMode('flexible')
+    setContentBoundaries('')
+    setSubmitError(undefined)
+    setIdeaError(undefined)
+    setIdea(undefined)
+    setPreviousIdeas([])
+    setIdeaHint('')
+  }
+
   const submit = async () => {
     setSubmitError(undefined)
     try {
       await onCreate({ inspiration, genre, tone, characterName, characterConcept, opening, canonMode, contentBoundaries })
+      resetWizard()
       onClose()
-      setStep(1)
     } catch (cause) {
       setSubmitError(cause instanceof Error ? cause.message : 'Не удалось создать мир.')
     }
   }
 
   const invent = async () => {
+    if (ideaPending.current || isDemo || generating) return
+    ideaPending.current = true
+    const requestId = ++ideaRequestId.current
+    const comparisonHistory = previousIdeas.slice(-8)
     setIdeaError(undefined)
     try {
       const generated = await onInvent({
-        hint: inspiration.trim(),
+        hint: ideaHint.trim() || (!idea ? inspiration.trim() : ''),
         contentBoundaries,
-        previousIdeas: previousIdeas.slice(-6),
+        previousIdeas: comparisonHistory,
         creativeSeed: crypto.randomUUID(),
       })
+      if (requestId !== ideaRequestId.current) return
+      const novelty = assessWorldIdeaNovelty(generated, comparisonHistory)
+      if (!novelty.novel) {
+        throw new Error(`DeepSeek повторил прошлый мир (${Math.round(novelty.similarity * 100)}% сходства). Результат не применён — попробуйте ещё раз.`)
+      }
       setIdea(generated)
-      setPreviousIdeas((current) => [...current, `${generated.title}: ${generated.corePremise}`].slice(-8))
+      setPreviousIdeas((current) => [...current, worldIdeaSummary(generated)].slice(-8))
       setInspiration(architectBrief(generated))
       setGenre(generated.genre)
       setTone(generated.tone)
@@ -95,15 +133,19 @@ export function NewWorldDialog({ open, generating, ideating, progress, ideaProgr
       setOpening(generated.opening)
       setCanonMode('original')
     } catch (cause) {
+      if (requestId !== ideaRequestId.current) return
       if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
         setIdeaError(cause instanceof Error ? cause.message : 'ИИ не смог придумать концепцию мира.')
       }
+    } finally {
+      if (requestId === ideaRequestId.current) ideaPending.current = false
     }
   }
 
   const close = () => {
     if (generating) return
     if (ideating) onCancelIdea()
+    resetWizard()
     onClose()
   }
 
@@ -124,10 +166,20 @@ export function NewWorldDialog({ open, generating, ideating, progress, ideaProgr
             <strong>Пусть ИИ придумает мир за вас</strong>
             <p>DeepSeek создаст оригинальную основу, живые силы мира, необычную механику, героя и стартовую сцену. Отдельный редактор проверит результат на клише и заимствования.</p>
           </div>
-          <button className="world-inventor__button" disabled={ideating || generating} onClick={() => void invent()}>
+          <button className="world-inventor__button" disabled={isDemo || ideating || generating} onClick={() => void invent()}>
             {ideating ? <LoaderCircle className="spin" size={16} /> : idea ? <RefreshCw size={16} /> : <WandSparkles size={16} />}
             {ideating ? 'Изобретаем…' : idea ? 'Придумать другой' : 'ИИ, удиви меня'}
           </button>
+          <label className="world-inventor__hint">
+            <span>Что обязательно сохранить во всех вариантах? <i>необязательно</i></span>
+            <input
+              value={ideaHint}
+              onChange={(event) => setIdeaHint(event.target.value)}
+              placeholder="Например: без магии, герой — обычный врач, действие на архипелаге"
+              maxLength={1000}
+            />
+            <small>Оставьте пустым для полной свободы. Уже придуманный мир никогда не подставляется сюда автоматически.</small>
+          </label>
           {isDemo && <span className="world-inventor__notice">Для этой функции подключите DeepSeek V4 Flash в настройках.</span>}
           {ideating && <OperationProgressPanel progress={ideaProgress} compact />}
           {ideaError && <div className="inline-error">{ideaError}</div>}
