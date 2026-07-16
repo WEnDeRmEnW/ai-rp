@@ -11,6 +11,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar } from './components/Sidebar'
 import { StoryView } from './components/StoryView'
 import { TopBar } from './components/TopBar'
+import { WorldQuestionPanel } from './components/WorldQuestionPanel'
 import { useApp } from './state/AppContext'
 import { getWorldPresentation } from './lib/world-customization'
 import { loadInterfacePreferences, saveInterfacePreferences, type InterfacePreferences } from './lib/interface-preferences'
@@ -21,6 +22,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
+  const [worldQuestionOpen, setWorldQuestionOpen] = useState(false)
   const [focusMode, setFocusMode] = useState(false)
   const [interfacePreferences, setInterfacePreferences] = useState<InterfacePreferences>(() => loadInterfacePreferences())
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -139,6 +141,7 @@ export function App() {
         onEdit={() => setEditorOpen(true)}
         onFocusMode={() => setFocusMode((value) => !value)}
         onCommand={() => setCommandOpen(true)}
+        onAsk={() => setWorldQuestionOpen(true)}
       />
       <HeroVitals campaign={campaign} onOpen={() => openInspectorTab('hero')} />
       <StoryView
@@ -175,6 +178,7 @@ export function App() {
     />
     <SettingsDialog open={settingsOpen} provider={app.provider} theme={app.theme} interfacePreferences={interfacePreferences} campaign={campaign} onClose={() => setSettingsOpen(false)} onProvider={app.setProvider} onTheme={app.setTheme} onInterface={setInterfacePreferences} onCampaign={app.updateActiveCampaign} />
     <CampaignEditorDialog open={editorOpen} campaign={campaign} generating={app.generating} progress={app.operationProgress} onClose={() => setEditorOpen(false)} onManual={app.updateActiveCampaign} onAi={app.aiEditCampaign} onUndoEdit={app.undoLastEdit} canUndoEdit={app.canUndoEdit} />
+    <WorldQuestionPanel key={campaign.id} open={worldQuestionOpen} campaign={campaign} provider={app.provider} onClose={() => setWorldQuestionOpen(false)} />
 
     <CommandPalette
       open={commandOpen}

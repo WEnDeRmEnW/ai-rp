@@ -1,4 +1,4 @@
-import { Cloud, Command, Maximize2, Menu, Minimize2, MoreHorizontal, PanelLeftClose, PanelRight, PencilRuler, RotateCcw, Settings2 } from 'lucide-react'
+import { Cloud, Command, Maximize2, Menu, MessageCircleQuestion, Minimize2, MoreHorizontal, PanelLeftClose, PanelRight, PencilRuler, RotateCcw, Settings2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Campaign } from '../../shared/types'
 
@@ -15,9 +15,10 @@ interface TopBarProps {
   onEdit: () => void
   onFocusMode: () => void
   onCommand: () => void
+  onAsk: () => void
 }
 
-export function TopBar({ campaign, canUndo, sidebarOpen, inspectorOpen, focusMode, onMenu, onInspector, onUndo, onSettings, onEdit, onFocusMode, onCommand }: TopBarProps) {
+export function TopBar({ campaign, canUndo, sidebarOpen, inspectorOpen, focusMode, onMenu, onInspector, onUndo, onSettings, onEdit, onFocusMode, onCommand, onAsk }: TopBarProps) {
   const [overflowOpen, setOverflowOpen] = useState(false)
   const overflowRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -40,6 +41,7 @@ export function TopBar({ campaign, canUndo, sidebarOpen, inspectorOpen, focusMod
       </div>
       <div className="save-state"><i /><Cloud size={13} /> <span>Сохранено на устройстве</span></div>
       <div className="topbar-actions">
+        <button className="topbar-ask-button" onClick={onAsk} aria-label="Спросить ИИ о кампании" title="Спросить о мире, сцене или способностях"><MessageCircleQuestion size={16} /><span>Спросить ИИ</span></button>
         <button className="command-button" onClick={onCommand} aria-label="Открыть быстрые действия" title="Быстрые действия (Ctrl+K)"><Command size={15} /><span>Действия</span><kbd>Ctrl K</kbd></button>
         <span className="topbar-divider" />
         <button className="icon-button" disabled={!canUndo} onClick={onUndo} aria-label="Отменить последний ход" title="Отменить ход"><RotateCcw size={18} /></button>

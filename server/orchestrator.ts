@@ -1,10 +1,10 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest } from '../shared/types.js'
+import type { Campaign, CampaignEditRequest, CampaignEditResponse, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
 import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
+import { agencyRevisionPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt, worldRewritePrompt } from './prompts.js'
 import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
@@ -1896,6 +1896,21 @@ export async function editCampaign(request: CampaignEditRequest, report?: Progre
     ...parsed,
     summary: sanitized.notes.length ? `${parsed.summary} Часть небезопасных ссылок отклонена: ${sanitized.notes.join(' ')}` : parsed.summary,
     statePatch: sanitized.plan.statePatch,
+  }
+}
+
+export async function answerWorldQuestion(request: WorldQuestionRequest, report?: ProgressReporter): Promise<WorldQuestionResponse> {
+  if (request.provider.provider === 'demo') throw new Error('Справочник мира требует подключённую модель. Выберите DeepSeek V4 Flash в настройках.')
+  reportProgress(report, 12, 'reading-context', 'Собираем факты, относящиеся к вопросу', 1, 3)
+  const messages = worldQuestionPrompt(request.campaign, request.question, request.scope, request.history)
+  reportProgress(report, 38, 'answering-question', request.scope === 'known' ? 'ИИ отвечает без раскрытия неизвестных герою сведений' : 'ИИ сверяет полное состояние кампании', 2, 3)
+  const answer = (await completeText(request.provider, messages, { stage: 'service', maxOutputTokens: 8_192 })).trim()
+  if (!answer) throw new Error('ИИ вернул пустой ответ. Состояние кампании не изменено.')
+  reportProgress(report, 96, 'finalizing-answer', 'Проверяем и оформляем справку', 3, 3)
+  return {
+    answer: answer.slice(0, 40_000),
+    scope: request.scope,
+    generatedAt: new Date().toISOString(),
   }
 }
 

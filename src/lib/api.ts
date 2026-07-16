@@ -1,4 +1,4 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnRequest, TurnResponse, WorldGenerationRequest } from '../../shared/types'
+import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnRequest, TurnResponse, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../../shared/types'
 
 class ApiError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -59,7 +59,7 @@ interface JobState<T> {
   progress?: OperationProgress
 }
 
-async function runJob<T>(kind: 'turn' | 'world' | 'edit', payload: unknown, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<T> {
+async function runJob<T>(kind: 'turn' | 'world' | 'edit' | 'question', payload: unknown, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<T> {
   const requestId = crypto.randomUUID()
   const create = () => fetchJson<JobState<T>>(`/api/jobs/${kind}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId, payload }),
@@ -108,6 +108,15 @@ export async function generateCampaign(request: WorldGenerationRequest, signal?:
 export async function editCampaign(request: CampaignEditRequest, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<CampaignEditResponse> {
   const campaign = { ...request.campaign, snapshots: [] }
   return runJob<CampaignEditResponse>('edit', { ...request, campaign }, signal, onProgress)
+}
+
+export async function askWorldQuestion(request: WorldQuestionRequest, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<WorldQuestionResponse> {
+  const campaign = { ...request.campaign, snapshots: [] }
+  const result = await runJob<WorldQuestionResponse>('question', { ...request, campaign }, signal, onProgress)
+  if (!result || typeof result.answer !== 'string' || !result.answer.trim() || !['known', 'complete'].includes(result.scope) || typeof result.generatedAt !== 'string') {
+    throw new ApiError('Сервер вернул неполную справку. Кампания не изменена.')
+  }
+  return result
 }
 
 export async function checkApi(): Promise<boolean> {

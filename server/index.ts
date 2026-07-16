@@ -5,10 +5,10 @@ import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit'
 import helmet from 'helmet'
-import type { Campaign, CampaignEditResponse, TurnResponse } from '../shared/types.js'
+import type { Campaign, CampaignEditResponse, TurnResponse, WorldQuestionResponse } from '../shared/types.js'
 import { OperationJobs } from './operation-jobs.js'
-import { editCampaign, runTurn, generateWorld } from './orchestrator.js'
-import { campaignEditRequestSchema, turnRequestSchema, worldRequestSchema } from './schemas.js'
+import { answerWorldQuestion, editCampaign, runTurn, generateWorld } from './orchestrator.js'
+import { campaignEditRequestSchema, turnRequestSchema, worldQuestionRequestSchema, worldRequestSchema } from './schemas.js'
 import { normalizeWorld } from './world-normalizer.js'
 
 const app = express()
@@ -16,6 +16,7 @@ const port = Number(process.env.PORT || 8787)
 const turnJobs = new OperationJobs<TurnResponse>()
 const worldJobs = new OperationJobs<Campaign>()
 const editJobs = new OperationJobs<CampaignEditResponse>()
+const questionJobs = new OperationJobs<WorldQuestionResponse>()
 
 if (process.env.NODE_ENV === 'production') {
   // Production traffic reaches Express only through the local Nginx proxy.
@@ -72,6 +73,17 @@ app.post('/api/jobs/edit', (req, res, next) => {
   }
 })
 
+app.post('/api/jobs/question', (req, res, next) => {
+  try {
+    const id = requestId(req.body?.requestId)
+    const request = worldQuestionRequestSchema.parse(req.body?.payload)
+    const job = questionJobs.start(id, (report) => answerWorldQuestion(request as any, report))
+    res.status(job.status === 'pending' ? 202 : 200).json(job)
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/jobs/turn/:id', (req, res) => {
   const job = turnJobs.get(req.params.id)
   if (!job) return res.status(404).json({ error: 'Задача хода не найдена.' })
@@ -90,9 +102,16 @@ app.get('/api/jobs/edit/:id', (req, res) => {
   return res.json(job)
 })
 
+app.get('/api/jobs/question/:id', (req, res) => {
+  const job = questionJobs.get(req.params.id)
+  if (!job) return res.status(404).json({ error: 'Запрос к справочнику не найден.' })
+  return res.json(job)
+})
+
 app.delete('/api/jobs/turn/:id', (req, res) => res.status(turnJobs.forget(req.params.id) ? 204 : 404).end())
 app.delete('/api/jobs/world/:id', (req, res) => res.status(worldJobs.forget(req.params.id) ? 204 : 404).end())
 app.delete('/api/jobs/edit/:id', (req, res) => res.status(editJobs.forget(req.params.id) ? 204 : 404).end())
+app.delete('/api/jobs/question/:id', (req, res) => res.status(questionJobs.forget(req.params.id) ? 204 : 404).end())
 
 app.post('/api/turn', async (req, res, next) => {
   try {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt } from './prompts'
+import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt } from './prompts'
 import { demoWorld } from './demo'
 
 describe('world architect prompt', () => {
@@ -134,6 +134,40 @@ describe('world architect prompt', () => {
     expect(critic).toContain('Структура живого мира соразмерна замыслу, а не квоте')
     expect(critic).toContain('не является ошибкой')
     expect(critic).not.toContain('places-атлас содержит минимум 8')
+  })
+})
+
+describe('world question prompt', () => {
+  it('keeps undiscovered facts out of the spoiler-free context', () => {
+    const campaign = createDemoCampaign()
+    const hiddenFact = 'УНИКАЛЬНЫЙ_СКРЫТЫЙ_ФАКТ_ДЛЯ_ПРОВЕРКИ'
+    campaign.lore[campaign.lore.length - 1].title = 'Тайна для вопроса'
+    campaign.lore[campaign.lore.length - 1].content = hiddenFact
+    campaign.lore[campaign.lore.length - 1].secret = true
+    campaign.lore[campaign.lore.length - 1].discovered = false
+
+    const known = worldQuestionPrompt(campaign, 'Что скрывает тайна для вопроса?', 'known')
+    const complete = worldQuestionPrompt(campaign, 'Что скрывает тайна для вопроса?', 'complete')
+    const knownContext = known[1].content
+    const completeContext = complete[1].content
+
+    expect(known[0].content).toContain('РЕЖИМ «БЕЗ СПОЙЛЕРОВ»')
+    expect(knownContext).not.toContain(hiddenFact)
+    expect(complete[0].content).toContain('РЕЖИМ «ПОЛНАЯ СПРАВКА»')
+    expect(completeContext).toContain(hiddenFact)
+  })
+
+  it('forbids story progression and state changes in both scopes', () => {
+    const campaign = createDemoCampaign()
+    const known = worldQuestionPrompt(campaign, 'Что сейчас происходит?', 'known')[0].content
+    const complete = worldQuestionPrompt(campaign, 'Каков тайный план?', 'complete')[0].content
+
+    for (const prompt of [known, complete]) {
+      expect(prompt).toContain('Это ВНЕСЮЖЕТНЫЙ вопрос')
+      expect(prompt).toContain('не двигай время')
+      expect(prompt).toContain('не меняй здоровье')
+      expect(prompt).toContain('Не предлагай JSON или statePatch')
+    }
   })
 })
 

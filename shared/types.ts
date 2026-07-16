@@ -1913,6 +1913,27 @@ export interface CampaignEditResponse {
   }
 }
 
+export type WorldQuestionScope = 'known' | 'complete'
+
+export interface WorldQuestionMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface WorldQuestionRequest {
+  campaign: Campaign
+  question: string
+  scope: WorldQuestionScope
+  history: WorldQuestionMessage[]
+  provider: ProviderConfig
+}
+
+export interface WorldQuestionResponse {
+  answer: string
+  scope: WorldQuestionScope
+  generatedAt: string
+}
+
 export type ProviderKind = 'demo' | 'openai' | 'openrouter' | 'ollama' | 'custom'
 
 export interface ProviderConfig {

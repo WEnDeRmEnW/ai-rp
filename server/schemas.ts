@@ -1828,6 +1828,17 @@ export const campaignEditRequestSchema = z.object({
   provider: providerSchema,
 })
 
+export const worldQuestionRequestSchema = z.object({
+  campaign: turnRequestSchema.shape.campaign,
+  question: z.string().trim().min(1).max(20_000),
+  scope: z.enum(['known', 'complete']),
+  history: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().trim().min(1).max(20_000),
+  }).strict()).max(20),
+  provider: providerSchema,
+}).strict()
+
 export const campaignEditResponseSchema = z.object({
   summary: z.string().trim().min(1).max(2000),
   statePatch: turnPatchSchema,
