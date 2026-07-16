@@ -170,12 +170,26 @@ const narrativeEventOriginSchema = z.preprocess(alias({
 }), z.enum(['player', 'npc', 'new_npc', 'party', 'antagonist', 'legend', 'faction', 'state', 'artifact', 'ability', 'technology', 'environment', 'deity', 'cosmic', 'dimension', 'unknown', 'multiple']))
 const narrativeEventDomainSchema = z.preprocess(alias({
   герой: 'player', игрок: 'player', персонаж: 'npc', нпс: 'npc', способность: 'ability', сила: 'ability',
+  параметр: 'stat', характеристика: 'stat', ресурс: 'resource', валюта: 'currency', состояние: 'condition',
+  эффект: 'status-effect', статус_эффект: 'status-effect', статусный_эффект: 'status-effect',
   артефакт: 'artifact', инвентарь: 'inventory', предмет: 'inventory', отношения: 'relationship', отряд: 'party',
+  социальная_связь: 'social-link', связь_нпс: 'social-link',
   задание: 'quest', квест: 'quest', конфликт: 'conflict', бой: 'conflict', сцена: 'scene', фракция: 'faction',
+  нить: 'thread', сюжетная_нить: 'thread', арка: 'character-arc', арка_персонажа: 'character-arc',
+  тайна: 'mystery', расследование: 'mystery', план_антагониста: 'antagonist-plan', план_врага: 'antagonist-plan',
+  влияние: 'influence', ресурс_влияния: 'influence', память: 'memory', темп: 'pacing', ритм: 'pacing',
+  репутация_фракции: 'faction-reputation', отношение_фракции: 'faction-reputation',
   место: 'place', локация: 'place', маршрут: 'route', процесс: 'process', закон: 'law', механика: 'mechanic',
+  правило_мира: 'world-rule', истина_мира: 'world-rule', профиль_мира: 'world-profile', система_мира: 'world-profile',
   легенда: 'legend', лор: 'lore', мировое_событие: 'world-event', событие_мира: 'world-event',
-  давление: 'world-pressure', давление_мира: 'world-pressure', время: 'time', интерфейс: 'interface',
-}), z.enum(['player', 'npc', 'ability', 'artifact', 'inventory', 'relationship', 'party', 'quest', 'conflict', 'scene', 'faction', 'place', 'route', 'process', 'law', 'mechanic', 'legend', 'lore', 'world-event', 'world-pressure', 'time', 'interface']))
+  давление: 'world-pressure', давление_мира: 'world-pressure', время: 'time', метрика: 'metric', показатель: 'metric', интерфейс: 'interface',
+}), z.enum([
+  'player', 'npc', 'stat', 'resource', 'currency', 'condition', 'status-effect', 'ability', 'artifact', 'inventory',
+  'relationship', 'social-link', 'party', 'quest', 'thread', 'character-arc', 'mystery', 'antagonist-plan',
+  'influence', 'memory', 'conflict', 'scene', 'pacing', 'faction', 'faction-reputation', 'place', 'route',
+  'process', 'world-rule', 'world-profile', 'law', 'mechanic', 'legend', 'lore', 'world-event', 'world-pressure',
+  'time', 'metric', 'interface',
+]))
 const narrativeEventOperationSchema = z.preprocess(alias({
   создать: 'create', создание: 'create', добавить: 'create', add: 'create',
   обновить: 'update', изменить: 'update', set: 'update',
@@ -1599,6 +1613,7 @@ const turnPatchContract = z.object({
     removeMetricIds: z.array(idSchema).max(24).optional(),
   }).strict().optional(),
   socialLinks: z.array(socialLinkSchema).max(40).optional(),
+  removeSocialLinkIds: z.array(idSchema).max(40).optional(),
   threads: z.preprocess((value) => normalizeNestedMutations(value, 'thread'), z.array(z.object({
     operation: z.enum(['add', 'update', 'resolve', 'break']), targetId: idSchema.optional(),
     thread: z.object({
@@ -1767,7 +1782,7 @@ const narrativeEventProposalContract = z.object({
   causeIds: z.preprocess(arrayish, z.array(idSchema).max(24)),
   scopeIds: z.preprocess(arrayish, z.array(idSchema).max(24)),
   participantIds: z.preprocess(arrayish, z.array(idSchema).max(24)),
-  affectedDomains: z.preprocess(arrayish, z.array(narrativeEventDomainSchema).min(1).max(22)),
+  affectedDomains: z.preprocess(arrayish, z.array(narrativeEventDomainSchema).min(1).max(40)),
   knowledgeChannel: longText,
   trigger: longText,
   arrivalMethod: longText,

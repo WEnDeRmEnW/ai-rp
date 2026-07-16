@@ -1397,18 +1397,34 @@ export type NarrativeEventOrigin =
 export type NarrativeEventDomain =
   | 'player'
   | 'npc'
+  | 'stat'
+  | 'resource'
+  | 'currency'
+  | 'condition'
+  | 'status-effect'
   | 'ability'
   | 'artifact'
   | 'inventory'
   | 'relationship'
+  | 'social-link'
   | 'party'
   | 'quest'
+  | 'thread'
+  | 'character-arc'
+  | 'mystery'
+  | 'antagonist-plan'
+  | 'influence'
+  | 'memory'
   | 'conflict'
   | 'scene'
+  | 'pacing'
   | 'faction'
+  | 'faction-reputation'
   | 'place'
   | 'route'
   | 'process'
+  | 'world-rule'
+  | 'world-profile'
   | 'law'
   | 'mechanic'
   | 'legend'
@@ -1416,6 +1432,7 @@ export type NarrativeEventDomain =
   | 'world-event'
   | 'world-pressure'
   | 'time'
+  | 'metric'
   | 'interface'
 
 export type NarrativeEventOperation = 'create' | 'update' | 'remove' | 'transform' | 'reveal'
@@ -1893,6 +1910,7 @@ export interface TurnPatch {
   conflict?: ConflictMutation
   world?: WorldPatch
   socialLinks?: SocialLink[]
+  removeSocialLinkIds?: ID[]
   threads?: Array<{ operation: 'add' | 'update' | 'resolve' | 'break'; targetId?: ID; thread?: Partial<StoryThread> & { title?: string } }>
   worldEvents?: Array<{ operation: 'add' | 'update' | 'resolve' | 'cancel'; targetId?: ID; event?: Partial<ScheduledWorldEvent> & { title?: string } }>
   factionReputationDeltas?: Record<string, number>

@@ -111,6 +111,30 @@ describe('universal narrative event contract', () => {
       permissions: { wars: false },
     })
   })
+
+  it('normalizes newly supported DeepSeek event domains without collapsing them into player or world', () => {
+    const source = {
+      mode: 'manifest', lifecycleStage: 'manifested', concept: 'Последствие раскрывает заговор и меняет настоящий показатель мира.',
+      category: 'revelation', magnitude: 'notable', miracleKind: 'none', originKind: 'faction',
+      sourceIds: [], causeIds: [], scopeIds: [], participantIds: [],
+      affectedDomains: ['тайна', 'план_антагониста', 'статусный_эффект', 'репутация_фракции', 'метрика'],
+      knowledgeChannel: 'Герой получает проверяемые документы.', trigger: 'Документы сопоставлены с известными фактами.',
+      arrivalMethod: 'Курьер доставляет архивную копию.', observableSigns: ['Печати на документах подлинные.'],
+      immediateEffects: [
+        { domain: 'тайна', operation: 'раскрыть', targetId: 'mystery-1', requirement: 'Открыть подтверждённую улику.', observable: true, mandatory: true },
+        { domain: 'план_антагониста', operation: 'изменить', targetId: 'plan-1', requirement: 'Обновить раскрытый этап плана.', observable: true, mandatory: true },
+        { domain: 'статусный_эффект', operation: 'создать', targetId: 'effect-1', requirement: 'Добавить объективный эффект.', observable: true, mandatory: true },
+        { domain: 'репутация_фракции', operation: 'изменить', targetId: 'Фракция', requirement: 'Изменить репутацию.', observable: true, mandatory: true },
+        { domain: 'метрика', operation: 'изменить', targetId: 'wanted', requirement: 'Изменить розыск.', observable: true, mandatory: true },
+      ],
+      persistentEffects: [], counterplay: ['Проверить второй источник.'], cancellationConditions: [],
+      canonReasoning: 'Использует существующую фракцию.', pacingReasoning: 'Завершает расследование.', noveltyReasoning: 'Не повторяет недавнее.', minimumDelay: 0,
+    }
+    const parsed = narrativeEventDecisionSchema.parse(source)
+    expect(parsed.mode).toBe('manifest')
+    if (parsed.mode === 'none') throw new Error('Expected a materialized event')
+    expect(parsed.affectedDomains).toEqual(['mystery', 'antagonist-plan', 'status-effect', 'faction-reputation', 'metric'])
+  })
 })
 
 describe('legend ecosystem patch contract', () => {

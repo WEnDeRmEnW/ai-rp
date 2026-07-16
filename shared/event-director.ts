@@ -192,12 +192,25 @@ export function narrativeEventSignature(proposal: NarrativeEventProposal) {
 function knownIds(campaign: Campaign) {
   return new Set([
     campaign.player.id,
+    ...campaign.player.stats.map((stat) => stat.key),
+    ...campaign.player.resources.map((resource) => resource.key),
+    ...Object.keys(campaign.player.currency ?? {}),
+    ...campaign.player.conditions,
+    ...(campaign.player.statusEffects ?? []).map((effect) => effect.id),
     ...campaign.inventory.map((item) => item.id),
     ...campaign.player.abilities.map((ability) => ability.id),
-    ...campaign.npcs.flatMap((npc) => [npc.id, ...(npc.abilities ?? []).map((ability) => ability.id)]),
-    ...campaign.quests.map((quest) => quest.id),
+    ...campaign.npcs.flatMap((npc) => [
+      npc.id,
+      ...(npc.stats ?? []).map((stat) => stat.key),
+      ...(npc.resources ?? []).map((resource) => resource.key),
+      ...(npc.statusEffects ?? []).map((effect) => effect.id),
+      ...(npc.abilities ?? []).map((ability) => ability.id),
+      ...(npc.knowledge ?? []).map((fact) => fact.id),
+    ]),
+    ...campaign.quests.flatMap((quest) => [quest.id, ...quest.objectives.map((objective) => objective.id)]),
     ...campaign.lore.map((entry) => entry.id),
     ...campaign.memories.map((entry) => entry.id),
+    ...campaign.timeline.map((entry) => entry.id),
     ...(campaign.socialLinks ?? []).map((link) => link.id),
     ...(campaign.threads ?? []).map((thread) => thread.id),
     ...(campaign.worldEvents ?? []).map((event) => event.id),
@@ -206,7 +219,10 @@ function knownIds(campaign: Campaign) {
     ...(campaign.mysteryCases ?? []).flatMap((mystery) => [mystery.id, ...mystery.clues.map((clue) => clue.id)]),
     ...(campaign.antagonistPlans ?? []).map((plan) => plan.id),
     ...(campaign.influenceAssets ?? []).map((asset) => asset.id),
-    ...(campaign.world.factions ?? []).flatMap((faction) => faction.id ? [faction.id] : []),
+    ...(campaign.factionReputation ?? []).map((entry) => entry.factionName),
+    ...(campaign.world.factions ?? []).flatMap((faction) => faction.id ? [faction.id, faction.name] : [faction.name]),
+    ...(campaign.world.locations ?? []).map((location) => location.name),
+    ...(campaign.world.rules ?? []),
     ...(campaign.world.routes ?? []).map((route) => route.id),
     ...(campaign.world.places ?? []).map((place) => place.id),
     ...(campaign.world.processes ?? []).map((process) => process.id),
@@ -218,7 +234,7 @@ function knownIds(campaign: Campaign) {
     ...(campaign.world.laws ?? []).map((law) => law.id),
     ...(campaign.world.mechanics ?? []).map((mechanic) => mechanic.id),
     ...(campaign.world.interfaceModules ?? []).map((module) => module.id),
-    ...(campaign.world.metrics ?? []).map((metric) => metric.id),
+    ...(campaign.world.metrics ?? []).flatMap((metric) => [metric.id, metric.key]),
     ...(campaign.world.chronicle ?? []).flatMap((entry) => [entry.id, entry.sourceId]),
     ...(campaign.documents ?? []).flatMap((document) => [document.id, ...document.chunks.map((chunk) => chunk.id)]),
     ...(campaign.activeConflict ? [campaign.activeConflict.id, ...campaign.activeConflict.participants.map((participant) => participant.entityId)] : []),
@@ -282,14 +298,27 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
   if (proposal.mode === 'seed' && proposal.lifecycleStage !== 'seeded') issues.push('Новое зерно должно иметь lifecycleStage=seeded.')
   if (!proposal.affectedDomains.length) issues.push('Событие не затрагивает ни одной области состояния.')
   const entityCreateDomains = new Set<NarrativeEventRequirement['domain']>([
-    'npc', 'ability', 'artifact', 'inventory', 'quest', 'faction', 'place', 'route', 'process', 'law', 'mechanic', 'legend', 'lore', 'world-event', 'world-pressure',
+    'npc', 'stat', 'resource', 'currency', 'condition', 'status-effect', 'ability', 'artifact', 'inventory', 'social-link',
+    'quest', 'thread', 'character-arc', 'mystery', 'antagonist-plan', 'influence', 'faction', 'place', 'route',
+    'process', 'world-rule', 'law', 'mechanic', 'legend', 'lore', 'world-event', 'world-pressure', 'metric',
   ])
   if ([...proposal.immediateEffects, ...proposal.persistentEffects].some((effect) => (
     effect.operation === 'create' && entityCreateDomains.has(effect.domain) && !effect.targetId
   ))) issues.push('Создание постоянной сущности требует заранее выбранного стабильного targetId.')
-  if (settings.canonPolicy === 'established-only' && requirements.some((effect) => effect.operation === 'create' && entityCreateDomains.has(effect.domain))) issues.push('Режим установленного канона запрещает создание новой постоянной сущности.')
+  const targetRequiredDomains = new Set<NarrativeEventRequirement['domain']>([
+    ...entityCreateDomains,
+    'relationship', 'party', 'memory', 'conflict', 'faction-reputation',
+  ])
+  if (requirements.some((effect) => effect.operation !== 'create' && targetRequiredDomains.has(effect.domain) && !effect.targetId)) {
+    issues.push('Изменение, удаление, преобразование или раскрытие постоянной сущности требует точного targetId.')
+  }
+  const canonRestrictedCreateDomains = new Set<NarrativeEventRequirement['domain']>([
+    'npc', 'ability', 'artifact', 'faction', 'place', 'route', 'process', 'world-rule', 'law', 'mechanic', 'legend', 'lore',
+  ])
+  if (settings.canonPolicy === 'established-only' && requirements.some((effect) => effect.operation === 'create' && canonRestrictedCreateDomains.has(effect.domain))) issues.push('Режим установленного канона запрещает создание новой постоянной сущности мира.')
   const unlistedDomains = requirements.filter((effect) => !proposal.affectedDomains.includes(effect.domain))
   if (unlistedDomains.length) issues.push('affectedDomains не перечисляет все области, которые событие требует изменить.')
+  if (proposal.affectedDomains.length !== new Set(proposal.affectedDomains).size) issues.push('affectedDomains содержит повторяющиеся области.')
   if (proposal.originKind === 'new_npc' && !requirements.some((effect) => effect.domain === 'npc' && effect.operation === 'create' && effect.mandatory)) issues.push('Источник new_npc требует обязательного создания полного NPC.')
   if (proposal.category === 'power_shift' && !requirements.some((effect) => effect.domain === 'ability')) issues.push('Изменение силы требует семантического требования домена ability.')
   if (proposal.category === 'artifact_shift' && !requirements.some((effect) => ['artifact', 'inventory'].includes(effect.domain))) issues.push('Изменение артефакта требует фактического изменения artifact или inventory.')
@@ -330,8 +359,18 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
     ))) issues.push('Прямое чудо пытается превратить спасение в победу либо стереть уже произошедшие последствия.')
   }
   const known = knownIds(campaign)
+  const createdTargets = new Set(requirements
+    .filter((effect) => effect.operation === 'create' && effect.targetId)
+    .map((effect) => effect.targetId as string))
   const referenceIds = [...proposal.sourceIds, ...proposal.causeIds, ...proposal.scopeIds, ...proposal.participantIds]
   if (referenceIds.some((id) => !known.has(id))) issues.push('Событие содержит ссылку на неизвестную сущность; новые сущности должны создаваться через требования, а не притворяться существующими.')
+  const unknownMutationTarget = requirements.some((effect) => (
+    effect.operation !== 'create'
+    && effect.targetId
+    && !known.has(effect.targetId)
+    && !createdTargets.has(effect.targetId)
+  ))
+  if (unknownMutationTarget) issues.push('Изменение, удаление или раскрытие ссылается на неизвестный targetId.')
   if ([...proposal.immediateEffects, ...proposal.persistentEffects].some((effect) => effect.domain === 'player' && agencyViolation.test(effect.requirement))) issues.push('Событие пытается назначить герою внутреннее решение или чувство.')
   const cooldown = state.categoryCooldowns[proposal.category] ?? 0
   if (!proposal.existingEventId && cooldown > turn) issues.push('Категория ещё находится на перерыве после недавнего события.')
@@ -583,26 +622,80 @@ function isCompleteCreatedArtifact(item: Extract<NonNullable<TurnPatch['inventor
 
 function requirementSatisfied(requirement: NarrativeEventRequirement, patch: TurnPatch) {
   const targetId = requirement.targetId
+  const matches = (candidate: string | undefined) => !targetId || candidate === targetId
+  const npcUpdates = (patch.npcs ?? []).filter((entry) => entry.operation === 'update')
+  const npcAdds = (patch.npcs ?? []).filter((entry) => entry.operation === 'add')
+  const recordHasTarget = (record: Record<string, number> | undefined) => Object.entries(record ?? {}).some(([key, value]) => matches(key) && value !== 0)
+  const hasWorldProfileChange = Boolean(patch.world && [
+    patch.world.name, patch.world.tagline, patch.world.inspiration, patch.world.genre, patch.world.tone,
+    patch.world.overview, patch.world.era, patch.world.system, patch.world.presentation,
+  ].some((value) => value !== undefined))
   switch (requirement.domain) {
     case 'player':
       return Boolean(patch.playerProfile || patch.upsertStats?.length || patch.removeStatKeys?.length || patch.upsertResources?.length
         || patch.removeResourceKeys?.length || Object.keys(patch.statDeltas ?? {}).length || Object.keys(patch.resourceDeltas ?? {}).length
-        || patch.addConditions?.length || patch.removeConditions?.length || patch.upsertStatusEffects?.length || patch.removeStatusEffectIds?.length)
+        || Object.keys(patch.currencyDeltas ?? {}).length || patch.addConditions?.length || patch.removeConditions?.length
+        || patch.upsertStatusEffects?.length || patch.removeStatusEffectIds?.length)
     case 'npc':
       return Boolean(patch.npcs?.some((entry) => (
         requirement.operation === 'create'
           ? entry.operation === 'add' && (!targetId || entry.npc.id === targetId) && isCompleteEventNpc(entry.npc)
-          : entry.operation === 'update' && (!targetId || entry.targetId === targetId)
+          : requirement.operation === 'remove'
+            ? entry.operation === 'update' && matches(entry.targetId) && ['absent', 'missing', 'dead'].includes(entry.npc.status ?? '')
+            : requirement.operation === 'reveal'
+              ? entry.operation === 'update' && matches(entry.targetId) && Boolean(entry.npc.dossier)
+              : entry.operation === 'update' && matches(entry.targetId)
       )))
+    case 'stat': {
+      const upserted = patch.upsertStats?.some((stat) => matches(stat.key))
+        || npcAdds.some((entry) => entry.npc.stats?.some((stat) => matches(stat.key)))
+        || npcUpdates.some((entry) => [...(entry.npc.stats ?? []), ...(entry.npc.upsertStats ?? [])].some((stat) => matches(stat.key)))
+      const removed = patch.removeStatKeys?.some(matches)
+        || npcUpdates.some((entry) => entry.npc.removeStatKeys?.some(matches))
+      const changed = recordHasTarget(patch.statDeltas)
+        || npcUpdates.some((entry) => recordHasTarget(entry.npc.statDeltas))
+      if (requirement.operation === 'remove') return Boolean(removed)
+      return Boolean(upserted || changed)
+    }
+    case 'resource': {
+      const upserted = patch.upsertResources?.some((resource) => matches(resource.key))
+        || npcAdds.some((entry) => entry.npc.resources?.some((resource) => matches(resource.key)))
+        || npcUpdates.some((entry) => [...(entry.npc.resources ?? []), ...(entry.npc.upsertResources ?? [])].some((resource) => matches(resource.key)))
+      const removed = patch.removeResourceKeys?.some(matches)
+        || npcUpdates.some((entry) => entry.npc.removeResourceKeys?.some(matches))
+      const changed = recordHasTarget(patch.resourceDeltas)
+        || npcUpdates.some((entry) => recordHasTarget(entry.npc.resourceDeltas))
+      if (requirement.operation === 'remove') return Boolean(removed)
+      return Boolean(upserted || changed)
+    }
+    case 'currency': {
+      const entries = Object.entries(patch.currencyDeltas ?? {}).filter(([key]) => matches(key))
+      if (requirement.operation === 'remove') return entries.some(([, value]) => value < 0)
+      if (requirement.operation === 'create') return entries.some(([, value]) => value > 0)
+      return entries.some(([, value]) => value !== 0)
+    }
+    case 'condition':
+      if (requirement.operation === 'remove') return Boolean(patch.removeConditions?.some(matches))
+      if (requirement.operation === 'transform') return Boolean(patch.removeConditions?.length && patch.addConditions?.length)
+      return Boolean(patch.addConditions?.some(matches))
+    case 'status-effect': {
+      const upserted = patch.upsertStatusEffects?.some((effect) => matches(effect.id))
+        || npcAdds.some((entry) => entry.npc.statusEffects?.some((effect) => matches(effect.id)))
+        || npcUpdates.some((entry) => [...(entry.npc.statusEffects ?? []), ...(entry.npc.upsertStatusEffects ?? [])].some((effect) => matches(effect.id)))
+      const removed = patch.removeStatusEffectIds?.some(matches)
+        || npcUpdates.some((entry) => entry.npc.removeStatusEffectIds?.some(matches))
+      return requirement.operation === 'remove' ? Boolean(removed) : Boolean(upserted)
+    }
     case 'ability':
       if (requirement.operation === 'create') return Boolean(patch.addAbilities?.some((ability) => (!targetId || ability.id === targetId) && isCompleteEventAbility(ability))
-        || patch.npcs?.some((entry) => entry.operation === 'update' && entry.npc.upsertAbilities?.some((ability) => (!targetId || ability.id === targetId) && isCompleteEventAbility(ability))))
+        || npcAdds.some((entry) => entry.npc.abilities?.some((ability) => matches(ability.id) && isCompleteEventAbility(ability)))
+        || npcUpdates.some((entry) => [...(entry.npc.abilities ?? []), ...(entry.npc.upsertAbilities ?? [])].some((ability) => matches(ability.id) && isCompleteEventAbility(ability))))
       if (requirement.operation === 'remove') return Boolean(
         (!targetId ? patch.removeAbilityIds?.length : patch.removeAbilityIds?.includes(targetId))
-        || patch.npcs?.some((entry) => entry.operation === 'update' && (!targetId ? entry.npc.removeAbilityIds?.length : entry.npc.removeAbilityIds?.includes(targetId))),
+        || npcUpdates.some((entry) => (!targetId ? entry.npc.removeAbilityIds?.length : entry.npc.removeAbilityIds?.includes(targetId))),
       )
       return Boolean(patch.abilityChanges?.some((entry) => !targetId || entry.abilityId === targetId)
-        || patch.npcs?.some((entry) => entry.operation === 'update' && entry.npc.abilityChanges?.some((change) => !targetId || change.abilityId === targetId)))
+        || npcUpdates.some((entry) => entry.npc.abilityChanges?.some((change) => !targetId || change.abilityId === targetId)))
     case 'artifact':
       if (requirement.operation === 'create') return Boolean(patch.inventory?.some((entry) => (
         entry.operation === 'add' && (!targetId || entry.item.id === targetId) && isCompleteCreatedArtifact(entry.item)
@@ -617,68 +710,148 @@ function requirementSatisfied(requirement: NarrativeEventRequirement, patch: Tur
             : entry.operation === 'update' && (!targetId || entry.targetId === targetId)
       )))
     case 'relationship':
-      return Boolean(patch.relationships?.some((entry) => !targetId || entry.npcId === targetId) || patch.socialLinks?.length)
+      return Boolean(patch.relationships?.some((entry) => matches(entry.npcId)))
+    case 'social-link':
+      if (requirement.operation === 'remove') return Boolean(patch.removeSocialLinkIds?.some(matches))
+      return Boolean(patch.socialLinks?.some((entry) => matches(entry.id)))
     case 'party':
       if (requirement.operation === 'remove') return Boolean(patch.party?.removeNpcIds?.some((id) => !targetId || id === targetId))
-      return Boolean(patch.party?.addNpcIds?.some((id) => !targetId || id === targetId) || (targetId && patch.party?.roles?.[targetId]))
+      if (requirement.operation === 'create') return Boolean(patch.party?.addNpcIds?.some((id) => matches(id)))
+      return Boolean(patch.party?.addNpcIds?.some((id) => matches(id)) || (targetId && patch.party?.roles?.[targetId]))
     case 'quest':
       return Boolean(patch.quests?.some((entry) => (
         requirement.operation === 'create'
           ? entry.operation === 'add' && (!targetId || entry.quest?.id === targetId)
           : requirement.operation === 'remove'
             ? ['complete', 'fail'].includes(entry.operation) && (!targetId || entry.targetId === targetId)
-            : entry.operation === 'update' && (!targetId || entry.targetId === targetId)
+              : entry.operation === 'update' && (!targetId || entry.targetId === targetId)
       )))
+    case 'thread':
+      if (requirement.operation === 'create') return Boolean(patch.threads?.some((entry) => entry.operation === 'add' && matches(entry.thread?.id)))
+      if (requirement.operation === 'remove') return Boolean(
+        patch.threads?.some((entry) => ['resolve', 'break'].includes(entry.operation) && matches(entry.targetId))
+        || patch.cleanup?.threads?.some((entry) => matches(entry.targetId)),
+      )
+      if (requirement.operation === 'reveal') return Boolean(patch.threads?.some((entry) => entry.operation === 'update' && matches(entry.targetId) && entry.thread?.secret === false))
+      return Boolean(patch.threads?.some((entry) => entry.operation === 'update' && matches(entry.targetId)))
+    case 'character-arc':
+      return Boolean(patch.upsertCharacterArcs?.some((arc) => matches(arc.id) && (
+        requirement.operation !== 'remove' || ['completed', 'broken'].includes(arc.status)
+      )))
+    case 'mystery':
+      return Boolean(patch.upsertMysteryCases?.some((mystery) => matches(mystery.id) && (
+        requirement.operation === 'remove'
+          ? ['solved', 'failed'].includes(mystery.status)
+          : requirement.operation === 'reveal'
+            ? mystery.clues.some((clue) => clue.discovered) || Boolean(mystery.conclusion)
+            : true
+      )))
+    case 'antagonist-plan':
+      if (requirement.operation === 'remove') return Boolean(
+        patch.upsertAntagonistPlans?.some((plan) => matches(plan.id) && ['completed', 'failed', 'abandoned'].includes(plan.status))
+        || patch.cleanup?.antagonistPlans?.some((entry) => matches(entry.targetId)),
+      )
+      if (requirement.operation === 'reveal') return Boolean(patch.upsertAntagonistPlans?.some((plan) => matches(plan.id) && !plan.secret))
+      return Boolean(patch.upsertAntagonistPlans?.some((plan) => matches(plan.id)))
+    case 'influence':
+      if (requirement.operation === 'remove') return Boolean(patch.removeInfluenceAssetIds?.some(matches))
+      if (requirement.operation === 'reveal') return Boolean(patch.upsertInfluenceAssets?.some((asset) => matches(asset.id) && !asset.secret))
+      return Boolean(patch.upsertInfluenceAssets?.some((asset) => matches(asset.id)))
+    case 'memory':
+      if (requirement.operation === 'remove') return Boolean(patch.cleanup?.memories?.some((entry) => matches(entry.targetId)))
+      if (['update', 'transform'].includes(requirement.operation)) return Boolean(patch.memories?.length && patch.cleanup?.memories?.some((entry) => matches(entry.targetId)))
+      return Boolean(patch.memories?.length)
     case 'conflict':
-      if (requirement.operation === 'create') return patch.conflict?.operation === 'start'
+      if (requirement.operation === 'create') return patch.conflict?.operation === 'start' && matches(patch.conflict.state.id)
       if (requirement.operation === 'remove') return patch.conflict?.operation === 'resolve'
-      return patch.conflict?.operation === 'update'
+      return patch.conflict?.operation === 'update' && matches(patch.conflict.state.id)
     case 'scene':
       return Boolean(patch.scene)
+    case 'pacing':
+      return Boolean(patch.pacing)
     case 'faction':
-      if (requirement.operation === 'remove') return Boolean(patch.world?.removeFactions?.length)
-      return Boolean(patch.world?.upsertFactions?.some((entry) => !targetId || entry.id === targetId)
-        || patch.upsertFactionReputation?.length || Object.keys(patch.factionReputationDeltas ?? {}).length)
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removeFactions?.some(matches))
+      return Boolean(patch.world?.upsertFactions?.some((entry) => (matches(entry.id) || matches(entry.name)) && (
+        requirement.operation !== 'reveal' || entry.visibility !== 'hidden'
+      )))
+    case 'faction-reputation':
+      return Boolean(patch.upsertFactionReputation?.some((entry) => matches(entry.factionName)) || recordHasTarget(patch.factionReputationDeltas))
     case 'place':
-      return Boolean(patch.world?.upsertPlaces?.some((entry) => !targetId || entry.id === targetId)
-        || (!targetId ? patch.world?.removePlaceIds?.length : patch.world?.removePlaceIds?.includes(targetId)))
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removePlaceIds?.some(matches))
+      return Boolean(patch.world?.upsertPlaces?.some((entry) => matches(entry.id) && (
+        requirement.operation !== 'reveal' || entry.visibility !== 'hidden'
+      )))
     case 'route':
-      return Boolean(patch.world?.upsertRoutes?.some((entry) => !targetId || entry.id === targetId)
-        || (!targetId ? patch.world?.removeRouteIds?.length : patch.world?.removeRouteIds?.includes(targetId)))
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removeRouteIds?.some(matches))
+      return Boolean(patch.world?.upsertRoutes?.some((entry) => matches(entry.id) && (
+        requirement.operation !== 'reveal' || entry.discovered
+      )))
     case 'process':
-      return Boolean(patch.world?.upsertProcesses?.some((entry) => !targetId || entry.id === targetId)
-        || (!targetId ? patch.world?.retireProcessIds?.length : patch.world?.retireProcessIds?.includes(targetId)))
+      if (requirement.operation === 'remove') return Boolean(patch.world?.retireProcessIds?.some(matches))
+      return Boolean(patch.world?.upsertProcesses?.some((entry) => matches(entry.id) && (
+        requirement.operation !== 'reveal' || entry.visibility !== 'hidden'
+      )))
+    case 'world-rule':
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removeRules?.some(matches))
+      if (['update', 'transform'].includes(requirement.operation)) return Boolean(patch.world?.removeRules?.some(matches) && patch.world?.addRules?.length)
+      return Boolean(patch.world?.addRules?.some(matches))
+    case 'world-profile':
+      return hasWorldProfileChange
     case 'law':
-      return Boolean(patch.world?.upsertLaws?.some((entry) => !targetId || entry.id === targetId)
-        || (!targetId ? patch.world?.removeLawIds?.length : patch.world?.removeLawIds?.includes(targetId)))
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removeLawIds?.some(matches))
+      return Boolean(patch.world?.upsertLaws?.some((entry) => matches(entry.id) && (
+        requirement.operation !== 'reveal' || entry.visibility !== 'hidden'
+      )))
     case 'mechanic':
-      return Boolean(patch.world?.upsertMechanics?.some((entry) => !targetId || entry.id === targetId)
-        || (!targetId ? patch.world?.removeMechanicIds?.length : patch.world?.removeMechanicIds?.includes(targetId)))
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removeMechanicIds?.some(matches))
+      return Boolean(patch.world?.upsertMechanics?.some((entry) => matches(entry.id) && (
+        requirement.operation !== 'reveal' || entry.discovered
+      )))
     case 'legend':
-      return Boolean(patch.world?.legendarium || patch.world?.upsertLegends?.some((entry) => !targetId || entry.id === targetId)
-        || (!targetId ? patch.world?.removeLegendIds?.length : patch.world?.removeLegendIds?.includes(targetId)))
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removeLegendIds?.some(matches))
+      if (!targetId && patch.world?.legendarium) return true
+      return Boolean(patch.world?.upsertLegends?.some((entry) => matches(entry.id) && (
+        requirement.operation !== 'reveal'
+        || entry.discovery.awareness > 0
+        || entry.discovery.revealedSections.length > 0
+        || entry.discovery.evidence.length > 0
+      )))
     case 'lore':
-      if (requirement.operation === 'remove') return false
-      return Boolean(patch.lore?.some((entry) => !targetId || entry.id === targetId))
+      if (requirement.operation === 'remove') return Boolean(patch.lore?.some((entry) => matches(entry.id) && !entry.enabled))
+      if (requirement.operation === 'reveal') return Boolean(patch.lore?.some((entry) => matches(entry.id) && entry.discovered))
+      return Boolean(patch.lore?.some((entry) => matches(entry.id)))
     case 'world-event':
+      if (requirement.operation === 'remove') return Boolean(
+        patch.worldEvents?.some((entry) => ['resolve', 'cancel'].includes(entry.operation) && matches(entry.targetId))
+        || patch.cleanup?.worldEvents?.some((cleanup) => matches(cleanup.targetId)),
+      )
       return Boolean(patch.worldEvents?.some((entry) => (
         requirement.operation === 'create'
-          ? entry.operation === 'add' && (!targetId || entry.event?.id === targetId)
-          : requirement.operation === 'remove'
-            ? ['resolve', 'cancel'].includes(entry.operation) && (!targetId || entry.targetId === targetId)
-            : entry.operation === 'update' && (!targetId || entry.targetId === targetId)
+          ? entry.operation === 'add' && matches(entry.event?.id)
+          : requirement.operation === 'reveal'
+            ? entry.operation === 'update' && matches(entry.targetId) && entry.event?.visibility !== 'hidden'
+            : entry.operation === 'update' && matches(entry.targetId)
       )))
     case 'world-pressure':
-      if (requirement.operation === 'remove') return Boolean(patch.cleanup?.worldPressures?.some((entry) => !targetId || entry.targetId === targetId))
-      return Boolean(patch.upsertWorldPressures?.some((entry) => !targetId || entry.id === targetId))
+      if (requirement.operation === 'remove') return Boolean(
+        patch.cleanup?.worldPressures?.some((entry) => matches(entry.targetId))
+        || patch.upsertWorldPressures?.some((entry) => matches(entry.id) && entry.stage === 'resolved'),
+      )
+      return Boolean(patch.upsertWorldPressures?.some((entry) => matches(entry.id) && (
+        requirement.operation !== 'reveal' || entry.visibility !== 'hidden'
+      )))
     case 'time':
       return Boolean(patch.scene?.time || patch.world?.calendarDayDelta !== undefined || patch.world?.calendarLabel)
+    case 'metric':
+      if (requirement.operation === 'remove') return Boolean(patch.world?.removeMetricIds?.some(matches))
+      return Boolean(patch.world?.upsertMetrics?.some((entry) => (matches(entry.id) || matches(entry.key)) && (
+        requirement.operation !== 'reveal' || entry.visibility !== 'hidden'
+      )) || recordHasTarget(patch.world?.metricDeltas))
     case 'interface':
       if (requirement.operation === 'remove') return Boolean(patch.world?.removeInterfaceModuleIds?.some((id) => !targetId || id === targetId)
-        || patch.world?.removeMetricIds?.some((id) => !targetId || id === targetId))
+        )
       return Boolean(patch.world?.interfaceBlueprint || patch.world?.upsertInterfaceModules?.some((entry) => !targetId || entry.id === targetId)
-        || patch.world?.interfaceModuleChanges?.some((entry) => !targetId || entry.moduleId === targetId)
-        || patch.world?.upsertMetrics?.some((entry) => !targetId || entry.id === targetId) || Object.keys(patch.world?.metricDeltas ?? {}).length)
+        || patch.world?.interfaceModuleChanges?.some((entry) => !targetId || entry.moduleId === targetId))
     default:
       return false
   }

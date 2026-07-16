@@ -789,12 +789,14 @@ export function describePatch(patch: TurnPatch): string[] {
   patch.removeConditions?.forEach((condition) => changes.push(`Снято: ${condition}`))
   patch.relationships?.forEach((relation) => changes.push(`Отношение ${relation.delta >= 0 ? '+' : '−'}${Math.abs(relation.delta)}`))
   patch.quests?.forEach((quest) => changes.push(quest.operation === 'add' ? `Новая цель: ${quest.quest?.title ?? 'квест'}` : `Квест обновлён`))
-  patch.lore?.forEach((entry) => changes.push(`Открыт лор: ${entry.title}`))
+  patch.lore?.forEach((entry) => changes.push(entry.enabled ? `${entry.discovered ? 'Открыт' : 'Обновлён'} лор: ${entry.title}` : `Лор больше не действует: ${entry.title}`))
   patch.npcs?.forEach((mutation) => changes.push(mutation.operation === 'add' ? `Новый персонаж: ${mutation.npc.name}` : `Обновлён персонаж`))
   if (patch.playerProfile) changes.push('Профиль героя изменён')
   if (patch.world) changes.push('Мир изменился')
   patch.upsertStats?.forEach((stat) => changes.push(`Система: ${stat.label}`))
   patch.upsertResources?.forEach((resource) => changes.push(`Ресурс: ${resource.label}`))
+  patch.socialLinks?.forEach((link) => changes.push(`Связь NPC: ${link.label}`))
+  patch.removeSocialLinkIds?.forEach(() => changes.push('Связь NPC прекратилась'))
   patch.threads?.forEach((mutation) => changes.push(mutation.operation === 'add' ? `Новая связь: ${mutation.thread?.title ?? 'обязательство'}` : 'Обязательство обновлено'))
   patch.worldEvents?.forEach((mutation) => changes.push(mutation.operation === 'add' ? `Событие назначено: ${mutation.event?.title ?? 'мировое событие'}` : 'Мировое событие обновлено'))
   if (patch.party?.addNpcIds?.length || patch.party?.removeNpcIds?.length || Object.keys(patch.party?.roles ?? {}).length) changes.push('Состав отряда изменён')
@@ -1435,6 +1437,15 @@ export function applyPatch(
         campaign.activeConflict = normalizeActiveConflict(incoming, turn, existing)
       }
     }
+  }
+
+  if (patch.removeSocialLinkIds?.length) {
+    const knownSocialLinkIds = new Set((campaign.socialLinks ?? []).map((link) => link.id))
+    patch.removeSocialLinkIds.forEach((linkId, index) => {
+      if (!knownSocialLinkIds.has(linkId)) rejectedReference(diagnostics, `statePatch.removeSocialLinkIds[${index}]`, linkId, 'социальная связь не найдена')
+    })
+    const removed = new Set(patch.removeSocialLinkIds.filter((linkId) => knownSocialLinkIds.has(linkId)))
+    campaign.socialLinks = (campaign.socialLinks ?? []).filter((link) => !removed.has(link.id))
   }
 
   patch.socialLinks?.slice(0, 40).forEach((link, linkIndex) => {

@@ -41,6 +41,7 @@ function repairContractHints(issues: Array<{ path: PropertyKey[]; message: strin
 - abilityChanges:[{"abilityId":string,"mastery"?:absoluteNumber,"masteryDelta"?:deltaNumber,"description"?:string,"costs"?:[{"resource":string,"amount":number}],"capabilities"?:string[],"effects"?:string[],"limitations"?:string[],"history"?:{"title":string,"description":string}}]. Для нескольких записей history повтори mutation с тем же abilityId; не превращай history в массив.
 - artifactChanges:[{"itemId":string,"itemDescription"?:string,"itemEffects"?:string[],"mastery"?:absoluteNumber,"masteryDelta"?:deltaNumber,"attunement"?:absoluteNumber,"attunementDelta"?:deltaNumber,"bond"?:absoluteNumber,"bondDelta"?:deltaNumber,"powerChanges"?: [{"powerId":string,"description"?:string,"mastery"?:absoluteNumber,"masteryDelta"?:deltaNumber,"costs"?:[{"resource":string,"amount":number}],"capabilities"?:string[],"limitations"?:string[]}],"powerMasteryDeltas"?:{"exactPowerId":deltaNumber},"history"?:{"title":string,"description":string}}].
 - party: {"addNpcIds"?:string[],"removeNpcIds"?:string[],"roles"?:{"точный npcId":"роль в отряде"}}; массив участников запрещён.
+- socialLinks создаёт или обновляет полную связь NPC со стабильным id; удаление имеет форму removeSocialLinkIds:["точный linkId"].
 - memories:[{"kind":string,"content":string,"tags":string[],"importance":number,"pinned"?:boolean}]; id, turn и createdAt здесь запрещены и назначаются сервером.
 - inventory add требует вложенный item с name, description, category, quantity, rarity, equipped и effects; update требует targetId и вложенный item; remove имеет форму {"operation":"remove","targetId":"exactItemId","quantity"?:number,"reason"?:string} БЕЗ item. Редкость не запрещает фактическую потерю. Не возвращай плоские поля предмета.
 - quests add требует вложенный quest с title, description, status и objectives; update требует targetId и вложенный quest.
@@ -815,6 +816,10 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   const socialLinkCount = plan.statePatch.socialLinks?.length ?? 0
   plan.statePatch.socialLinks = plan.statePatch.socialLinks?.filter((link) => link.fromNpcId !== link.toNpcId && usableNpcIds.has(link.fromNpcId) && usableNpcIds.has(link.toNpcId))
   if ((plan.statePatch.socialLinks?.length ?? 0) < socialLinkCount) reject('Отклонена социальная связь с неизвестным или совпадающим участником.', ['relationships', 'characters'])
+  const removedSocialLinkCount = plan.statePatch.removeSocialLinkIds?.length ?? 0
+  const knownSocialLinkIds = new Set((campaign.socialLinks ?? []).map((link) => link.id))
+  plan.statePatch.removeSocialLinkIds = plan.statePatch.removeSocialLinkIds?.filter((linkId) => knownSocialLinkIds.has(linkId))
+  if ((plan.statePatch.removeSocialLinkIds?.length ?? 0) < removedSocialLinkCount) reject('Отклонено удаление неизвестной социальной связи.', ['relationships', 'characters'])
   if (plan.statePatch.party) {
     const requestedPartyAdds = plan.statePatch.party.addNpcIds ?? []
     plan.statePatch.party.addNpcIds = requestedPartyAdds.filter((npcId) => {
@@ -1083,6 +1088,7 @@ export function mergePatches(backgroundInput: TurnPatch | null | undefined, fore
     pacing: foreground.pacing ?? background.pacing,
     conflict: foreground.conflict ?? background.conflict,
     socialLinks: concat(background.socialLinks, foreground.socialLinks),
+    removeSocialLinkIds: unique(background.removeSocialLinkIds, foreground.removeSocialLinkIds),
     threads: concat(background.threads, foreground.threads),
     worldEvents: concat(background.worldEvents, foreground.worldEvents),
     factionReputationDeltas: sumRecords(background.factionReputationDeltas, foreground.factionReputationDeltas),
@@ -1572,6 +1578,7 @@ function restrictBackgroundPatch(patchInput: TurnPatch | null | undefined): Turn
   return {
     npcs: patch.npcs,
     socialLinks: patch.socialLinks,
+    removeSocialLinkIds: patch.removeSocialLinkIds,
     threads: patch.threads,
     worldEvents: patch.worldEvents,
     factionReputationDeltas: patch.factionReputationDeltas,
@@ -1583,6 +1590,38 @@ function restrictBackgroundPatch(patchInput: TurnPatch | null | undefined): Turn
     upsertInfluenceAssets: patch.upsertInfluenceAssets,
     cleanup: patch.cleanup,
   }
+}
+
+/** Memory cleanup runs after the event plan has already been validated. It must not archive an
+ * entity that the same manifested event requires to remain active, otherwise prose, state and the
+ * hidden event lifecycle diverge at the very end of the turn. Explicit event remove requirements
+ * remain authoritative and are therefore never protected here. */
+function protectNarrativeEventCleanup(cleanup: TurnPatch['cleanup'], eventDecision: NarrativeEventDecision): TurnPatch['cleanup'] {
+  if (!cleanup || eventDecision.mode === 'none' || eventDecision.mode === 'seed') return cleanup
+  const protectedTargets = new Map<keyof NonNullable<TurnPatch['cleanup']>, Set<string>>()
+  const domainToCleanupKey: Partial<Record<string, keyof NonNullable<TurnPatch['cleanup']>>> = {
+    thread: 'threads',
+    'world-event': 'worldEvents',
+    quest: 'quests',
+    'antagonist-plan': 'antagonistPlans',
+    'world-pressure': 'worldPressures',
+    memory: 'memories',
+  }
+  ;[...eventDecision.immediateEffects, ...eventDecision.persistentEffects]
+    .filter((requirement) => requirement.mandatory && requirement.operation !== 'remove' && requirement.targetId)
+    .forEach((requirement) => {
+      const key = domainToCleanupKey[requirement.domain]
+      if (!key) return
+      const ids = protectedTargets.get(key) ?? new Set<string>()
+      ids.add(requirement.targetId as string)
+      protectedTargets.set(key, ids)
+    })
+  const result = structuredClone(cleanup)
+  ;(Object.keys(result) as Array<keyof NonNullable<TurnPatch['cleanup']>>).forEach((key) => {
+    const ids = protectedTargets.get(key)
+    if (ids) result[key] = result[key]?.filter((entry) => !ids.has(entry.targetId))
+  })
+  return result
 }
 
 function startingAccessIssues(concept: ConceptAnalysis, world: GeneratedWorld): string[] {
@@ -1812,15 +1851,28 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   // NPC cost/damage after seeing the user's upcoming intention.
   validPlan.statePatch = mergeAuditPatch(validPlan.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof validPlan.statePatch
   let sanitized = sanitizePlan(request.campaign, validPlan)
-  const finalEventIssues = narrativeEventComplianceIssues(eventDecision, sanitized.plan.statePatch)
+  let finalEventIssues = narrativeEventComplianceIssues(eventDecision, sanitized.plan.statePatch)
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed' && finalEventIssues.length) {
-    console.warn(`[event-director] Событие отложено после проверки ссылок: ${finalEventIssues.join(' ')}`)
-    eventDecision = { mode: 'none', reason: 'Событие отложено после проверки ссылок и целостности состояния.' }
-    director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
-    validPlan = await createPlan()
-    validPlan = await applyProgressionAudit(validPlan)
-    validPlan.statePatch = mergeAuditPatch(validPlan.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof validPlan.statePatch
-    sanitized = sanitizePlan(request.campaign, validPlan)
+    try {
+      const repairMessages = eventComplianceRepairPrompt(director.messages, eventDecision, sanitized.plan, finalEventIssues)
+      const repairedRaw = await completeJson(request.provider, repairMessages)
+      let repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+      repaired = await applyProgressionAudit(repaired)
+      repaired.statePatch = mergeAuditPatch(repaired.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof repaired.statePatch
+      const repairedAndSanitized = sanitizePlan(request.campaign, repaired)
+      finalEventIssues = narrativeEventComplianceIssues(eventDecision, repairedAndSanitized.plan.statePatch)
+      if (finalEventIssues.length) throw new Error(finalEventIssues.join(' '))
+      sanitized = repairedAndSanitized
+      validPlan = repaired
+    } catch (error) {
+      console.warn(`[event-director] Событие отложено после проверки ссылок: ${error instanceof Error ? error.message : String(error)}`)
+      eventDecision = { mode: 'none', reason: 'Событие отложено после проверки ссылок и целостности состояния.' }
+      director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
+      validPlan = await createPlan()
+      validPlan = await applyProgressionAudit(validPlan)
+      validPlan.statePatch = mergeAuditPatch(validPlan.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof validPlan.statePatch
+      sanitized = sanitizePlan(request.campaign, validPlan)
+    }
   }
   reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
   const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
@@ -1956,7 +2008,8 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     return parseWithRepair(rawCurator, memoryCuratorSchema, request.provider, curatorMessages, () => ({ memories: [], archives: [] }))
   }, { memories: [], archives: [] })
   if (curator.cleanup) {
-    reconciled.plan.statePatch = mergePatches(reconciled.plan.statePatch, { cleanup: curator.cleanup }) as typeof reconciled.plan.statePatch
+    const safeCleanup = protectNarrativeEventCleanup(curator.cleanup, eventDecision)
+    reconciled.plan.statePatch = mergePatches(reconciled.plan.statePatch, { cleanup: safeCleanup }) as typeof reconciled.plan.statePatch
     reconciled = sanitizePlan(request.campaign, reconciled.plan)
   }
   const plannedMemories = reconciled.plan.statePatch.memories ?? []
@@ -1976,8 +2029,25 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     postAuditEventIssues = narrativeEventComplianceIssues(eventDecision, reconciled.plan.statePatch)
   }
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed' && postAuditEventIssues.length) {
-    console.warn(`[event-director] Итоговая сверка события не прошла: ${postAuditEventIssues.join(' ')}`)
-    eventDecision = { mode: 'none', reason: 'Событие не отмечено как завершённое: итоговая сверка обнаружила пропущенное состояние.' }
+    try {
+      const repairMessages = eventComplianceRepairPrompt(director.messages, eventDecision, reconciled.plan, postAuditEventIssues)
+      const repairedRaw = await completeJson(request.provider, repairMessages)
+      const repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+      const repairedAndSanitized = sanitizePlan(request.campaign, repaired)
+      const remaining = narrativeEventComplianceIssues(eventDecision, repairedAndSanitized.plan.statePatch)
+      if (remaining.length) throw new Error(remaining.join(' '))
+      reconciled = repairedAndSanitized
+      postAuditEventIssues = []
+    } catch (error) {
+      console.warn(`[event-director] Финальное восстановление события не прошло, возвращаем уже проверенный атомарный патч: ${error instanceof Error ? error.message : String(error)}`)
+      if (eventCompliantPatch) {
+        const knownGood = sanitizePlan(request.campaign, { ...reconciled.plan, statePatch: structuredClone(eventCompliantPatch) })
+        const fallbackIssues = narrativeEventComplianceIssues(eventDecision, knownGood.plan.statePatch)
+        if (fallbackIssues.length) throw new Error(`Не удалось восстановить ранее проверенное событие: ${fallbackIssues.join(' ')}`)
+        reconciled = knownGood
+        postAuditEventIssues = []
+      }
+    }
   }
   ;(reconciled.plan.statePatch as TurnPatch).eventDirectorState = eventDirectorConsulted
     ? applyNarrativeEventProposal(request.campaign, preparedEventState, eventDecision, randomUUID)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { NPC, NPCDossierSection, StateChange, TurnPatch } from '../../shared/types'
 import { createDemoCampaign } from './demo'
-import { applyPatch, commitTurn, rewindLastTurn } from './engine'
+import { applyPatch, commitTurn, describePatch, rewindLastTurn } from './engine'
 import { diffCampaignState } from './state-changes'
 
 function revealNpc(npc: NPC, sections: NPCDossierSection[], statKeys: string[] = [], resourceKeys: string[] = [], abilityIds: string[] = []) {
@@ -1392,5 +1392,20 @@ describe('state engine', () => {
       expect.objectContaining({ kind: 'scene', label: 'Ритм истории' }),
       expect.objectContaining({ kind: 'world', label: expect.stringContaining('Давление') }),
     ]))
+  })
+
+  it('removes an exact NPC social link without affecting the remaining network', () => {
+    const campaign = createDemoCampaign()
+    const first = campaign.npcs[0]
+    if (!first) throw new Error('Demo campaign needs an NPC')
+    const second = { ...structuredClone(first), id: 'npc-social-second', name: 'Второй свидетель' }
+    campaign.npcs.push(second)
+    campaign.socialLinks = [
+      { id: 'link-ended', fromNpcId: first.id, toNpcId: second.id, kind: 'trust', label: 'Распавшийся союз', score: 20, secret: false, notes: [] },
+      { id: 'link-kept', fromNpcId: second.id, toNpcId: first.id, kind: 'debt', label: 'Невыплаченный долг', score: 45, secret: false, notes: [] },
+    ]
+    const next = applyPatch(campaign, { removeSocialLinkIds: ['link-ended'] }, 2)
+    expect(next.socialLinks?.map((link) => link.id)).toEqual(['link-kept'])
+    expect(describePatch({ removeSocialLinkIds: ['link-ended'] })).toContain('Связь NPC прекратилась')
   })
 })

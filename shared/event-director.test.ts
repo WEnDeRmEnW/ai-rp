@@ -258,6 +258,47 @@ describe('universal narrative event director', () => {
     expect(validateNarrativeEventProposal(campaign, { ...defaultEventDirectorState(0), surpriseCharge: 50 }, divineButOrdinary)).toEqual([])
   })
 
+  it('checks every modern event domain against the exact target and canonical operation', () => {
+    const event = proposal({
+      mode: 'manifest',
+      lifecycleStage: 'manifested',
+      category: 'consequence',
+      magnitude: 'notable',
+      affectedDomains: ['status-effect', 'thread', 'mystery', 'social-link', 'lore', 'faction-reputation', 'metric'],
+      arrivalMethod: 'Последствия одновременно проявляются в теле, связях и наблюдаемых системах мира.',
+      observableSigns: ['Новые последствия доступны герою напрямую или через достоверные сведения.'],
+      immediateEffects: [
+        { domain: 'status-effect', operation: 'create', targetId: 'effect-event', requirement: 'Добавить точный устойчивый эффект.', observable: true, mandatory: true },
+        { domain: 'thread', operation: 'create', targetId: 'thread-event', requirement: 'Создать причинную сюжетную нить.', observable: true, mandatory: true },
+        { domain: 'mystery', operation: 'reveal', targetId: 'mystery-event', requirement: 'Открыть настоящую улику тайны.', observable: true, mandatory: true },
+        { domain: 'social-link', operation: 'remove', targetId: 'link-ended', requirement: 'Удалить прекратившуюся связь NPC.', observable: true, mandatory: true },
+        { domain: 'lore', operation: 'remove', targetId: 'lore-obsolete', requirement: 'Отключить опровергнутое правило лора.', observable: true, mandatory: true },
+        { domain: 'faction-reputation', operation: 'update', targetId: 'Северный союз', requirement: 'Изменить отношение точной фракции.', observable: true, mandatory: true },
+        { domain: 'metric', operation: 'update', targetId: 'wanted', requirement: 'Изменить настоящий показатель розыска.', observable: true, mandatory: true },
+      ],
+    })
+    const wrongTargets: TurnPatch = {
+      upsertStatusEffects: [{ id: 'effect-other', name: 'Иной эффект', description: 'Не относится к событию.', category: 'other', severity: 10, source: 'другое', effects: [], stacks: 1, duration: { unit: 'turns', remaining: 1 } }],
+      threads: [{ operation: 'add', thread: { id: 'thread-other', type: 'rumor', title: 'Другая нить', detail: 'Не та линия.', participantIds: [], status: 'active', secret: false, createdTurn: 1 } }],
+      upsertMysteryCases: [{ id: 'mystery-event', title: 'Тайна', premise: 'Есть вопрос.', truth: 'Ответ скрыт.', status: 'open', clues: [{ id: 'clue-hidden', title: 'След', detail: 'Пока скрыт.', location: 'Архив', source: 'Запись', discovered: false, essential: true }], redHerrings: [], revelationRules: [], createdTurn: 1 }],
+      lore: [{ id: 'lore-obsolete', title: 'Старое правило', type: 'rule', content: 'Опровергнуто.', keys: ['старое'], enabled: true, alwaysOn: false, secret: false, discovered: true, priority: 10 }],
+      factionReputationDeltas: { 'Южный союз': 5 },
+      world: { metricDeltas: { suspicion: 5 } },
+    }
+    expect(narrativeEventComplianceIssues(event, wrongTargets)).toHaveLength(7)
+
+    const correctPatch: TurnPatch = {
+      upsertStatusEffects: [{ id: 'effect-event', name: 'Метка события', description: 'Устойчивый наблюдаемый след.', category: 'other', severity: 25, source: 'событие', effects: ['След остаётся заметным.'], stacks: 1, duration: { unit: 'indefinite' } }],
+      threads: [{ operation: 'add', thread: { id: 'thread-event', type: 'witness', title: 'Свидетель события', detail: 'Свидетель сохранил доказательство.', participantIds: [], status: 'active', secret: false, createdTurn: 1 } }],
+      upsertMysteryCases: [{ id: 'mystery-event', title: 'Тайна', premise: 'Есть вопрос.', truth: 'Ответ скрыт.', status: 'open', clues: [{ id: 'clue-open', title: 'Открытый след', detail: 'Герой действительно обнаружил улику.', location: 'Архив', source: 'Запись', discovered: true, essential: true }], redHerrings: [], revelationRules: [], createdTurn: 1 }],
+      removeSocialLinkIds: ['link-ended'],
+      lore: [{ id: 'lore-obsolete', title: 'Старое правило', type: 'rule', content: 'Опровергнуто.', keys: ['старое'], enabled: false, alwaysOn: false, secret: false, discovered: true, priority: 10 }],
+      factionReputationDeltas: { 'Северный союз': -8 },
+      world: { metricDeltas: { wanted: 12 } },
+    }
+    expect(narrativeEventComplianceIssues(event, correctPatch)).toEqual([])
+  })
+
   it('restores hidden event state together with the rest of the campaign on rewind', () => {
     const campaign = createDemoCampaign()
     const originalState = structuredClone(campaign.eventDirectorState)
