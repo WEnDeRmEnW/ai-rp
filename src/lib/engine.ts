@@ -712,6 +712,7 @@ function createSnapshot(campaign: Campaign): CampaignSnapshot {
     antagonistPlans: structuredClone(campaign.antagonistPlans ?? []),
     worldPressures: structuredClone(campaign.worldPressures ?? []),
     influenceAssets: structuredClone(campaign.influenceAssets ?? []),
+    eventDirectorState: structuredClone(campaign.eventDirectorState),
     messageCount: campaign.messages.length,
     eventCount: campaign.timeline.length,
   }
@@ -832,6 +833,7 @@ export function applyPatch(
   campaign.antagonistPlans ??= []
   campaign.worldPressures ??= []
   campaign.influenceAssets ??= []
+  if (patch.eventDirectorState) campaign.eventDirectorState = structuredClone(patch.eventDirectorState)
   campaign.world.places ??= []
   campaign.world.processes ??= []
   campaign.world.legends ??= []
@@ -2444,6 +2446,7 @@ export function rewindLastTurn(campaign: Campaign): Campaign {
     antagonistPlans: structuredClone(snapshot.antagonistPlans ?? campaign.antagonistPlans ?? []),
     worldPressures: structuredClone(snapshot.worldPressures ?? campaign.worldPressures ?? []),
     influenceAssets: structuredClone(snapshot.influenceAssets ?? campaign.influenceAssets ?? []),
+    eventDirectorState: structuredClone(snapshot.eventDirectorState ?? campaign.eventDirectorState),
     messages: campaign.messages.slice(0, snapshot.messageCount),
     timeline: campaign.timeline.slice(0, snapshot.eventCount),
     snapshots: campaign.snapshots.slice(0, -1),

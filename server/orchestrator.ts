@@ -1,10 +1,11 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest } from '../shared/types.js'
+import type { Campaign, CampaignEditRequest, CampaignEditResponse, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
+import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
-import { backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
+import { backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldRewritePrompt } from './prompts.js'
+import { backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type WorldQualityReview } from './schemas.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 
@@ -1584,61 +1585,127 @@ function startingAccessIssues(concept: ConceptAnalysis, world: GeneratedWorld): 
 }
 
 export async function runTurn(request: TurnRequest, report?: ProgressReporter): Promise<TurnResponse> {
-  reportProgress(report, 3, 'preparing', 'Проверяем ввод и собираем актуальное состояние', 1, 9)
+  reportProgress(report, 3, 'preparing', 'Проверяем ввод и собираем актуальное состояние', 1, 10)
   const check = resolveActionCheck(request.campaign, request.input, request.actionType)
+  const preparedEventState = prepareEventDirectorState(request.campaign)
   if (request.provider.provider === 'demo') {
-    reportProgress(report, 80, 'narrating', 'Собираем демонстрационный ответ', 8, 9)
-    return { ...demoTurn(request.campaign, request.input), check }
+    reportProgress(report, 80, 'narrating', 'Собираем демонстрационный ответ', 9, 10)
+    const response = demoTurn(request.campaign, request.input)
+    response.statePatch.eventDirectorState = preparedEventState
+    return { ...response, check }
   }
 
-  reportProgress(report, 8, 'world-simulation', 'Персонажи и мир делают свои независимые шаги', 2, 9)
+  reportProgress(report, 8, 'world-simulation', 'Персонажи и мир делают свои независимые шаги', 2, 10)
   const backgroundMessages = backgroundSimulatorPrompt(request.campaign, request.input)
   const emptyBackground: ReturnType<typeof backgroundSimulationSchema.parse> = { signals: [], statePatch: {} }
   const background = await optionalStage<ReturnType<typeof backgroundSimulationSchema.parse>>('background', async () => {
     const rawBackground = await completeJson(request.provider, backgroundMessages)
     return parseWithRepair(rawBackground, backgroundSimulationSchema, request.provider, backgroundMessages, () => ({ signals: [], statePatch: {} }))
   }, emptyBackground)
-  reportProgress(report, 18, 'directing', 'Режиссёр строит причинный план и последствия', 3, 9)
-  const director = directorPrompt(request.campaign, request.input, request.actionType, check, background)
-  const rawPlan = await completeJson(request.provider, director.messages)
-  const validPlan = await parseWithRepair(rawPlan, turnPlanSchema, request.provider, director.messages, salvageTurnPlan)
-  const progressionMessages = progressionAuditPrompt(request.campaign, request.input, validPlan)
-  if (progressionMessages) {
-    reportProgress(report, 31, 'progression', 'Сверяем развитие способностей, предметов и персонажей', 4, 9)
+  let eventDecision: NarrativeEventDecision = { mode: 'none', reason: 'История ещё не накопила готовность к отдельному повороту.' }
+  let eventDirectorConsulted = false
+  if (shouldConsultEventDirector(request.campaign, preparedEventState)) {
+    eventDirectorConsulted = true
+    reportProgress(report, 17, 'event-director', 'Проверяем, созрело ли редкое необычное событие', 3, 10)
+    const eventMessages = eventDirectorPrompt(request.campaign, request.input, background, preparedEventState)
+    eventDecision = await optionalStage<NarrativeEventDecision>('event-director', async () => {
+      const rawDecision = await completeJson(request.provider, eventMessages)
+      let decision = await parseWithRepair<NarrativeEventDecision>(rawDecision, narrativeEventDecisionSchema, request.provider, eventMessages)
+      let issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
+      if (decision.mode !== 'none' && issues.length) {
+        const retryMessages = [
+          ...eventMessages,
+          { role: 'assistant' as const, content: JSON.stringify(decision) },
+          {
+            role: 'user' as const,
+            content: `Предложение отклонено программной проверкой:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни полностью исправленное предложение либо честный {"mode":"none","reason":"..."}. Не спорь с ограничениями и не отвечай пояснением.`,
+          },
+        ]
+        const retryRaw = await completeJson(request.provider, retryMessages)
+        decision = await parseWithRepair<NarrativeEventDecision>(retryRaw, narrativeEventDecisionSchema, request.provider, retryMessages)
+        issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
+      }
+      if (decision.mode !== 'none' && issues.length) {
+        console.warn(`[event-director] Предложение безопасно отложено: ${issues.join(' ')}`)
+        return { mode: 'none', reason: `Предложение отложено программной проверкой: ${issues.join(' ')}` }
+      }
+      return decision
+    }, { mode: 'none', reason: 'Этап необычного события не завершился и был безопасно пропущен.' })
+  }
+
+  reportProgress(report, 26, 'directing', 'Режиссёр строит причинный план и последствия', 4, 10)
+  let director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
+  const createPlan = async () => {
+    const rawPlan = await completeJson(request.provider, director.messages)
+    return parseWithRepair(rawPlan, turnPlanSchema, request.provider, director.messages, salvageTurnPlan)
+  }
+  let validPlan = await createPlan()
+
+  if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed') {
+    const complianceIssues = narrativeEventComplianceIssues(eventDecision, validPlan.statePatch)
+    if (complianceIssues.length) {
+      reportProgress(report, 34, 'event-compliance', 'Связываем событие с настоящими данными мира', 5, 10)
+      try {
+        const repairMessages = eventComplianceRepairPrompt(director.messages, eventDecision, validPlan, complianceIssues)
+        const repairedRaw = await completeJson(request.provider, repairMessages)
+        const repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+        const remaining = narrativeEventComplianceIssues(eventDecision, repaired.statePatch)
+        if (remaining.length) throw new Error(remaining.join(' '))
+        validPlan = repaired
+      } catch (error) {
+        console.warn(`[event-director] Событие отложено после неполной материализации: ${error instanceof Error ? error.message : String(error)}`)
+        eventDecision = { mode: 'none', reason: 'Событие отложено: основной план не смог безопасно применить все обязательные последствия.' }
+        director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
+        validPlan = await createPlan()
+      }
+    }
+  }
+
+  const applyProgressionAudit = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
+    const progressionMessages = progressionAuditPrompt(request.campaign, request.input, plan)
+    if (!progressionMessages) return plan
+    reportProgress(report, 41, 'progression', 'Сверяем развитие способностей, предметов и персонажей', 5, 10)
     const emptyProgression: ReturnType<typeof progressionAuditSchema.parse> = {}
     const progression = await optionalStage<ReturnType<typeof progressionAuditSchema.parse>>('progression', async () => {
       const rawProgression = await completeJson(request.provider, progressionMessages)
       return parseWithRepair(rawProgression, progressionAuditSchema, request.provider, progressionMessages, () => ({}))
     }, emptyProgression)
-    const supplementalAbilityChanges = filterSupplementalAbilityChanges(validPlan.statePatch.abilityChanges, progression.abilityChanges)
-    const supplementalArtifactChanges = filterSupplementalArtifactChanges(validPlan.statePatch.artifactChanges, progression.artifactChanges)
-    validPlan.statePatch.abilityChanges = [
-      ...(validPlan.statePatch.abilityChanges ?? []),
-      ...(supplementalAbilityChanges ?? []),
-    ]
-    validPlan.statePatch.artifactChanges = [
-      ...(validPlan.statePatch.artifactChanges ?? []),
-      ...(supplementalArtifactChanges ?? []),
-    ]
+    const supplementalAbilityChanges = filterSupplementalAbilityChanges(plan.statePatch.abilityChanges, progression.abilityChanges)
+    const supplementalArtifactChanges = filterSupplementalArtifactChanges(plan.statePatch.artifactChanges, progression.artifactChanges)
+    plan.statePatch.abilityChanges = [...(plan.statePatch.abilityChanges ?? []), ...(supplementalAbilityChanges ?? [])]
+    plan.statePatch.artifactChanges = [...(plan.statePatch.artifactChanges ?? []), ...(supplementalArtifactChanges ?? [])]
     for (const npcAudit of progression.npcAbilityChanges ?? []) {
-      const alreadyTracked = (validPlan.statePatch.npcs ?? [])
+      const alreadyTracked = (plan.statePatch.npcs ?? [])
         .filter((mutation) => mutation.operation === 'update' && mutation.targetId === npcAudit.npcId)
         .flatMap((mutation) => mutation.operation === 'update' ? mutation.npc.abilityChanges ?? [] : [])
       const abilityChanges = filterSupplementalAbilityChanges(alreadyTracked, npcAudit.abilityChanges)
       if (abilityChanges?.length) {
-        validPlan.statePatch.npcs = [
-          ...(validPlan.statePatch.npcs ?? []),
+        plan.statePatch.npcs = [
+          ...(plan.statePatch.npcs ?? []),
           { operation: 'update', targetId: npcAudit.npcId, npc: { abilityChanges } },
         ]
       }
     }
+    return plan
   }
+
+  validPlan = await applyProgressionAudit(validPlan)
   // The foreground plan already owns every consequence of the current input. Background
   // simulation may contribute only non-overlapping off-screen changes, never repeat the same
   // NPC cost/damage after seeing the user's upcoming intention.
   validPlan.statePatch = mergeAuditPatch(validPlan.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof validPlan.statePatch
-  const sanitized = sanitizePlan(request.campaign, validPlan)
-  reportProgress(report, 43, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 5, 9)
+  let sanitized = sanitizePlan(request.campaign, validPlan)
+  const finalEventIssues = narrativeEventComplianceIssues(eventDecision, sanitized.plan.statePatch)
+  if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed' && finalEventIssues.length) {
+    console.warn(`[event-director] Событие отложено после проверки ссылок: ${finalEventIssues.join(' ')}`)
+    eventDecision = { mode: 'none', reason: 'Событие отложено после проверки ссылок и целостности состояния.' }
+    director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
+    validPlan = await createPlan()
+    validPlan = await applyProgressionAudit(validPlan)
+    validPlan.statePatch = mergeAuditPatch(validPlan.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof validPlan.statePatch
+    sanitized = sanitizePlan(request.campaign, validPlan)
+  }
+  reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 10)
   const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
   const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
     ? await firstDraft.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
@@ -1646,7 +1713,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
   const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
   const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
-  reportProgress(report, 61, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 6, 9)
+  reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 10)
   const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB)
   const review = await optionalStage('critic', async () => {
     const rawReview = await completeJson(request.provider, criticMessages)
@@ -1662,12 +1729,15 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   const repairedOmissions: ConsequenceAudit['omissions'] = []
   const narrativeAuditNotes: string[] = []
   let consequenceAudit: ConsequenceAudit | undefined
+  const eventCompliantPatch = eventDecision.mode !== 'none' && eventDecision.mode !== 'seed'
+    ? structuredClone(sanitized.plan.statePatch)
+    : undefined
   let reconciled = sanitized
 
   // Audit state and prose together. If the model replaced a binding story direction with its
   // own scene, rewrite the prose and audit the corrected result again before committing anything.
   for (let narrativeAttempt = 0; narrativeAttempt < 3; narrativeAttempt += 1) {
-    reportProgress(report, 72 + narrativeAttempt * 7, 'consequence-audit', narrativeAttempt === 0 ? 'Проверяем все 15 областей состояния' : `Исправляем пропущенные последствия: попытка ${narrativeAttempt + 1}`, 7, 9)
+    reportProgress(report, 74 + narrativeAttempt * 6, 'consequence-audit', narrativeAttempt === 0 ? 'Проверяем все 17 областей состояния' : `Исправляем пропущенные последствия: попытка ${narrativeAttempt + 1}`, 8, 10)
     const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, reconciled.plan, narrative, check)
     const rawAudit = await completeJson(request.provider, auditMessages)
     consequenceAudit = await parseWithRepair<ConsequenceAudit>(rawAudit, consequenceAuditSchema, request.provider, auditMessages)
@@ -1711,7 +1781,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
   if (!consequenceAudit) throw new Error('Не удалось выполнить обязательную сверку последствий.')
 
-  reportProgress(report, 93, 'memory', 'Закрепляем факты и долгую память истории', 8, 9)
+  reportProgress(report, 93, 'memory', 'Закрепляем факты и долгую память истории', 9, 10)
   const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, narrative, reconciled.plan)
   const curator = await optionalStage('memory', async () => {
     const rawCurator = await completeJson(request.provider, curatorMessages)
@@ -1731,7 +1801,21 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   const reviewNotes = review.issues.map((issue) => `${issue.severity}: ${issue.detail}`)
   const auditNotes = repairedOmissions.map((omission) => `Автосверка ${omission.domain}: ${omission.requiredChange}`)
 
-  reportProgress(report, 98, 'finalizing', 'Формируем атомарный ответ и изменения', 9, 9)
+  let postAuditEventIssues = narrativeEventComplianceIssues(eventDecision, reconciled.plan.statePatch)
+  if (postAuditEventIssues.length && eventCompliantPatch) {
+    reconciled.plan.statePatch = mergeAuditPatch(reconciled.plan.statePatch, eventCompliantPatch) as typeof reconciled.plan.statePatch
+    reconciled = sanitizePlan(request.campaign, reconciled.plan)
+    postAuditEventIssues = narrativeEventComplianceIssues(eventDecision, reconciled.plan.statePatch)
+  }
+  if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed' && postAuditEventIssues.length) {
+    console.warn(`[event-director] Итоговая сверка события не прошла: ${postAuditEventIssues.join(' ')}`)
+    eventDecision = { mode: 'none', reason: 'Событие не отмечено как завершённое: итоговая сверка обнаружила пропущенное состояние.' }
+  }
+  ;(reconciled.plan.statePatch as TurnPatch).eventDirectorState = eventDirectorConsulted
+    ? applyNarrativeEventProposal(request.campaign, preparedEventState, eventDecision, randomUUID)
+    : preparedEventState
+
+  reportProgress(report, 98, 'finalizing', 'Формируем атомарный ответ и изменения', 10, 10)
   return {
     narrative,
     suggestions: reconciled.plan.suggestions,

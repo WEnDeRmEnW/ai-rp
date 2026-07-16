@@ -1,4 +1,5 @@
 import type { Campaign } from '../../shared/types'
+import { defaultEventDirectorState, normalizeEventDirectorSettings } from '../../shared/event-director'
 
 const id = () => crypto.randomUUID()
 
@@ -210,7 +211,9 @@ export function createDemoCampaign(): Campaign {
       dialogueDensity: 'balanced',
       npcAutonomy: 'independent',
       worldDynamics: 'living',
+      eventDirector: normalizeEventDirectorSettings(),
     },
+    eventDirectorState: defaultEventDirectorState(0),
     snapshots: [],
   }
 }

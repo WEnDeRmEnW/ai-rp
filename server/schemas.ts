@@ -35,6 +35,7 @@ const alias = (values: Record<string, string>) => (value: unknown) => {
   const normalized = value.trim().toLocaleLowerCase('ru-RU')
   return values[normalized] ?? value
 }
+const arrayish = (value: unknown) => value === undefined ? value : Array.isArray(value) ? value : [value]
 const colorSchema = z.preprocess(normalizeHexColor, z.string().regex(/^#[0-9a-f]{6}$/i, 'Expected a six-digit HEX color'))
 const itemCategorySchema = z.preprocess(alias({ оружие: 'weapon', броня: 'armor', защита: 'armor', расходник: 'consumable', припас: 'consumable', артефакт: 'artifact', реликвия: 'artifact', квест: 'quest', сюжетный: 'quest', материал: 'material', другое: 'other', прочее: 'other' }), z.enum(['weapon', 'armor', 'consumable', 'artifact', 'quest', 'material', 'other']))
 const raritySchema = z.preprocess(alias({ обычный: 'common', обычное: 'common', необычный: 'uncommon', необычное: 'uncommon', редкий: 'rare', редкое: 'rare', эпический: 'epic', эпическое: 'epic', легендарный: 'legendary', легендарное: 'legendary' }), z.enum(['common', 'uncommon', 'rare', 'epic', 'legendary']))
@@ -135,6 +136,46 @@ const worldPressureSourceKindSchema = z.preprocess(alias({ персонаж: 'np
 const worldPressureTierSchema = z.preprocess(alias({ след: 'trace', слабый: 'trace', локальный: 'local', местный: 'local', серьёзный: 'serious', серьезный: 'serious', критический: 'critical', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['trace', 'local', 'serious', 'critical', 'legendary', 'mythic']))
 const worldPressureStageSchema = z.preprocess(alias({ наблюдает: 'watching', наблюдение: 'watching', расследует: 'investigating', расследование: 'investigating', готовится: 'preparing', подготовка: 'preparing', действует: 'acting', действие: 'acting', затихает: 'cooling', ослабевает: 'cooling', завершено: 'resolved', разрешено: 'resolved' }), z.enum(['watching', 'investigating', 'preparing', 'acting', 'cooling', 'resolved']))
 const worldPressureMeasureStatusSchema = z.preprocess(alias({ рассматривается: 'considered', задумано: 'considered', готовится: 'preparing', подготовка: 'preparing', активно: 'active', действует: 'active', использовано: 'spent', израсходовано: 'spent', сорвано: 'foiled', провалено: 'foiled' }), z.enum(['considered', 'preparing', 'active', 'spent', 'foiled']))
+const narrativeEventModeSchema = z.preprocess(alias({ нет: 'none', пропустить: 'none', зерно: 'seed', заложить: 'seed', предвестник: 'foreshadow', предзнаменование: 'foreshadow', продвинуть: 'advance', развитие: 'advance', проявить: 'manifest', событие: 'manifest' }), z.enum(['seed', 'foreshadow', 'advance', 'manifest']))
+const narrativeEventStageSchema = z.preprocess(alias({ заложено: 'seeded', зерно: 'seeded', предвестники: 'foreshadowed', предзнаменовано: 'foreshadowed', формируется: 'forming', готовится: 'forming', неизбежно: 'imminent', назрело: 'imminent', проявилось: 'manifested', произошло: 'manifested', последствия: 'aftermath', завершено: 'resolved', разрешено: 'resolved', отменено: 'cancelled' }), z.enum(['seeded', 'foreshadowed', 'forming', 'imminent', 'manifested', 'aftermath', 'resolved', 'cancelled']))
+const narrativeEventMagnitudeSchema = z.preprocess(alias({ едва_заметное: 'subtle', тонкое: 'subtle', малое: 'subtle', заметное: 'notable', значимое: 'notable', крупное: 'major', большое: 'major', легендарное: 'legendary', мифическое: 'mythic', космическое: 'mythic' }), z.enum(['subtle', 'notable', 'major', 'legendary', 'mythic']))
+const narrativeEventMiracleKindSchema = z.preprocess(alias({
+  нет: 'none', обычное: 'none', none: 'none',
+  знак: 'sign', предзнаменование: 'sign', sign: 'sign',
+  вмешательство: 'intervention', чудо: 'intervention', спасение: 'intervention', intervention: 'intervention',
+}), z.enum(['none', 'sign', 'intervention']))
+const narrativeEventCategorySchema = z.preprocess(alias({
+  встреча: 'encounter', появление: 'encounter', последствие: 'consequence', последствия: 'consequence', возможность: 'opportunity',
+  открытие: 'revelation', откровение: 'revelation', превращение: 'transformation', мутация: 'transformation',
+  сила: 'power_shift', способность: 'power_shift', ability: 'power_shift', power: 'power_shift',
+  артефакт: 'artifact_shift', предмет: 'artifact_shift', artifact: 'artifact_shift', item: 'artifact_shift',
+  фракция: 'faction_move', политика: 'faction_move', отношения: 'social_reversal', социальное: 'social_reversal',
+  среда: 'environmental', природа: 'environmental', аномалия: 'anomaly', катастрофа: 'disaster',
+  легенда: 'legend', чудо: 'divine', божественное: 'divine', время: 'temporal', измерение: 'dimensional',
+  закон: 'law_change', механика: 'law_change', другое: 'other', прочее: 'other',
+}), z.enum(['encounter', 'consequence', 'opportunity', 'revelation', 'transformation', 'power_shift', 'artifact_shift', 'faction_move', 'social_reversal', 'environmental', 'anomaly', 'disaster', 'legend', 'divine', 'temporal', 'dimensional', 'law_change', 'other']))
+const narrativeEventOriginSchema = z.preprocess(alias({
+  герой: 'player', игрок: 'player', персонаж: 'npc', нпс: 'npc', новый_персонаж: 'new_npc', новый_npc: 'new_npc',
+  отряд: 'party', антагонист: 'antagonist', легенда: 'legend', фракция: 'faction', государство: 'state',
+  артефакт: 'artifact', способность: 'ability', технология: 'technology', среда: 'environment', природа: 'environment',
+  бог: 'deity', божество: 'deity', космос: 'cosmic', измерение: 'dimension', неизвестно: 'unknown',
+  несколько: 'multiple', множество: 'multiple',
+}), z.enum(['player', 'npc', 'new_npc', 'party', 'antagonist', 'legend', 'faction', 'state', 'artifact', 'ability', 'technology', 'environment', 'deity', 'cosmic', 'dimension', 'unknown', 'multiple']))
+const narrativeEventDomainSchema = z.preprocess(alias({
+  герой: 'player', игрок: 'player', персонаж: 'npc', нпс: 'npc', способность: 'ability', сила: 'ability',
+  артефакт: 'artifact', инвентарь: 'inventory', предмет: 'inventory', отношения: 'relationship', отряд: 'party',
+  задание: 'quest', квест: 'quest', конфликт: 'conflict', бой: 'conflict', сцена: 'scene', фракция: 'faction',
+  место: 'place', локация: 'place', маршрут: 'route', процесс: 'process', закон: 'law', механика: 'mechanic',
+  легенда: 'legend', лор: 'lore', мировое_событие: 'world-event', событие_мира: 'world-event',
+  давление: 'world-pressure', давление_мира: 'world-pressure', время: 'time', интерфейс: 'interface',
+}), z.enum(['player', 'npc', 'ability', 'artifact', 'inventory', 'relationship', 'party', 'quest', 'conflict', 'scene', 'faction', 'place', 'route', 'process', 'law', 'mechanic', 'legend', 'lore', 'world-event', 'world-pressure', 'time', 'interface']))
+const narrativeEventOperationSchema = z.preprocess(alias({
+  создать: 'create', создание: 'create', добавить: 'create', add: 'create',
+  обновить: 'update', изменить: 'update', set: 'update',
+  удалить: 'remove', потерять: 'remove', delete: 'remove',
+  превратить: 'transform', преобразовать: 'transform',
+  раскрыть: 'reveal', открыть: 'reveal',
+}), z.enum(['create', 'update', 'remove', 'transform', 'reveal']))
 const surfaceSchema = z.preprocess(alias({ бумага: 'paper', бумажный: 'paper', магический: 'arcane', мистический: 'arcane', технологичный: 'tech', технический: 'tech', органический: 'organic', живой: 'organic', нуар: 'noir', минимализм: 'minimal', минималистичный: 'minimal' }), z.enum(['paper', 'arcane', 'tech', 'organic', 'noir', 'minimal']))
 const knowledgeFactSchema = z.object({
   id: idSchema,
@@ -1617,6 +1658,53 @@ const consequenceAuditContract = z.object({
 
 export const consequenceAuditSchema = z.preprocess((value) => normalizeModelOutput(value), consequenceAuditContract)
 
+const narrativeEventRequirementSchema = z.object({
+  domain: narrativeEventDomainSchema,
+  operation: narrativeEventOperationSchema,
+  targetId: idSchema.optional(),
+  requirement: longText,
+  observable: modelBoolean,
+  mandatory: modelBoolean,
+}).strict()
+
+const narrativeEventProposalContract = z.object({
+  mode: narrativeEventModeSchema,
+  existingEventId: idSchema.optional(),
+  lifecycleStage: narrativeEventStageSchema,
+  concept: longText,
+  category: narrativeEventCategorySchema,
+  magnitude: narrativeEventMagnitudeSchema,
+  miracleKind: narrativeEventMiracleKindSchema,
+  originKind: narrativeEventOriginSchema,
+  sourceIds: z.preprocess(arrayish, z.array(idSchema).max(24)),
+  causeIds: z.preprocess(arrayish, z.array(idSchema).max(24)),
+  scopeIds: z.preprocess(arrayish, z.array(idSchema).max(24)),
+  participantIds: z.preprocess(arrayish, z.array(idSchema).max(24)),
+  affectedDomains: z.preprocess(arrayish, z.array(narrativeEventDomainSchema).min(1).max(22)),
+  knowledgeChannel: longText,
+  trigger: longText,
+  arrivalMethod: longText,
+  observableSigns: z.preprocess(arrayish, z.array(longText).max(16)),
+  immediateEffects: z.preprocess(arrayish, z.array(narrativeEventRequirementSchema).max(24)),
+  persistentEffects: z.preprocess(arrayish, z.array(narrativeEventRequirementSchema).max(24)),
+  counterplay: z.preprocess(arrayish, z.array(longText).max(16)),
+  cancellationConditions: z.preprocess(arrayish, z.array(longText).max(16)),
+  canonReasoning: longText,
+  pacingReasoning: longText,
+  noveltyReasoning: longText,
+  minimumDelay: modelNumber(z.number().int().min(0).max(80)),
+}).strict()
+
+const noNarrativeEventContract = z.object({
+  mode: z.preprocess(alias({ нет: 'none', пропустить: 'none', ничего: 'none' }), z.literal('none')),
+  reason: longText,
+}).strict()
+
+export const narrativeEventDecisionSchema = z.preprocess(
+  (value) => normalizeModelOutput(value),
+  z.union([noNarrativeEventContract, narrativeEventProposalContract]),
+)
+
 const archiveDraftSchema = z.object({
   kind: z.enum(['scene', 'chapter', 'era']),
   title: shortText,
@@ -1723,6 +1811,37 @@ export const campaignEditResponseSchema = z.object({
     dialogueDensity: z.enum(['low', 'balanced', 'high']).optional(),
     npcAutonomy: z.enum(['reactive', 'balanced', 'independent']).optional(),
     worldDynamics: z.enum(['quiet', 'living', 'volatile']).optional(),
+    eventDirector: z.object({
+      enabled: modelBoolean.optional(),
+      frequency: z.enum(['rare', 'balanced', 'frequent']).optional(),
+      maxMagnitude: narrativeEventMagnitudeSchema.optional(),
+      lethality: z.enum(['fair', 'ruthless', 'cinematic']).optional(),
+      miraclePolicy: z.enum(['rare', 'signals-only', 'off']).optional(),
+      canonPolicy: z.enum(['follow-campaign', 'established-only', 'free']).optional(),
+      storyImpact: z.enum(['fate-changing', 'side-arcs', 'scene-only']).optional(),
+      revealMode: z.enum(['world-only', 'indicator', 'transparent']).optional(),
+      repetitionPolicy: z.enum(['evolving-only', 'rare-repeat', 'unrestricted']).optional(),
+      permissions: z.object({
+        newCharacters: modelBoolean.optional(),
+        strongEnemies: modelBoolean.optional(),
+        allies: modelBoolean.optional(),
+        legends: modelBoolean.optional(),
+        powerAwakenings: modelBoolean.optional(),
+        powerLoss: modelBoolean.optional(),
+        bodyChanges: modelBoolean.optional(),
+        artifactCreation: modelBoolean.optional(),
+        itemLoss: modelBoolean.optional(),
+        politics: modelBoolean.optional(),
+        wars: modelBoolean.optional(),
+        disasters: modelBoolean.optional(),
+        anomalies: modelBoolean.optional(),
+        realityChanges: modelBoolean.optional(),
+        dimensionalTravel: modelBoolean.optional(),
+        temporalEvents: modelBoolean.optional(),
+        socialEvents: modelBoolean.optional(),
+        miracles: modelBoolean.optional(),
+      }).strict().optional(),
+    }).strict().optional(),
   }).strict().optional(),
 }).strict()
 

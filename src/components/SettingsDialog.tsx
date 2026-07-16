@@ -1,6 +1,7 @@
-import { AlignJustify, BookOpen, Check, Eye, EyeOff, Gauge, KeyRound, Moon, RotateCcw, Server, Sun, Type } from 'lucide-react'
+import { AlignJustify, BookOpen, Check, Eye, EyeOff, Gauge, KeyRound, Moon, RotateCcw, Server, Sparkles, Sun, Type } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { Campaign, ProviderConfig, ProviderKind } from '../../shared/types'
+import type { Campaign, EventDirectorPermissions, ProviderConfig, ProviderKind } from '../../shared/types'
+import { normalizeEventDirectorSettings } from '../../shared/event-director'
 import { providerDefaults, switchProvider } from '../lib/provider-settings'
 import { defaultInterfacePreferences, type InterfacePreferences } from '../lib/interface-preferences'
 import { Modal } from './Modal'
@@ -26,6 +27,27 @@ const providers: Array<{ value: ProviderKind; label: string; caption: string }> 
   { value: 'custom', label: 'Свой API', caption: 'Совместимый' },
 ]
 
+const eventPermissionLabels: Array<{ key: keyof EventDirectorPermissions; label: string; caption: string }> = [
+  { key: 'newCharacters', label: 'Новые персонажи', caption: 'Путешественники, учителя, свидетели, соперники и другие живые люди мира.' },
+  { key: 'strongEnemies', label: 'Сильные противники', caption: 'Опасные охотники и враги с полноценными силами, стратегией и ограничениями.' },
+  { key: 'allies', label: 'Новые союзники', caption: 'Возможность встретить помощь, не превращая встречу в автоматическое вступление в отряд.' },
+  { key: 'legends', label: 'Легенды и мифы', caption: 'Возвращения, наследие, новые подвиги и встречи с исключительными фигурами.' },
+  { key: 'powerAwakenings', label: 'Пробуждение сил', caption: 'Новые способности, формы, техники и источники силы после причинного события.' },
+  { key: 'powerLoss', label: 'Изменение и потеря сил', caption: 'Блокировка, кража, искажение или окончательная утрата способности.' },
+  { key: 'bodyChanges', label: 'Изменения тела', caption: 'Метки, мутации, превращения и физические последствия без управления личностью героя.' },
+  { key: 'artifactCreation', label: 'Новые артефакты', caption: 'Создание, пробуждение, объединение и преобразование особых предметов.' },
+  { key: 'itemLoss', label: 'Потеря вещей', caption: 'Кража, разрушение, расход или иная фактическая утрата предметов.' },
+  { key: 'politics', label: 'Политика и фракции', caption: 'Смена власти, расколы, союзы, санкции, культы и общественные движения.' },
+  { key: 'wars', label: 'Войны и большие конфликты', caption: 'Причинные столкновения государств, кланов и иных сил мира.' },
+  { key: 'disasters', label: 'Катастрофы', caption: 'Природные, магические, технологические и общественные бедствия.' },
+  { key: 'anomalies', label: 'Аномалии', caption: 'Необычные нарушения среды, силы, пространства и привычного порядка.' },
+  { key: 'realityChanges', label: 'Изменение законов мира', caption: 'Только через крупную арку с предвестниками и устойчивыми последствиями.' },
+  { key: 'dimensionalTravel', label: 'Другие измерения', caption: 'Открытие слоёв реальности, порталов и межпространственных маршрутов.' },
+  { key: 'temporalEvents', label: 'События времени', caption: 'Петли, сдвиги эпох и другие причинно подготовленные временные явления.' },
+  { key: 'socialEvents', label: 'Личные и социальные события', caption: 'Праздники, встречи, просьбы, предательства, наследство и перемены отношений.' },
+  { key: 'miracles', label: 'Редкие чудеса', caption: 'Исключительное спасение без стирания уже произошедших потерь и решений.' },
+]
+
 export function SettingsDialog({ open, provider, theme, interfacePreferences, campaign, onClose, onProvider, onTheme, onInterface, onCampaign }: SettingsDialogProps) {
   const [draft, setDraft] = useState(provider)
   const [showKey, setShowKey] = useState(false)
@@ -41,6 +63,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
   const [dialogueDensity, setDialogueDensity] = useState(campaign?.settings.dialogueDensity ?? 'balanced')
   const [npcAutonomy, setNpcAutonomy] = useState(campaign?.settings.npcAutonomy ?? 'independent')
   const [worldDynamics, setWorldDynamics] = useState(campaign?.settings.worldDynamics ?? 'living')
+  const [eventDirector, setEventDirector] = useState(normalizeEventDirectorSettings(campaign?.settings.eventDirector))
   const [canonMode, setCanonMode] = useState(campaign?.settings.canonMode ?? 'flexible')
   const [contentBoundaries, setContentBoundaries] = useState(campaign?.settings.contentBoundaries ?? '')
   const [saved, setSaved] = useState(false)
@@ -62,6 +85,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
       setDialogueDensity(campaign?.settings.dialogueDensity ?? 'balanced')
       setNpcAutonomy(campaign?.settings.npcAutonomy ?? 'independent')
       setWorldDynamics(campaign?.settings.worldDynamics ?? 'living')
+      setEventDirector(normalizeEventDirectorSettings(campaign?.settings.eventDirector))
       setCanonMode(campaign?.settings.canonMode ?? 'flexible')
       setContentBoundaries(campaign?.settings.contentBoundaries ?? '')
       setInterfaceDraft(interfacePreferences)
@@ -87,6 +111,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
       next.settings.dialogueDensity = dialogueDensity
       next.settings.npcAutonomy = npcAutonomy
       next.settings.worldDynamics = worldDynamics
+      next.settings.eventDirector = normalizeEventDirectorSettings(eventDirector)
       next.settings.canonMode = canonMode
       next.settings.contentBoundaries = contentBoundaries.trim()
       return next
@@ -131,6 +156,36 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
         <label className="field settings-boundaries"><span>Границы контента</span><textarea value={contentBoundaries} onChange={(event) => setContentBoundaries(event.target.value)} rows={3} maxLength={2000} placeholder="Темы и детали, которые рассказчик обязан исключить…" /></label>
         <div className="settings-note settings-note--real"><strong>Эти настройки действуют</strong><span>Они передаются режиссёру, рассказчику и фоновому симулятору каждого хода. Сложность меняет проверки, качество — число черновиков и критика, контекст — реальный объём долгой памяти.</span></div>
         <div className="settings-note"><strong>Долгая память</strong><span>Профиль DeepSeek 1M хранит исходную переписку целиком, подаёт свежие сцены дословно и извлекает старые главы, факты и канон по смыслу. Окно не заполняется всей историей подряд.</span></div>
+      </section>}
+
+      {campaign && <section className="settings-section event-director-settings">
+        <div className="settings-title"><div><Sparkles size={18} /></div><span><h3>Неожиданные события</h3><p>Редкие причинные повороты: новые люди, силы, артефакты, открытия, войны, аномалии и изменения мира.</p></span></div>
+        <div className="interface-toggle-list">
+          <button role="switch" aria-checked={eventDirector.enabled} className={eventDirector.enabled ? 'is-on' : ''} onClick={() => setEventDirector({ ...eventDirector, enabled: !eventDirector.enabled })}><span><strong>Универсальный режиссёр событий</strong><small>DeepSeek сначала предлагает смысловое событие, затем приложение проверяет и привязывает его к настоящему состоянию.</small></span><i /></button>
+        </div>
+        <div className="field-grid settings-selects event-director-selects">
+          <label className="field"><span>Частота</span><select value={eventDirector.frequency} onChange={(event) => setEventDirector({ ...eventDirector, frequency: event.target.value as typeof eventDirector.frequency })}><option value="rare">Редко, но сильно</option><option value="balanced">Сбалансированно</option><option value="frequent">Чаще и динамичнее</option></select></label>
+          <label className="field"><span>Максимальный масштаб</span><select value={eventDirector.maxMagnitude} onChange={(event) => setEventDirector({ ...eventDirector, maxMagnitude: event.target.value as typeof eventDirector.maxMagnitude })}><option value="subtle">Только малые</option><option value="notable">Заметные</option><option value="major">Крупные</option><option value="legendary">До легендарных</option><option value="mythic">Без ограничения масштаба</option></select></label>
+          <label className="field"><span>Опасность</span><select value={eventDirector.lethality} onChange={(event) => setEventDirector({ ...eventDirector, lethality: event.target.value as typeof eventDirector.lethality })}><option value="fair">Честно и смертельно</option><option value="ruthless">Без сюжетной защиты</option><option value="cinematic">Кинематографично</option></select></label>
+          <label className="field"><span>Чудеса</span><select value={eventDirector.miraclePolicy} onChange={(event) => setEventDirector({ ...eventDirector, miraclePolicy: event.target.value as typeof eventDirector.miraclePolicy })}><option value="rare">Крайне редкое чистое чудо</option><option value="signals-only">Только знаки и возможности</option><option value="off">Отключены</option></select></label>
+          <label className="field"><span>Влияние на историю</span><select value={eventDirector.storyImpact} onChange={(event) => setEventDirector({ ...eventDirector, storyImpact: event.target.value as typeof eventDirector.storyImpact })}><option value="fate-changing">Может менять судьбу мира</option><option value="side-arcs">Только боковые арки</option><option value="scene-only">Только текущая сцена</option></select></label>
+          <label className="field"><span>Создание нового</span><select value={eventDirector.canonPolicy} onChange={(event) => setEventDirector({ ...eventDirector, canonPolicy: event.target.value as typeof eventDirector.canonPolicy })}><option value="follow-campaign">По режиму канона кампании</option><option value="established-only">Только существующие сущности</option><option value="free">Полная авторская свобода</option></select></label>
+          <label className="field"><span>Повторы</span><select value={eventDirector.repetitionPolicy} onChange={(event) => setEventDirector({ ...eventDirector, repetitionPolicy: event.target.value as typeof eventDirector.repetitionPolicy })}><option value="evolving-only">Только как развитие</option><option value="rare-repeat">Редко после перерыва</option><option value="unrestricted">Решает ИИ</option></select></label>
+          <label className="field"><span>Раскрытие</span><select value={eventDirector.revealMode} onChange={(event) => setEventDirector({ ...eventDirector, revealMode: event.target.value as typeof eventDirector.revealMode })}><option value="world-only">Только через события мира</option><option value="indicator">Безымянный индикатор</option><option value="transparent">Показывать подготовку</option></select></label>
+        </div>
+        <details className="event-permission-details">
+          <summary><span>Тонкая настройка возможностей</span><small>По умолчанию разрешены все области, но крупным изменениям всё равно нужны причины и подготовка.</small></summary>
+          <div className="event-permission-grid">
+            {eventPermissionLabels.map((permission) => {
+              const enabled = eventDirector.permissions[permission.key]
+              return <button key={permission.key} role="switch" aria-checked={enabled} className={enabled ? 'is-on' : ''} onClick={() => setEventDirector({
+                ...eventDirector,
+                permissions: { ...eventDirector.permissions, [permission.key]: !enabled },
+              })}><span><strong>{permission.label}</strong><small>{permission.caption}</small></span><i /></button>
+            })}
+          </div>
+        </details>
+        <div className="settings-note settings-note--real"><strong>Это не генератор случайных нападений</strong><span>Событие проходит проверку причинности, канона, повторов, масштаба и агентности. Если DeepSeek не смог полноценно обновить связанные данные, поворот откладывается, а обычный ход продолжается.</span></div>
       </section>}
 
       <section className="settings-section">

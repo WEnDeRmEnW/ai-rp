@@ -3,7 +3,7 @@ import {
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
+import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { rarityFromKnownCopies } from '../../shared/rarity'
 import { readCanonDocument } from '../lib/canon'
@@ -27,6 +27,17 @@ const chronicleKindLabels: Record<WorldChronicleKind, string> = {
 const worldScaleLabels: Record<WorldScale, string> = {
   personal: 'личный масштаб', local: 'местный масштаб', regional: 'региональный масштаб', national: 'уровень страны',
   continental: 'континентальный масштаб', global: 'мировой масштаб', cosmic: 'космический масштаб',
+}
+
+const narrativeEventStageLabels: Record<NarrativeEventStage, string> = {
+  seeded: 'скрытая причина',
+  foreshadowed: 'появились признаки',
+  forming: 'изменение развивается',
+  imminent: 'событие близко',
+  manifested: 'событие проявилось',
+  aftermath: 'действуют последствия',
+  resolved: 'завершено',
+  cancelled: 'сорвано',
 }
 
 interface InspectorProps {
@@ -351,6 +362,12 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const visibleInitiatives = campaign.npcs.filter((npc) => getNpcDisclosure(npc).has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
   const visibleWorldEvents = (campaign.worldEvents ?? []).filter((event) => event.visibility !== 'hidden' && ['scheduled', 'due'].includes(event.status))
   const visibleWorldPressures = (campaign.worldPressures ?? []).filter((pressure) => pressure.visibility !== 'hidden' && pressure.stage !== 'resolved')
+  const eventRevealMode = campaign.settings.eventDirector?.revealMode ?? 'world-only'
+  const visibleDirectedEvents = (campaign.eventDirectorState?.activeEvents ?? []).filter((event) => (
+    event.stage !== 'seeded'
+    && event.stage !== 'cancelled'
+    && (event.observableSigns.length > 0 || eventRevealMode === 'transparent')
+  ))
   const visiblePlaces = useMemo(() => {
     const places = campaign.world.places ?? []
     const byId = new Map(places.map((place) => [place.id, place]))
@@ -435,6 +452,15 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
               <header><div><span>Ритм истории</span><strong>{storyBeatLabels[campaign.pacing.beat]}</strong></div><b>{challengeTierLabels[campaign.pacing.challengeTier]}</b></header>
               <div className="pacing-meter" role="progressbar" aria-label={`Интенсивность ${Math.round(campaign.pacing.intensity)} из 100`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(campaign.pacing.intensity)}><i style={{ width: `${campaign.pacing.intensity}%` }} /></div>
               <p>{campaign.pacing.reason}</p>
+            </section>}
+            {eventRevealMode !== 'world-only' && visibleDirectedEvents.length > 0 && <section className={`event-omens event-omens--${eventRevealMode}`} aria-label="Наблюдаемые необычные изменения">
+              <header><span><Sparkles size={14} /> В мире назревают перемены</span><b>{visibleDirectedEvents.length}</b></header>
+              {eventRevealMode === 'indicator'
+                ? <p>Вы замечаете признаки необычного развития событий. Полная причина откроется только через наблюдение, слухи и последствия.</p>
+                : <div className="event-omen-list">{visibleDirectedEvents.map((event) => <article key={event.id}>
+                  <div><strong>{event.concept}</strong><span>{narrativeEventStageLabels[event.stage]}</span></div>
+                  {event.observableSigns.length > 0 && <ul>{event.observableSigns.map((sign) => <li key={sign}>{sign}</li>)}</ul>}
+                </article>)}</div>}
             </section>}
             {campaign.activeConflict && <section className={`conflict-card momentum-${campaign.activeConflict.momentum}`} aria-label="Активное противостояние">
               <header><span><Swords size={15} /> {campaign.activeConflict.kind === 'combat' ? 'Бой' : campaign.activeConflict.kind === 'chase' ? 'Погоня' : campaign.activeConflict.kind === 'social' ? 'Противостояние' : campaign.activeConflict.kind === 'stealth' ? 'Скрытное столкновение' : 'Конфликт'}</span><b>{campaign.activeConflict.tier ? `${challengeTierLabels[campaign.activeConflict.tier]} · ` : ''}Раунд {campaign.activeConflict.round}</b></header>

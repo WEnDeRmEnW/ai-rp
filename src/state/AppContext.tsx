@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ActionType, Campaign, OperationProgress, ProviderConfig, WorldGenerationRequest } from '../../shared/types'
+import { normalizeEventDirectorSettings } from '../../shared/event-director'
 import { editCampaign as requestCampaignEdit, generateCampaign, takeTurn } from '../lib/api'
 import { ensureCampaignIdentity } from '../lib/campaign-identity'
 import { createDemoCampaign } from '../lib/demo'
@@ -220,7 +221,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const diagnostics: Parameters<typeof applyPatch>[3] = []
       const next = applyPatch(campaign, response.statePatch, campaign.turn, diagnostics, { advanceStatusClock: false })
       if (response.campaignPatch?.title?.trim()) next.title = response.campaignPatch.title.trim()
-      if (response.settingsPatch) next.settings = { ...next.settings, ...response.settingsPatch }
+      if (response.settingsPatch) {
+        const { eventDirector, ...settingsPatch } = response.settingsPatch
+        next.settings = {
+          ...next.settings,
+          ...settingsPatch,
+          ...(eventDirector ? {
+            eventDirector: normalizeEventDirectorSettings({
+              ...next.settings.eventDirector,
+              ...eventDirector,
+              permissions: {
+                ...next.settings.eventDirector?.permissions,
+                ...eventDirector.permissions,
+              },
+            }),
+          } : {}),
+        }
+      }
       next.updatedAt = new Date().toISOString()
       lastEditBackupRef.current = structuredClone(campaign)
       setCanUndoEdit(true)

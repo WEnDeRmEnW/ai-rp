@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
+import { backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, narrativeEventDecisionSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
 import { demoWorld } from './demo'
 import { normalizeWorld } from './world-normalizer'
 
@@ -21,6 +21,95 @@ describe('campaign editor contract', () => {
     expect(parsed.settingsPatch?.worldDynamics).toBe('volatile')
     expect(parsed.statePatch.world?.system?.progression).toContain('Опыт')
     expect(parsed.statePatch.world?.presentation?.labels?.abilities).toBe('Техники')
+  })
+})
+
+describe('universal narrative event contract', () => {
+  it('normalizes DeepSeek Russian enums, numeric strings and singleton objects without inventing content', () => {
+    const parsed = narrativeEventDecisionSchema.parse({
+      mode: 'проявить',
+      lifecycleStage: 'произошло',
+      concept: 'Старая реликвия впервые открывает проход к забытому архиву.',
+      category: 'артефакт',
+      magnitude: 'крупное',
+      miracleKind: 'нет',
+      originKind: 'артефакт',
+      sourceIds: 'artifact-1',
+      causeIds: 'thread-1',
+      scopeIds: 'place-1',
+      participantIds: 'player-1',
+      affectedDomains: 'артефакт',
+      knowledgeChannel: 'Реликвия меняет наблюдаемый рисунок на поверхности.',
+      trigger: 'Герой совместил три ранее найденных фрагмента печати.',
+      arrivalMethod: 'Проход открывается непосредственно из собранной реликвии.',
+      observableSigns: 'По металлу проходят новые светящиеся линии.',
+      immediateEffects: {
+        domain: 'артефакт',
+        operation: 'преобразовать',
+        targetId: 'artifact-1',
+        requirement: 'Обновить настоящий профиль реликвии и раскрыть новую функцию.',
+        observable: true,
+        mandatory: true,
+      },
+      persistentEffects: {
+        domain: 'маршрут',
+        operation: 'создать',
+        targetId: 'route-archive',
+        requirement: 'Создать постоянный маршрут к забытому архиву.',
+        observable: true,
+        mandatory: true,
+      },
+      counterplay: 'Закрыть проход повторным соединением фрагментов.',
+      cancellationConditions: 'Один из фрагментов будет отделён до полного открытия.',
+      canonReasoning: 'Реликвия и архив уже установлены в истории мира.',
+      pacingReasoning: 'Открытие завершает продолжительную линию исследования.',
+      noveltyReasoning: 'Это следствие собранной реликвии, а не случайное нападение.',
+      minimumDelay: '3',
+    })
+
+    expect(parsed).toMatchObject({
+      mode: 'manifest',
+      lifecycleStage: 'manifested',
+      category: 'artifact_shift',
+      magnitude: 'major',
+      miracleKind: 'none',
+      originKind: 'artifact',
+      sourceIds: ['artifact-1'],
+      affectedDomains: ['artifact'],
+      immediateEffects: [{ domain: 'artifact', operation: 'transform' }],
+      persistentEffects: [{ domain: 'route', operation: 'create' }],
+      minimumDelay: 3,
+    })
+  })
+
+  it('accepts an honest no-event decision but rejects an incomplete proposal instead of filling placeholders', () => {
+    expect(narrativeEventDecisionSchema.parse({ mode: 'нет', reason: 'Текущей сцене нужна передышка без нового поворота.' })).toEqual({
+      mode: 'none',
+      reason: 'Текущей сцене нужна передышка без нового поворота.',
+    })
+    expect(() => narrativeEventDecisionSchema.parse({
+      mode: 'зерно',
+      lifecycleStage: 'заложено',
+      concept: 'Неполная идея.',
+    })).toThrow()
+  })
+
+  it('allows the AI editor to change nested event settings without replacing all permissions', () => {
+    const parsed = campaignEditResponseSchema.parse({
+      summary: 'Неожиданные события сделаны реже, войны отключены.',
+      campaignPatch: {},
+      settingsPatch: {
+        eventDirector: {
+          frequency: 'rare',
+          permissions: { wars: false },
+        },
+      },
+      statePatch: {},
+    })
+    expect(parsed.settingsPatch?.eventDirector).toEqual({
+      frequency: 'rare',
+      permissions: { wars: false },
+    })
   })
 })
 

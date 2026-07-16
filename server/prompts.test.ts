@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt } from './prompts'
+import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt } from './prompts'
 import { demoWorld } from './demo'
 
 describe('world architect prompt', () => {
@@ -159,12 +159,72 @@ describe('runtime customization prompts', () => {
     expect(editor).toContain('точные существующие id')
     expect(editor).toContain('world.interfaceBlueprint, world.upsertInterfaceModules, world.interfaceModuleChanges')
     expect(editor).toContain('world.upsertMetrics, world.metricDeltas и world.removeMetricIds')
+    expect(editor).toContain('eventDirector можно менять частично')
+    expect(editor).toContain('не изменяй скрытое eventDirectorState напрямую')
     expect(editor).toContain('granular interfaceModuleChanges')
     expect(editor).toContain('dashboard/cards, pinned/density/emphasis')
     expect(director).toContain('Элемент с binding обновляется приложением автоматически')
     expect(director).toContain('metricDeltas используй только после фактического причинного триггера')
     expect(director).toContain('interfaceBlueprint не перестраивай на каждом ходе')
     expect(director).toContain('Досье NPC — строгая граница знаний ГЕРОЯ')
+  })
+
+  it('separates semantic event invention from the checked state patch and supports one full-plan repair', () => {
+    const campaign = createDemoCampaign()
+    campaign.eventDirectorState = {
+      surpriseCharge: 78,
+      lastEvaluatedTurn: campaign.turn,
+      miracleCount: 0,
+      categoryCooldowns: {},
+      recentSignatures: [],
+      history: [],
+      activeEvents: [],
+    }
+    const eventMessages = eventDirectorPrompt(campaign, 'Открываю старую печать.', { signals: [], statePatch: {} }, campaign.eventDirectorState)
+    expect(eventMessages[0].content).toContain('не возвращаешь statePatch')
+    expect(eventMessages[0].content).toContain('Не своди систему к нападениям')
+    expect(eventMessages[0].content).toContain('mode=none является полноценным решением')
+    expect(eventMessages[0].content).toContain('Новое лицо при manifest требует mandatory npc/create')
+    expect(eventMessages[1].content).toContain('СКРЫТОЕ СОСТОЯНИЕ РЕЖИССЁРА')
+
+    const event = {
+      mode: 'manifest' as const,
+      lifecycleStage: 'manifested' as const,
+      concept: 'Печать открывает проход.',
+      category: 'artifact_shift' as const,
+      magnitude: 'notable' as const,
+      miracleKind: 'none' as const,
+      originKind: 'artifact' as const,
+      sourceIds: [campaign.inventory[0].id],
+      causeIds: [],
+      scopeIds: [],
+      participantIds: [campaign.player.id],
+      affectedDomains: ['artifact' as const],
+      knowledgeChannel: 'Наблюдаемый отклик печати.',
+      trigger: 'Герой открыл печать.',
+      arrivalMethod: 'Изменение происходит в самой печати.',
+      observableSigns: ['Печать светится.'],
+      immediateEffects: [{ domain: 'artifact' as const, operation: 'update' as const, targetId: campaign.inventory[0].id, requirement: 'Обновить артефакт.', observable: true, mandatory: true }],
+      persistentEffects: [],
+      counterplay: [],
+      cancellationConditions: [],
+      canonReasoning: 'Следует установленной природе предмета.',
+      pacingReasoning: 'Завершает действие героя.',
+      noveltyReasoning: 'Это причинное раскрытие предмета.',
+      minimumDelay: 3,
+    }
+    const directed = directorPrompt(campaign, 'Открываю старую печать.', 'do', undefined, { signals: [], statePatch: {} }, event)
+    expect(directed.messages[0].content).toContain('Одобренное решение универсального режиссёра обязательно')
+    expect(directed.messages[1].content).toContain('"mode":"manifest"')
+
+    const repair = eventComplianceRepairPrompt(directed.messages, event, {
+      outcome: 'Печать открылась.',
+      beats: ['Печать открылась.'],
+      suggestions: ['Осмотреть проход'],
+      statePatch: {},
+    }, ['artifact/update: Обновить артефакт.'])
+    expect(repair.at(-1)?.content).toContain('Пересобери ВЕСЬ JSON плана целиком')
+    expect(repair.at(-1)?.content).toContain('artifact/update: Обновить артефакт.')
   })
 
   it('gives the owner editor the complete structured canon without dumping story prose', () => {

@@ -62,4 +62,27 @@ describe('campaign IndexedDB storage', () => {
       currentGoal: 'Осмотреть имплант героя',
     })
   })
+
+  it('adds the event director to old saves without inventing a visible event', async () => {
+    const storage = await import('./storage')
+    const legacy = createDemoCampaign() as Campaign & {
+      eventDirectorState?: undefined
+      settings: Campaign['settings'] & { eventDirector?: undefined }
+    }
+    delete legacy.eventDirectorState
+    delete legacy.settings.eventDirector
+
+    const migrated = storage.migrateCampaign(legacy)
+    expect(migrated.settings.eventDirector).toMatchObject({
+      enabled: true,
+      frequency: 'rare',
+      revealMode: 'world-only',
+      permissions: { newCharacters: true, miracles: true },
+    })
+    expect(migrated.eventDirectorState).toMatchObject({
+      surpriseCharge: 0,
+      history: [],
+      activeEvents: [],
+    })
+  })
 })

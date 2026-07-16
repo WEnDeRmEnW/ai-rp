@@ -1303,6 +1303,195 @@ export interface StoryPacingState {
 
 export type StoryPacingUpdate = Pick<StoryPacingState, 'beat' | 'intensity' | 'challengeTier' | 'reason'>
 
+export type NarrativeEventMode = 'none' | 'seed' | 'foreshadow' | 'advance' | 'manifest'
+export type NarrativeEventStage = 'seeded' | 'foreshadowed' | 'forming' | 'imminent' | 'manifested' | 'aftermath' | 'resolved' | 'cancelled'
+export type NarrativeEventMagnitude = 'subtle' | 'notable' | 'major' | 'legendary' | 'mythic'
+export type NarrativeEventMiracleKind = 'none' | 'sign' | 'intervention'
+export type NarrativeEventCategory =
+  | 'encounter'
+  | 'consequence'
+  | 'opportunity'
+  | 'revelation'
+  | 'transformation'
+  | 'power_shift'
+  | 'artifact_shift'
+  | 'faction_move'
+  | 'social_reversal'
+  | 'environmental'
+  | 'anomaly'
+  | 'disaster'
+  | 'legend'
+  | 'divine'
+  | 'temporal'
+  | 'dimensional'
+  | 'law_change'
+  | 'other'
+
+export type NarrativeEventOrigin =
+  | 'player'
+  | 'npc'
+  | 'new_npc'
+  | 'party'
+  | 'antagonist'
+  | 'legend'
+  | 'faction'
+  | 'state'
+  | 'artifact'
+  | 'ability'
+  | 'technology'
+  | 'environment'
+  | 'deity'
+  | 'cosmic'
+  | 'dimension'
+  | 'unknown'
+  | 'multiple'
+
+export type NarrativeEventDomain =
+  | 'player'
+  | 'npc'
+  | 'ability'
+  | 'artifact'
+  | 'inventory'
+  | 'relationship'
+  | 'party'
+  | 'quest'
+  | 'conflict'
+  | 'scene'
+  | 'faction'
+  | 'place'
+  | 'route'
+  | 'process'
+  | 'law'
+  | 'mechanic'
+  | 'legend'
+  | 'lore'
+  | 'world-event'
+  | 'world-pressure'
+  | 'time'
+  | 'interface'
+
+export type NarrativeEventOperation = 'create' | 'update' | 'remove' | 'transform' | 'reveal'
+
+export interface NarrativeEventRequirement {
+  domain: NarrativeEventDomain
+  operation: NarrativeEventOperation
+  targetId?: ID
+  requirement: string
+  observable: boolean
+  mandatory: boolean
+}
+
+export interface NarrativeEventProposal {
+  mode: Exclude<NarrativeEventMode, 'none'>
+  existingEventId?: ID
+  lifecycleStage?: NarrativeEventStage
+  concept: string
+  category: NarrativeEventCategory
+  magnitude: NarrativeEventMagnitude
+  miracleKind: NarrativeEventMiracleKind
+  originKind: NarrativeEventOrigin
+  sourceIds: ID[]
+  causeIds: ID[]
+  scopeIds: ID[]
+  participantIds: ID[]
+  affectedDomains: NarrativeEventDomain[]
+  knowledgeChannel: string
+  trigger: string
+  arrivalMethod: string
+  observableSigns: string[]
+  immediateEffects: NarrativeEventRequirement[]
+  persistentEffects: NarrativeEventRequirement[]
+  counterplay: string[]
+  cancellationConditions: string[]
+  canonReasoning: string
+  pacingReasoning: string
+  noveltyReasoning: string
+  minimumDelay: number
+}
+
+export type NarrativeEventDecision =
+  | { mode: 'none'; reason: string }
+  | NarrativeEventProposal
+
+export interface NarrativeEventRecord extends Omit<NarrativeEventProposal, 'mode' | 'existingEventId' | 'lifecycleStage'> {
+  id: ID
+  stage: NarrativeEventStage
+  signature: string
+  createdTurn: number
+  lastAdvancedTurn: number
+  nextEligibleTurn: number
+}
+
+export interface NarrativeEventSignature {
+  signature: string
+  category: NarrativeEventCategory
+  magnitude: NarrativeEventMagnitude
+  originKind: NarrativeEventOrigin
+  affectedDomains: NarrativeEventDomain[]
+  turn: number
+  outcome: 'manifested' | 'resolved' | 'cancelled'
+}
+
+export interface NarrativeEventHistoryEntry extends NarrativeEventSignature {
+  id: ID
+  concept: string
+  sourceIds: ID[]
+  causeIds: ID[]
+  scopeIds: ID[]
+  participantIds: ID[]
+  keyConsequences: string[]
+  previousEventId?: ID
+}
+
+export interface EventDirectorPermissions {
+  newCharacters: boolean
+  strongEnemies: boolean
+  allies: boolean
+  legends: boolean
+  powerAwakenings: boolean
+  powerLoss: boolean
+  bodyChanges: boolean
+  artifactCreation: boolean
+  itemLoss: boolean
+  politics: boolean
+  wars: boolean
+  disasters: boolean
+  anomalies: boolean
+  realityChanges: boolean
+  dimensionalTravel: boolean
+  temporalEvents: boolean
+  socialEvents: boolean
+  miracles: boolean
+}
+
+export interface EventDirectorSettings {
+  enabled: boolean
+  frequency: 'rare' | 'balanced' | 'frequent'
+  maxMagnitude: NarrativeEventMagnitude
+  lethality: 'fair' | 'ruthless' | 'cinematic'
+  miraclePolicy: 'rare' | 'signals-only' | 'off'
+  canonPolicy: 'follow-campaign' | 'established-only' | 'free'
+  storyImpact: 'fate-changing' | 'side-arcs' | 'scene-only'
+  revealMode: 'world-only' | 'indicator' | 'transparent'
+  repetitionPolicy: 'evolving-only' | 'rare-repeat' | 'unrestricted'
+  permissions: EventDirectorPermissions
+}
+
+export interface EventDirectorState {
+  surpriseCharge: number
+  lastEvaluatedTurn: number
+  nextEvaluationTurn?: number
+  lastSeedTurn?: number
+  lastManifestedTurn?: number
+  lastLegendaryTurn?: number
+  lastMiracleTurn?: number
+  miracleCount: number
+  categoryCooldowns: Partial<Record<NarrativeEventCategory, number>>
+  recentSignatures: NarrativeEventSignature[]
+  history: NarrativeEventHistoryEntry[]
+  activeEvents: NarrativeEventRecord[]
+}
+
 export interface ConflictParticipantState {
   entityId: ID
   side: 'player' | 'ally' | 'opposition' | 'neutral'
@@ -1433,6 +1622,7 @@ export interface CampaignSettings {
   dialogueDensity?: 'low' | 'balanced' | 'high'
   npcAutonomy?: 'reactive' | 'balanced' | 'independent'
   worldDynamics?: 'quiet' | 'living' | 'volatile'
+  eventDirector?: EventDirectorSettings
 }
 
 export interface CampaignSnapshot {
@@ -1459,6 +1649,7 @@ export interface CampaignSnapshot {
   antagonistPlans?: AntagonistPlan[]
   worldPressures?: WorldPressure[]
   influenceAssets?: InfluenceAsset[]
+  eventDirectorState?: EventDirectorState
   messageCount: number
   eventCount: number
 }
@@ -1494,6 +1685,7 @@ export interface Campaign {
   antagonistPlans?: AntagonistPlan[]
   worldPressures?: WorldPressure[]
   influenceAssets?: InfluenceAsset[]
+  eventDirectorState?: EventDirectorState
   settings: CampaignSettings
   snapshots: CampaignSnapshot[]
 }
@@ -1679,6 +1871,8 @@ export interface TurnPatch {
   }
   memories?: Array<Omit<MemoryEntry, 'id' | 'turn' | 'createdAt'>>
   events?: Array<Omit<GameEvent, 'id' | 'turn' | 'createdAt'>>
+  /** Internal deterministic state. Model-facing schemas intentionally do not expose this key. */
+  eventDirectorState?: EventDirectorState
 }
 
 export interface TurnResponse {
@@ -1712,7 +1906,11 @@ export interface CampaignEditResponse {
   summary: string
   statePatch: TurnPatch
   campaignPatch?: { title?: string }
-  settingsPatch?: Partial<CampaignSettings>
+  settingsPatch?: Omit<Partial<CampaignSettings>, 'eventDirector'> & {
+    eventDirector?: Omit<Partial<EventDirectorSettings>, 'permissions'> & {
+      permissions?: Partial<EventDirectorPermissions>
+    }
+  }
 }
 
 export type ProviderKind = 'demo' | 'openai' | 'openrouter' | 'ollama' | 'custom'

@@ -1,4 +1,5 @@
 import type { Campaign, WorldGenerationRequest } from '../shared/types.js'
+import { defaultEventDirectorState, normalizeEventDirectorSettings } from '../shared/event-director.js'
 import { rarityFromKnownCopies } from '../shared/rarity.js'
 import type { GeneratedWorld } from './schemas.js'
 
@@ -306,7 +307,9 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       dialogueDensity: 'balanced',
       npcAutonomy: 'independent',
       worldDynamics: 'living',
+      eventDirector: normalizeEventDirectorSettings(),
     },
+    eventDirectorState: defaultEventDirectorState(0),
     snapshots: [],
   }
 }

@@ -1,5 +1,6 @@
 import { openDB, type DBSchema } from 'idb'
 import type { Campaign, InventoryItem, PowerTechnique, Resource, ResourceKind, StatusEffect } from '../../shared/types'
+import { normalizeEventDirectorSettings, normalizeEventDirectorState } from '../../shared/event-director'
 import { rarityFromKnownCopies } from '../../shared/rarity'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { ensureCampaignIdentity } from './campaign-identity'
@@ -308,6 +309,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
       deescalationConditions: pressure.deescalationConditions ?? [],
     })),
     influenceAssets: campaign.influenceAssets ?? [],
+    eventDirectorState: normalizeEventDirectorState(campaign.eventDirectorState, campaign.turn),
     pacing: campaign.pacing ? {
       ...campaign.pacing,
       intensity: clamp(campaign.pacing.intensity, 0, 100),
@@ -342,6 +344,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
       dialogueDensity: campaign.settings.dialogueDensity ?? 'balanced',
       npcAutonomy: campaign.settings.npcAutonomy ?? 'independent',
       worldDynamics: campaign.settings.worldDynamics ?? 'living',
+      eventDirector: normalizeEventDirectorSettings(campaign.settings.eventDirector),
     },
   }
 }
