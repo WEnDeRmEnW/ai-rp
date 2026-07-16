@@ -581,6 +581,20 @@ function normalizeWorldPressure(incoming: WorldPressure, turn: number, existing?
 function normalizeThreatProfile(profile: NonNullable<Campaign['npcs'][number]['threatProfile']>) {
   return {
     ...profile,
+    signatureAbilities: profile.signatureAbilities?.slice(-12),
+    threatVectors: profile.threatVectors?.slice(-12),
+    defensiveLayers: profile.defensiveLayers?.slice(-12),
+    battlefieldControl: profile.battlefieldControl?.slice(-12),
+    informationAdvantages: profile.informationAdvantages?.slice(-12),
+    preparedAssets: profile.preparedAssets?.slice(-12),
+    engagementPhases: profile.engagementPhases?.slice(-6).map((phase) => ({
+      ...phase,
+      priorities: phase.priorities.slice(-8),
+      signatureMoves: phase.signatureMoves.slice(-8),
+      openings: phase.openings.slice(-8),
+      exitConditions: phase.exitConditions.slice(-8),
+    })),
+    collateralRisks: profile.collateralRisks?.slice(-12),
     whyDangerous: profile.whyDangerous.slice(-12),
     knownFeats: profile.knownFeats.slice(-12),
     constraints: profile.constraints.slice(-12),
@@ -625,6 +639,12 @@ function normalizeLegend(
     titles: unique(incoming.titles, 16),
     renown: clamp(incoming.renown, 0, 100),
     influence: clamp(incoming.influence, 0, 100),
+    powerStanding: incoming.powerStanding ? {
+      ...incoming.powerStanding,
+      domains: unique(incoming.powerStanding.domains, 12),
+      evidence: unique(incoming.powerStanding.evidence, 16),
+      uncertainties: unique(incoming.powerStanding.uncertainties, 12),
+    } : existing?.powerStanding,
     knownFeats: unique(incoming.knownFeats, 20),
     disputedClaims: unique(incoming.disputedClaims, 20),
     associatedFactionNames: unique(incoming.associatedFactionNames, 20),

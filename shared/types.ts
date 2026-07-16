@@ -645,11 +645,35 @@ export interface TacticalCountermeasure {
 
 export type ThreatTier = 'minor' | 'capable' | 'dangerous' | 'elite' | 'legendary' | 'mythic'
 
+/** A meaningful change of doctrine during a confrontation, not an arbitrary boss health phase. */
+export interface ThreatEngagementPhase {
+  name: string
+  trigger: string
+  doctrine: string
+  priorities: string[]
+  signatureMoves: string[]
+  openings: string[]
+  exitConditions: string[]
+}
+
 /** A factual dossier for an exceptional opponent. The tier must be supported by actual abilities, resources and feats. */
 export interface ThreatProfile {
   tier: ThreatTier
   scope: string
   reputation: string
+  /** Where the exceptional capability actually comes from. */
+  powerBasis?: string
+  /** The distinct way this character imposes their strength in a confrontation. */
+  combatIdentity?: string
+  /** Names of real abilities or techniques in the NPC profile. */
+  signatureAbilities?: string[]
+  threatVectors?: string[]
+  defensiveLayers?: string[]
+  battlefieldControl?: string[]
+  informationAdvantages?: string[]
+  preparedAssets?: string[]
+  engagementPhases?: ThreatEngagementPhase[]
+  collateralRisks?: string[]
   whyDangerous: string[]
   knownFeats: string[]
   constraints: string[]
@@ -1015,12 +1039,14 @@ export interface WorldProcess {
 }
 
 export type LegendStage = 'notable' | 'renowned' | 'legendary' | 'mythic'
+export type LegendPowerClass = 'noncombatant' | ThreatTier | 'unknown'
 export type LegendLifeStatus = 'living' | 'dead' | 'missing' | 'sealed' | 'dormant' | 'returned' | 'ascended' | 'unknown'
 export type LegendTruthStatus = 'confirmed' | 'partly_true' | 'distorted' | 'fabricated' | 'unknown'
 export type LegendLegacyKind = 'technique' | 'artifact' | 'bloodline' | 'school' | 'faction' | 'cult' | 'law' | 'place' | 'prophecy' | 'title' | 'other'
 export type LegendDiscoverySection =
   | 'identity'
   | 'summary'
+  | 'power'
   | 'status'
   | 'origin'
   | 'deeds'
@@ -1132,6 +1158,15 @@ export interface LegendCanonProfile {
   divergenceNotes: string[]
 }
 
+/** Publicly supportable assessment of power, kept separate from fame and cultural influence. */
+export interface LegendPowerStanding {
+  classification: LegendPowerClass
+  basis: string
+  domains: string[]
+  evidence: string[]
+  uncertainties: string[]
+}
+
 /** A real or culturally believed exceptional person, distinct from the stories told about them. */
 export interface LegendaryFigure {
   id: ID
@@ -1152,6 +1187,7 @@ export interface LegendaryFigure {
   renown: number
   influence: number
   reputation: string
+  powerStanding?: LegendPowerStanding
   knownFeats: string[]
   disputedClaims: string[]
   associatedFactionNames: string[]

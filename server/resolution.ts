@@ -187,9 +187,10 @@ function strategicOppositionModifier(campaign: Campaign, input: string) {
   // authored explicitly and backed by a validated threat profile.
   let tier: NonNullable<ActionCheck['oppositionTier']> = competence >= 90 ? 'legendary' : competence >= 78 ? 'elite' : competence >= 64 ? 'dangerous' : competence >= 45 ? 'capable' : 'minor'
   const profile = npc.threatProfile
+  let requirementUsed = false
   if (profile && threatTierRanks[profile.tier] > threatTierRanks[tier]) tier = profile.tier
   if (profile && ['legendary', 'mythic'].includes(profile.tier)) {
-    const requirementUsed = profile.defeatRequirements.some((requirement) => textMatchesAction(input, requirement))
+    requirementUsed = profile.defeatRequirements.some((requirement) => textMatchesAction(input, requirement))
     if (requirementUsed) {
       modifier -= 2
       factors.push('Герой использует установленное условие победы')
@@ -200,6 +201,13 @@ function strategicOppositionModifier(campaign: Campaign, input: string) {
   } else if (profile?.tier === 'elite') {
     modifier += 1
     factors.push('Подтверждённый элитный противник')
+  }
+  if (profile) {
+    const tierFloor: Record<typeof profile.tier, number> = { minor: -2, capable: 0, dangerous: 2, elite: 4, legendary: 7, mythic: 10 }
+    modifier = Math.max(modifier, tierFloor[profile.tier] - (requirementUsed ? 3 : 0))
+    if ((profile.engagementPhases?.length ?? 0) > 0 && campaign.activeConflict) {
+      factors.push('Противник умеет менять доктрину по ходу противостояния')
+    }
   }
   return { npc, modifier: Math.max(-4, Math.min(12, modifier)), tier, factors: [...new Set(factors)].slice(0, 8) }
 }

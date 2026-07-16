@@ -221,7 +221,28 @@ function NpcCard({ npc, expanded, expandedAbilityId, onToggle, onToggleAbility }
       {(disclosure.has('description') || disclosure.has('disposition') || disclosure.has('personality')) && <div className="npc-known-profile"><div className="npc-detail-heading"><strong>Известный профиль</strong>{disclosure.has('disposition') && <span>{npc.disposition}</span>}</div>{disclosure.has('description') && <p>{npc.description}</p>}{disclosure.has('personality') && npc.personality && <p className="npc-personality"><b>Характер:</b> {npc.personality}</p>}</div>}
       {!!disclosure.stats.length && <><div className="npc-detail-heading"><strong>Известные параметры</strong><span>Подтверждено</span></div><div className="npc-stat-grid">{disclosure.stats.map((stat) => <div key={stat.key}><span>{stat.label}</span><strong>{stat.value}{stat.max !== undefined ? ` / ${stat.max}` : ''}</strong>{stat.description && <small>{stat.description}</small>}</div>)}</div></>}
       {!!disclosure.resources.length && <div className="npc-resource-list">{disclosure.resources.map((resource) => <div className={resource.criticalBelow !== undefined && resource.value <= resource.criticalBelow ? 'is-critical' : ''} key={resource.key}><span>{resource.label}</span><b>{resource.value} / {resource.max ?? '∞'}</b><i><em style={{ width: `${Math.max(0, Math.min(100, resource.max ? resource.value / resource.max * 100 : resource.value))}%`, background: resource.color }} /></i></div>)}</div>}
-      {disclosure.has('threatProfile') && npc.threatProfile && npc.threatProfile.visibility !== 'hidden' && <div className={`npc-threat-profile threat-${npc.threatProfile.tier}`}><header><div><span>Оценка угрозы</span><strong>{threatTierLabels[npc.threatProfile.tier]}</strong></div><ShieldAlert size={16} /></header><p>{npc.threatProfile.reputation}</p><small>{npc.threatProfile.scope}</small><DetailList title="Известные свершения" values={npc.threatProfile.knownFeats} />{npc.threatProfile.visibility === 'known' && <><DetailList title="Чем опасен" values={npc.threatProfile.whyDangerous} /><DetailList title="Пределы силы" values={npc.threatProfile.constraints} /><DetailList title="Что даёт шанс победить" values={npc.threatProfile.defeatRequirements} /><DetailList title="Что заставит усилиться" values={npc.threatProfile.escalationTriggers} /></>}{npc.threatProfile.visibility === 'rumored' && <em>Точная природа силы пока известна только по слухам.</em>}</div>}
+      {disclosure.has('threatProfile') && npc.threatProfile && npc.threatProfile.visibility !== 'hidden' && <div className={`npc-threat-profile threat-${npc.threatProfile.tier}`}>
+        <header><div><span>Оценка угрозы</span><strong>{threatTierLabels[npc.threatProfile.tier]}</strong></div><ShieldAlert size={16} /></header>
+        <p>{npc.threatProfile.reputation}</p><small>{npc.threatProfile.scope}</small>
+        <DetailList title="Известные свершения" values={npc.threatProfile.knownFeats} />
+        {npc.threatProfile.visibility === 'known' && <>
+          {npc.threatProfile.powerBasis && <p><b>Основа силы:</b> {npc.threatProfile.powerBasis}</p>}
+          {npc.threatProfile.combatIdentity && <p><b>Боевая доктрина:</b> {npc.threatProfile.combatIdentity}</p>}
+          <DetailList title="Сигнатурные способности" values={npc.threatProfile.signatureAbilities} />
+          <DetailList title="Векторы угрозы" values={npc.threatProfile.threatVectors} />
+          <DetailList title="Слои защиты" values={npc.threatProfile.defensiveLayers} />
+          <DetailList title="Контроль поля" values={npc.threatProfile.battlefieldControl} />
+          <DetailList title="Информационное преимущество" values={npc.threatProfile.informationAdvantages} />
+          <DetailList title="Подготовленные ресурсы" values={npc.threatProfile.preparedAssets} />
+          <DetailList title="Чем опасен" values={npc.threatProfile.whyDangerous} />
+          {!!npc.threatProfile.engagementPhases?.length && <div className="threat-phase-list"><b>Как меняет тактику</b>{npc.threatProfile.engagementPhases.map((phase) => <article key={`${phase.name}:${phase.trigger}`}><header><strong>{phase.name}</strong><span>{phase.trigger}</span></header><p>{phase.doctrine}</p><DetailList title="Приоритеты" values={phase.priorities} compact /><DetailList title="Ключевые приёмы" values={phase.signatureMoves} compact /><DetailList title="Окна для ответа" values={phase.openings} compact /><DetailList title="Переход или завершение" values={phase.exitConditions} compact /></article>)}</div>}
+          <DetailList title="Пределы силы" values={npc.threatProfile.constraints} />
+          <DetailList title="Что даёт шанс победить" values={npc.threatProfile.defeatRequirements} />
+          <DetailList title="Что заставит усилиться" values={npc.threatProfile.escalationTriggers} />
+          <DetailList title="Риск для окружения" values={npc.threatProfile.collateralRisks} />
+        </>}
+        {npc.threatProfile.visibility === 'rumored' && <em>Точная природа силы пока известна только по слухам.</em>}
+      </div>}
       {strategyVisible && npc.strategy && <div className="npc-strategy"><div className="npc-detail-heading"><strong><Brain size={13} /> Стратегический профиль</strong><span>{npc.strategy.visibility === 'rumored' ? 'Приблизительная оценка' : disclosure.has('strategyOverview') ? npc.strategy.planningHorizon : 'Частично изучен'}</span></div>
         {disclosure.has('strategyMetrics') && <div className="strategy-metrics">{([['Интеллект', npc.strategy.intelligence], ['Тактика', npc.strategy.tacticalSkill], ['Стратегия', npc.strategy.strategicSkill], ['Прогноз', npc.strategy.predictionSkill], ['Адаптация', npc.strategy.adaptability], ['Обман', npc.strategy.deceptionSkill]] as Array<[string, number]>).map(([label, value]) => <div key={label}><span>{label}</span><b>{value}</b><i><em style={{ width: `${value}%` }} /></i></div>)}</div>}
         {disclosure.has('strategyOverview') && <p><b>Стиль решений:</b> {npc.strategy.decisionStyle}</p>}
@@ -387,7 +408,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const activeLoreIds = new Set(lastAssistant?.activeLoreIds ?? [])
   const weight = campaign.inventory.reduce((sum, item) => sum + (item.weight ?? 0) * item.quantity, 0)
   const filteredItems = useMemo(() => campaign.inventory.filter((item) => `${item.name} ${item.description}`.toLocaleLowerCase('ru-RU').includes(query.toLocaleLowerCase('ru-RU'))), [campaign.inventory, query])
-  const itemAbilities = useMemo(() => grantedItemAbilities(campaign), [campaign.inventory])
+  const itemAbilities = useMemo(() => grantedItemAbilities({ inventory: campaign.inventory }), [campaign.inventory])
   const visibleLore = campaign.lore.filter((entry) => !entry.secret || entry.discovered)
   const visibleInitiatives = campaign.npcs.filter((npc) => getNpcDisclosure(npc).has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
   const visibleWorldEvents = (campaign.worldEvents ?? []).filter((event) => event.visibility !== 'hidden' && ['scheduled', 'due'].includes(event.status))

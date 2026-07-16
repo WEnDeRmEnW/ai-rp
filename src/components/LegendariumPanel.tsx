@@ -5,6 +5,7 @@ import type {
   LegendDiscoverySection,
   LegendLegacyKind,
   LegendLifeStatus,
+  LegendPowerClass,
   LegendStage,
   LegendTruthStatus,
   LegendaryFigure,
@@ -36,6 +37,17 @@ const truthLabels: Record<LegendTruthStatus, string> = {
   distorted: 'Искажённый рассказ',
   fabricated: 'Опровергнуто',
   unknown: 'Не установлено',
+}
+
+const powerClassLabels: Record<LegendPowerClass, string> = {
+  noncombatant: 'Не боец',
+  minor: 'Незначительная угроза',
+  capable: 'Опытный персонаж',
+  dangerous: 'Опасный противник',
+  elite: 'Элитный уровень',
+  legendary: 'Легендарная сила',
+  mythic: 'Мифический масштаб',
+  unknown: 'Сила не установлена',
 }
 
 const legacyKindLabels: Record<LegendLegacyKind, string> = {
@@ -127,6 +139,13 @@ function LegendCard({ campaign, legend }: { campaign: Campaign; legend: Legendar
         <div><span>Известность в мире</span><strong>{Math.round(legend.renown)}%</strong><i><b style={{ width: `${legend.renown}%` }} /></i></div>
         <div><span>Сохранившееся влияние</span><strong>{Math.round(legend.influence)}%</strong><i><b style={{ width: `${legend.influence}%` }} /></i></div>
       </div>}
+      {hasSection(legend, 'power') && legend.powerStanding && <section className={`legend-power-standing power-${legend.powerStanding.classification}`}>
+        <header><ShieldQuestion size={14} /><span><small>Подтверждённая сила</small><strong>{powerClassLabels[legend.powerStanding.classification]}</strong></span></header>
+        <p>{legend.powerStanding.basis}</p>
+        <ListBlock title="Области превосходства" values={legend.powerStanding.domains} />
+        <ListBlock title="На чём основана оценка" values={legend.powerStanding.evidence} />
+        <ListBlock title="Что пока неизвестно" values={legend.powerStanding.uncertainties} />
+      </section>}
       {hasSection(legend, 'summary') && <div className="legend-emergence">
         <header><Sparkles size={14} /><b>Путь этого имени</b><strong>{Math.round(legend.emergence.momentum)}%</strong></header>
         <i><b style={{ width: `${Math.max(0, legend.emergence.momentum)}%` }} /></i>

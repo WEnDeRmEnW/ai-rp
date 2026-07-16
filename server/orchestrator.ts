@@ -50,7 +50,7 @@ function repairContractHints(issues: Array<{ path: PropertyKey[]; message: strin
 - upsertWorldPressures содержит полные причинные реакции мира с id,sourceKind,sourceName,sourceNpcId?,targetIds[],cause,objective,tier,stage,reach,knowledge[],signs[],measures[],counterplay[],escalationTrigger,deescalationConditions[],visibility,createdTurn,lastAdvancedTurn.
 - duration статусного эффекта имеет форму {"unit":"turns|scenes|days|until|indefinite","remaining"?:number,"condition"?:string}; ключи amount/count/value запрещены.
 - world.upsertPlaces содержит полные места с id,name,kind,description,scale,culture[],notableFacts[],currentSituation,visibility и необязательным точным parentId; world.upsertProcesses содержит полные процессы с id,title,description,scopeIds[],involvedFactionNames[],drivers[],obstacles[],stage,momentum,direction,status,visibility,nextMilestone,consequences[].
-- world.legendarium — полный объект с name,summary,recognitionRules[],transmissionChannels[],distortionForces[],memoryKeepers[],erasureForces[],successionRules[],encounterRules[],thresholds[ровно notable,renowned,legendary,mythic]. world.upsertLegends содержит ПОЛНЫЕ легендарные записи с id,characterId?,name,stage,lifeStatus,scope,truthStatus,renown,influence,knownFeats[],disputedClaims[],associatedFactionNames[],relatedNpcIds[],successorNpcIds[],deeds[],myths[],legacies[],currentState,emergence,canon,discovery. characterId может быть точным id героя или NPC; для living/returned обязателен. Не возвращай серверные turn-поля; deeds/legacies используют только точные placeId/id персонажей/имена фракций.
+- world.legendarium — полный объект с name,summary,recognitionRules[],transmissionChannels[],distortionForces[],memoryKeepers[],erasureForces[],successionRules[],encounterRules[],thresholds[ровно notable,renowned,legendary,mythic]. world.upsertLegends содержит ПОЛНЫЕ легендарные записи с id,characterId?,name,stage,lifeStatus,scope,truthStatus,renown,influence,powerStanding{classification,basis,domains[],evidence[],uncertainties[]},knownFeats[],disputedClaims[],associatedFactionNames[],relatedNpcIds[],successorNpcIds[],deeds[],myths[],legacies[],currentState,emergence,canon,discovery. Для известных фигур classification не ниже capable; notable>=capable, renowned>=dangerous, legendary>=elite, mythic>=legendary. characterId может быть точным id героя или NPC; для living/returned обязателен. Не возвращай серверные turn-поля; deeds/legacies используют только точные placeId/id персонажей/имена фракций.
 - cleanup — объект с массивами threads/worldEvents/quests/antagonistPlans/worldPressures/memories; каждый элемент имеет только targetId и reason. Активную сущность сначала переведи в терминальный статус соответствующей мутацией.
 Любой ключ, названный валидатором Unrecognized, УДАЛИ из прежнего места после переноса его содержимого в каноническое поле. Не возвращай одновременно старый alias и новый ключ.`
 }
@@ -267,7 +267,9 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   if ((plan.statePatch.npcs?.length ?? 0) < npcMutationCount) reject('Отклонено противоречивое изменение персонажа.', ['characters'])
   plan.statePatch.npcs = plan.statePatch.npcs?.map((mutation) => {
     const threatProfile = mutation.npc.threatProfile
-    if (!threatProfile || !['legendary', 'mythic'].includes(threatProfile.tier)) return mutation
+    if (!threatProfile) return mutation
+    const tierRank = { minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 }[threatProfile.tier]
+    if (tierRank < 2) return mutation
     const existingAbilities = mutation.operation === 'update' ? campaign.npcs.find((npc) => npc.id === mutation.targetId)?.abilities ?? [] : []
     const authoredAbilities = mutation.operation === 'add'
       ? mutation.npc.abilities ?? []
@@ -280,10 +282,15 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
       return Math.max(0, Math.min(100, (ability.mastery ?? 0) + (change.masteryDelta ?? 0)))
     })
     const demonstratedMastery = Math.max(...effectiveExistingAbilities, ...authoredAbilities.map((ability) => ability.mastery ?? 0), 0)
-    const minimumMastery = threatProfile.tier === 'mythic' ? 90 : 75
-    if (demonstratedMastery >= minimumMastery && threatProfile.constraints.length && threatProfile.defeatRequirements.length) return mutation
+    const minimumMastery = { dangerous: 45, elite: 65, legendary: 80, mythic: 90 }[threatProfile.tier as 'dangerous' | 'elite' | 'legendary' | 'mythic']
+    const realPowerNames = new Set([...existingAbilities, ...authoredAbilities].flatMap((ability) => [
+      ability.name.toLocaleLowerCase('ru-RU'),
+      ...(ability.techniques ?? []).map((technique) => technique.name.toLocaleLowerCase('ru-RU')),
+    ]))
+    const signaturesExist = (threatProfile.signatureAbilities ?? []).every((name) => realPowerNames.has(name.toLocaleLowerCase('ru-RU')))
+    if (demonstratedMastery >= minimumMastery && signaturesExist) return mutation
     delete mutation.npc.threatProfile
-    reject('Отклонён высокий ранг угрозы, не подкреплённый реальными способностями, ограничениями и условиями победы.', ['characters', 'world_pressure'])
+    reject('Отклонён ранг сильного персонажа, не подкреплённый реальными способностями и буквально совпадающими сигнатурными техниками.', ['characters', 'world_pressure'])
     return mutation
   })
   plan.statePatch.npcs = plan.statePatch.npcs?.map((mutation) => {
@@ -370,6 +377,14 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     if ((worldPatch.removeLegendIds?.length ?? 0) < removedLegendCount) reject('Отклонено удаление неизвестной легендарной личности.', ['world', 'characters', 'knowledge'])
 
     const thresholds = new Map((worldPatch.legendarium?.thresholds ?? campaign.world.legendarium?.thresholds ?? []).map((threshold) => [threshold.stage, threshold.minRenown]))
+    const legendPowerRank = { noncombatant: -2, unknown: -1, minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 } as const
+    const minimumLegendPower = { notable: 1, renowned: 2, legendary: 3, mythic: 4 } as const
+    const replacedLegendIds = new Set(worldPatch.upsertLegends?.map((legend) => legend.id) ?? [])
+    const usedPowerBases = new Map(
+      (campaign.world.legends ?? [])
+        .filter((legend) => !replacedLegendIds.has(legend.id) && legend.powerStanding?.basis)
+        .map((legend) => [normalizedReference(legend.powerStanding!.basis), legend.id]),
+    )
     const legendMutationCount = worldPatch.upsertLegends?.length ?? 0
     worldPatch.upsertLegends = worldPatch.upsertLegends?.filter((legend) => {
       const characterReferences = [
@@ -393,6 +408,11 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
       if (factionReferences.some((name) => !knownFactions.has(name.toLocaleLowerCase('ru-RU')))) return false
       const minimumRenown = thresholds.get(legend.stage)
       if (minimumRenown !== undefined && legend.renown < minimumRenown) return false
+      if (legendPowerRank[legend.powerStanding.classification] < minimumLegendPower[legend.stage]) return false
+      const normalizedPowerBasis = normalizedReference(legend.powerStanding.basis)
+      const duplicatePowerBasis = usedPowerBases.get(normalizedPowerBasis)
+      if (!normalizedPowerBasis || (duplicatePowerBasis && duplicatePowerBasis !== legend.id)) return false
+      usedPowerBases.set(normalizedPowerBasis, legend.id)
       if (['legendary', 'mythic'].includes(legend.stage) && (legend.knownFeats.length < 2 || legend.deeds.length < 2 || legend.myths.length + legend.legacies.length < 2)) return false
       if (['living', 'returned'].includes(legend.lifeStatus) && !legend.characterId) return false
       if (['dead', 'sealed', 'dormant'].includes(legend.lifeStatus) && legend.currentState.encounterReadiness > 0 && legend.currentState.encounterConditions.length === 0) return false

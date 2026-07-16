@@ -1,5 +1,5 @@
 import { AlertCircle, Check, Cloud, Eye, EyeOff, KeyRound, Laptop, LogOut, RefreshCw, ShieldCheck, Smartphone, UserRound, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { authApi, type AccountSession } from '../lib/auth-api'
 import { useApp } from '../state/AppContext'
 import { useAuth } from '../state/AuthContext'
@@ -36,7 +36,7 @@ export function AccountDialog({ open, onClose, onAdmin }: AccountDialogProps) {
   const [error, setError] = useState<string>()
   const [notice, setNotice] = useState<string>()
 
-  const oauthError = useMemo(() => new URLSearchParams(window.location.search).get('authError'), [open])
+  const oauthError = new URLSearchParams(window.location.search).get('authError')
 
   useEffect(() => {
     if (!open || !auth.user || section !== 'devices') return

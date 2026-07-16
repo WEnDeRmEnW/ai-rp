@@ -50,6 +50,14 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null)
 const ACTIVE_KEY = 'letopis-active-campaign'
 const THEME_KEY = 'letopis-theme'
+const pendingDeleteKey = (userId: string) => `letopis-pending-deletes-${userId}`
+const getPendingDeletes = (userId: string): string[] => {
+  try {
+    const value = JSON.parse(localStorage.getItem(pendingDeleteKey(userId)) || '[]')
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+  } catch { return [] }
+}
+const setPendingDeletes = (userId: string, ids: string[]) => localStorage.setItem(pendingDeleteKey(userId), JSON.stringify([...new Set(ids)]))
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const auth = useAuth()
@@ -72,15 +80,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loadSequenceRef = useRef(0)
   const syncQueueRef = useRef<Promise<unknown>>(Promise.resolve())
   const ownerId = auth.user?.id || 'guest'
-
-  const pendingDeleteKey = (userId: string) => `letopis-pending-deletes-${userId}`
-  const getPendingDeletes = (userId: string): string[] => {
-    try {
-      const value = JSON.parse(localStorage.getItem(pendingDeleteKey(userId)) || '[]')
-      return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
-    } catch { return [] }
-  }
-  const setPendingDeletes = (userId: string, ids: string[]) => localStorage.setItem(pendingDeleteKey(userId), JSON.stringify([...new Set(ids)]))
 
   const queueCloudWrite = useCallback((task: () => Promise<unknown>) => {
     setSyncState('syncing')

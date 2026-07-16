@@ -56,10 +56,11 @@ const worldProcessStatusSchema = z.preprocess(alias({ активно: 'active', 
 const worldProcessDirectionSchema = z.preprocess(alias({ растет: 'rising', растёт: 'rising', усиливается: 'rising', стабильно: 'stable', без_изменений: 'stable', снижается: 'declining', ослабевает: 'declining' }), z.enum(['rising', 'stable', 'declining']))
 const worldScaleSchema = z.preprocess(alias({ личный: 'personal', персональный: 'personal', местный: 'local', локальный: 'local', региональный: 'regional', регион: 'regional', национальный: 'national', страна: 'national', континентальный: 'continental', континент: 'continental', глобальный: 'global', мировой: 'global', космический: 'cosmic', вселенский: 'cosmic' }), z.enum(['personal', 'local', 'regional', 'national', 'continental', 'global', 'cosmic']))
 const legendStageSchema = z.preprocess(alias({ заметный: 'notable', известный: 'renowned', прославленный: 'renowned', легендарный: 'legendary', мифический: 'mythic', божественный: 'mythic' }), z.enum(['notable', 'renowned', 'legendary', 'mythic']))
+const legendPowerClassSchema = z.preprocess(alias({ небоевой: 'noncombatant', мирный: 'noncombatant', незначительный: 'minor', обычный: 'capable', способный: 'capable', опасный: 'dangerous', элитный: 'elite', легендарный: 'legendary', мифический: 'mythic', неизвестно: 'unknown' }), z.enum(['noncombatant', 'minor', 'capable', 'dangerous', 'elite', 'legendary', 'mythic', 'unknown']))
 const legendLifeStatusSchema = z.preprocess(alias({ жив: 'living', жива: 'living', живой: 'living', мертв: 'dead', мёртв: 'dead', мертва: 'dead', пропал: 'missing', пропала: 'missing', исчез: 'missing', запечатан: 'sealed', запечатана: 'sealed', спит: 'dormant', дремлет: 'dormant', вернулся: 'returned', вернулась: 'returned', воскрешен: 'returned', воскрешён: 'returned', вознесен: 'ascended', вознесён: 'ascended', вознеслась: 'ascended', неизвестно: 'unknown' }), z.enum(['living', 'dead', 'missing', 'sealed', 'dormant', 'returned', 'ascended', 'unknown']))
 const legendTruthStatusSchema = z.preprocess(alias({ подтверждено: 'confirmed', подтверждённо: 'confirmed', правда: 'confirmed', частично_правда: 'partly_true', частично: 'partly_true', искажено: 'distorted', искаженная: 'distorted', выдумано: 'fabricated', ложь: 'fabricated', неизвестно: 'unknown' }), z.enum(['confirmed', 'partly_true', 'distorted', 'fabricated', 'unknown']))
 const legendLegacyKindSchema = z.preprocess(alias({ техника: 'technique', способность: 'technique', артефакт: 'artifact', реликвия: 'artifact', род: 'bloodline', кровь: 'bloodline', школа: 'school', учение: 'school', фракция: 'faction', организация: 'faction', культ: 'cult', закон: 'law', место: 'place', локация: 'place', пророчество: 'prophecy', титул: 'title', другое: 'other', прочее: 'other' }), z.enum(['technique', 'artifact', 'bloodline', 'school', 'faction', 'cult', 'law', 'place', 'prophecy', 'title', 'other']))
-const legendDiscoverySectionSchema = z.preprocess(alias({ личность: 'identity', имя: 'identity', обзор: 'summary', описание: 'summary', статус: 'status', судьба: 'status', происхождение: 'origin', подвиги: 'deeds', деяния: 'deeds', мифы: 'myths', легенды: 'myths', наследие: 'legacies', наследства: 'legacies', связи: 'affiliations', принадлежность: 'affiliations', местонахождение: 'whereabouts', следы: 'whereabouts', встреча: 'encounter', доступность: 'encounter', канон: 'canon', хронология: 'canon' }), z.enum(['identity', 'summary', 'status', 'origin', 'deeds', 'myths', 'legacies', 'affiliations', 'whereabouts', 'encounter', 'canon']))
+const legendDiscoverySectionSchema = z.preprocess(alias({ личность: 'identity', имя: 'identity', обзор: 'summary', описание: 'summary', сила: 'power', мощь: 'power', возможности: 'power', статус: 'status', судьба: 'status', происхождение: 'origin', подвиги: 'deeds', деяния: 'deeds', мифы: 'myths', легенды: 'myths', наследие: 'legacies', наследства: 'legacies', связи: 'affiliations', принадлежность: 'affiliations', местонахождение: 'whereabouts', следы: 'whereabouts', встреча: 'encounter', доступность: 'encounter', канон: 'canon', хронология: 'canon' }), z.enum(['identity', 'summary', 'power', 'status', 'origin', 'deeds', 'myths', 'legacies', 'affiliations', 'whereabouts', 'encounter', 'canon']))
 const interfacePlacementSchema = z.preprocess(alias({ пульт: 'dashboard', сводка: 'dashboard', обзор: 'dashboard', сцена: 'scene', герой: 'hero', персонаж: 'hero', инвентарь: 'inventory', снаряжение: 'inventory', мир: 'world' }), z.enum(['dashboard', 'scene', 'hero', 'inventory', 'world']))
 const interfaceVisualSchema = z.preprocess(alias({ шкалы: 'meters', индикаторы: 'meters', узлы: 'nodes', сеть: 'nodes', слоты: 'slots', ячейки: 'slots', путь: 'track', этапы: 'track', журнал: 'ledger', реестр: 'ledger', сигналы: 'signals', сообщения: 'signals', радар: 'radar', диаграмма: 'radar', карточки: 'cards', плитки: 'cards' }), z.enum(['meters', 'nodes', 'slots', 'track', 'ledger', 'signals', 'radar', 'cards']))
 const interfaceIconSchema = z.preprocess(alias({ искра: 'spark', глаз: 'eye', взгляд: 'eye', щит: 'shield', сеть: 'network', узлы: 'network', пульс: 'pulse', сердце: 'pulse', компас: 'compass', корона: 'crown', руна: 'rune', механизм: 'gear', шестерня: 'gear', пламя: 'flame', огонь: 'flame', звезда: 'star', луна: 'moon' }), z.enum(['spark', 'eye', 'shield', 'network', 'pulse', 'compass', 'crown', 'rune', 'gear', 'flame', 'star', 'moon']))
@@ -460,6 +461,14 @@ const legendCanonProfileSchema = z.object({
   divergenceNotes: z.array(longText).max(24),
 }).strict()
 
+const legendPowerStandingSchema = z.object({
+  classification: legendPowerClassSchema,
+  basis: longText,
+  domains: z.array(longText).min(1).max(12),
+  evidence: z.array(longText).min(1).max(16),
+  uncertainties: z.array(longText).max(12),
+}).strict()
+
 const legendEmergenceSchema = z.object({
   momentum: modelNumber(z.number().min(-100).max(100)),
   nextMilestone: longText,
@@ -486,6 +495,7 @@ const legendaryFigureSchema = z.object({
   renown: modelNumber(z.number().min(0).max(100)),
   influence: modelNumber(z.number().min(0).max(100)),
   reputation: longText,
+  powerStanding: legendPowerStandingSchema.optional(),
   knownFeats: z.array(longText).max(20),
   disputedClaims: z.array(longText).max(20),
   associatedFactionNames: z.array(shortText).max(20),
@@ -515,6 +525,7 @@ const legendDiscoveryPatchSchema = legendDiscoverySchema.omit({ updatedTurn: tru
   updatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
 }).strict()
 const legendaryFigurePatchSchema = legendaryFigureSchema.extend({
+  powerStanding: legendPowerStandingSchema,
   currentState: legendCurrentStatePatchSchema,
   emergence: legendEmergencePatchSchema,
   discovery: legendDiscoveryPatchSchema,
@@ -541,6 +552,7 @@ const generatedLegendaryFigureSchema = legendaryFigureSchema.omit({
   id: true, characterId: true, relatedNpcIds: true, successorNpcIds: true, deeds: true, myths: true, legacies: true,
   currentState: true, emergence: true, discovery: true, createdTurn: true, lastChangedTurn: true,
 }).extend({
+  powerStanding: legendPowerStandingSchema,
   characterName: shortText.optional(),
   relatedNpcNames: z.array(shortText).max(24),
   successorNpcNames: z.array(shortText).max(24),
@@ -871,17 +883,73 @@ const npcStrategySchema = z.object({
   visibility: worldVisibilitySchema,
   lastUpdatedTurn: modelNumber(z.number().int().min(0)),
 }).strict()
+const threatEngagementPhaseSchema = z.object({
+  name: shortText,
+  trigger: longText,
+  doctrine: longText,
+  priorities: z.array(longText).min(1).max(8),
+  signatureMoves: z.array(longText).min(1).max(8),
+  openings: z.array(longText).min(1).max(8),
+  exitConditions: z.array(longText).min(1).max(8),
+}).strict()
 const threatProfileSchema = z.object({
   tier: threatTierSchema,
   scope: longText,
   reputation: longText,
+  powerBasis: longText.optional(),
+  combatIdentity: longText.optional(),
+  signatureAbilities: z.array(shortText).max(12).optional(),
+  threatVectors: z.array(longText).max(12).optional(),
+  defensiveLayers: z.array(longText).max(12).optional(),
+  battlefieldControl: z.array(longText).max(12).optional(),
+  informationAdvantages: z.array(longText).max(12).optional(),
+  preparedAssets: z.array(longText).max(12).optional(),
+  engagementPhases: z.array(threatEngagementPhaseSchema).max(6).optional(),
+  collateralRisks: z.array(longText).max(12).optional(),
   whyDangerous: z.array(longText).min(1).max(12),
   knownFeats: z.array(longText).max(12),
   constraints: z.array(longText).max(12),
   defeatRequirements: z.array(longText).max(12),
   escalationTriggers: z.array(longText).max(12),
   visibility: worldVisibilitySchema,
-}).strict()
+}).strict().superRefine((profile, context) => {
+  const rank = { minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 }[profile.tier]
+  const requireText = (value: string | undefined, field: string) => {
+    if (!value?.trim()) context.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${profile.tier} threat requires a concrete ${field}` })
+  }
+  const requireCount = (values: unknown[] | undefined, minimum: number, field: string) => {
+    if ((values?.length ?? 0) < minimum) context.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${profile.tier} threat requires at least ${minimum} ${field}` })
+  }
+  if (rank < 2) return
+  requireText(profile.powerBasis, 'powerBasis')
+  requireText(profile.combatIdentity, 'combatIdentity')
+  requireCount(profile.signatureAbilities, 1, 'signatureAbilities')
+  requireCount(profile.threatVectors, 2, 'threatVectors')
+  requireCount(profile.defensiveLayers, 1, 'defensiveLayers')
+  requireCount(profile.constraints, 1, 'constraints')
+  requireCount(profile.defeatRequirements, 1, 'defeatRequirements')
+  if (rank >= 3) {
+    requireCount(profile.signatureAbilities, 2, 'signatureAbilities')
+    requireCount(profile.battlefieldControl, 1, 'battlefieldControl')
+    requireCount(profile.engagementPhases, 1, 'engagementPhases')
+  }
+  if (rank >= 4) {
+    requireCount(profile.whyDangerous, 3, 'whyDangerous')
+    requireCount(profile.knownFeats, 2, 'knownFeats')
+    requireCount(profile.defensiveLayers, 2, 'defensiveLayers')
+    requireCount(profile.informationAdvantages, 1, 'informationAdvantages')
+    requireCount(profile.preparedAssets, 1, 'preparedAssets')
+    requireCount(profile.engagementPhases, 2, 'engagementPhases')
+    requireCount(profile.constraints, 2, 'constraints')
+    requireCount(profile.defeatRequirements, 2, 'defeatRequirements')
+    requireCount(profile.collateralRisks, 1, 'collateralRisks')
+  }
+  if (rank >= 5) {
+    requireCount(profile.signatureAbilities, 3, 'signatureAbilities')
+    requireCount(profile.threatVectors, 4, 'threatVectors')
+    requireCount(profile.engagementPhases, 3, 'engagementPhases')
+  }
+})
 const storyPacingUpdateSchema = z.object({
   beat: storyBeatSchema,
   intensity: modelNumber(z.number().min(0).max(100)),
@@ -2301,6 +2369,7 @@ const generatedWorldContract = z.object({
     })
   })
   const legendNames = new Set<string>()
+  const legendPowerBases = new Set<string>()
   world.world.legends.forEach((legend, index) => {
     const normalizedLegendName = legend.name.toLocaleLowerCase('ru-RU')
     if (legendNames.has(normalizedLegendName)) context.addIssue({
@@ -2309,6 +2378,13 @@ const generatedWorldContract = z.object({
       message: `Duplicate legendary figure: ${legend.name}`,
     })
     legendNames.add(normalizedLegendName)
+    const normalizedPowerBasis = legend.powerStanding.basis.trim().toLocaleLowerCase('ru-RU')
+    if (legendPowerBases.has(normalizedPowerBasis)) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'powerStanding', 'basis'],
+      message: 'Every known figure requires a distinct contextual power basis, not a copied template',
+    })
+    legendPowerBases.add(normalizedPowerBasis)
     if (legend.characterName && !entityNames.has(legend.characterName.toLocaleLowerCase('ru-RU'))) context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['world', 'legends', index, 'characterName'],
@@ -2319,6 +2395,44 @@ const generatedWorldContract = z.object({
       path: ['world', 'legends', index, 'characterName'],
       message: 'A living legendary figure must be backed by the simulated player or an NPC',
     })
+    const powerRank = { noncombatant: -1, unknown: -1, minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 }[legend.powerStanding.classification]
+    const minimumPowerByStage = { notable: 1, renowned: 2, legendary: 3, mythic: 4 }[legend.stage]
+    if (powerRank < minimumPowerByStage) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'powerStanding', 'classification'],
+      message: `${legend.stage} figures must have contextual power rank ${minimumPowerByStage} or higher, backed by real evidence`,
+    })
+    if (['living', 'returned'].includes(legend.lifeStatus) && powerRank >= 2 && legend.characterName) {
+      const normalizedCharacterName = legend.characterName.toLocaleLowerCase('ru-RU')
+      if (normalizedCharacterName === world.player.name.toLocaleLowerCase('ru-RU')) {
+        const demonstratedMastery = Math.max(...world.player.abilities.map((ability) => ability.mastery), 0)
+        const minimumMastery = { 2: 45, 3: 65, 4: 80, 5: 90 }[powerRank as 2 | 3 | 4 | 5]
+        if (demonstratedMastery < minimumMastery) context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['world', 'legends', index, 'powerStanding'],
+          message: 'A living hero power standing must be supported by authored abilities',
+        })
+      } else {
+        const linkedNpc = world.npcs.find((npc) => npc.name.toLocaleLowerCase('ru-RU') === normalizedCharacterName)
+        const linkedRank = linkedNpc?.threatProfile ? { minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 }[linkedNpc.threatProfile.tier] : -1
+        if (linkedRank < powerRank) context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['world', 'legends', index, 'powerStanding'],
+          message: 'A living exceptional figure must be backed by an NPC threat profile of equal factual strength',
+        })
+      }
+    }
+    if (['living', 'returned'].includes(legend.lifeStatus) && legend.characterName) {
+      const normalizedCharacterName = legend.characterName.toLocaleLowerCase('ru-RU')
+      const authoredAbilities = normalizedCharacterName === world.player.name.toLocaleLowerCase('ru-RU')
+        ? world.player.abilities
+        : world.npcs.find((npc) => npc.name.toLocaleLowerCase('ru-RU') === normalizedCharacterName)?.abilities ?? []
+      if (authoredAbilities.length === 0) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['world', 'legends', index, 'powerStanding'],
+        message: 'A living known figure must have at least one fully authored, unique ability that realizes their contextual strength',
+      })
+    }
     const minimumRenown = legendThresholds.get(legend.stage)
     if (minimumRenown !== undefined && legend.renown < minimumRenown) context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -2371,19 +2485,37 @@ const generatedWorldContract = z.object({
       })
     })
   })
+  const combatIdentities = new Set<string>()
   world.npcs.forEach((npc, index) => {
-    if (!npc.threatProfile || !['legendary', 'mythic'].includes(npc.threatProfile.tier)) return
-    const minimumMastery = npc.threatProfile.tier === 'mythic' ? 90 : 75
+    if (!npc.threatProfile) return
+    const tierRank = { minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 }[npc.threatProfile.tier]
+    if (tierRank < 2) return
+    const normalizedCombatIdentity = npc.threatProfile.combatIdentity?.trim().toLocaleLowerCase('ru-RU')
+    if (normalizedCombatIdentity) {
+      if (combatIdentities.has(normalizedCombatIdentity)) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['npcs', index, 'threatProfile', 'combatIdentity'],
+        message: 'Strong NPC combat identities must be distinct instead of reusing one template',
+      })
+      combatIdentities.add(normalizedCombatIdentity)
+    }
+    const minimumMastery = { dangerous: 45, elite: 65, legendary: 80, mythic: 90 }[npc.threatProfile.tier as 'dangerous' | 'elite' | 'legendary' | 'mythic']
     const demonstratedMastery = Math.max(...npc.abilities.map((ability) => ability.mastery), 0)
     if (demonstratedMastery < minimumMastery) context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['npcs', index, 'threatProfile', 'tier'],
       message: `${npc.threatProfile.tier} threat tier must be supported by actual ability mastery`,
     })
-    if (!npc.threatProfile.constraints.length || !npc.threatProfile.defeatRequirements.length) context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['npcs', index, 'threatProfile'],
-      message: 'Legendary and mythic threats require factual constraints and possible defeat conditions',
+    const realPowerNames = new Set(npc.abilities.flatMap((ability) => [
+      ability.name.toLocaleLowerCase('ru-RU'),
+      ...ability.techniques.map((technique) => technique.name.toLocaleLowerCase('ru-RU')),
+    ]))
+    ;(npc.threatProfile.signatureAbilities ?? []).forEach((name, signatureIndex) => {
+      if (!realPowerNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['npcs', index, 'threatProfile', 'signatureAbilities', signatureIndex],
+        message: `Signature ability must exactly match an authored NPC ability or technique: ${name}`,
+      })
     })
   })
   world.influenceAssets.forEach((asset, index) => {

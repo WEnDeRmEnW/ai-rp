@@ -123,6 +123,11 @@ describe('legend ecosystem patch contract', () => {
     const generated = demoWorld(request)
     generated.world.legends[0].characterName = generated.player.name
     generated.world.legends[0].lifeStatus = 'living'
+    generated.player.abilities.push({
+      name: 'Право открытого имени', description: 'Позволяет удерживать и размыкать сложные печати через их публично установленное имя.', rank: 'Мастер', source: 'Практика свидетелей', kind: 'active', mastery: 82,
+      costs: [], effects: ['Размыкает установленный контур печати.'], limitations: ['Требует знать настоящее имя контура.'], requirements: ['Наличие проверенного свидетельства.'], progression: 'Развивается через изучение новых систем печатей.', evolutionPaths: [], history: [{ title: 'Первое подтверждение', description: 'Герой удержал распадающийся контур на ночном вокзале.' }], tags: ['печати'],
+      category: 'control', scale: 'Здание или городской узел', activation: 'Публично назвать контур и указать противоречие в его основании.', capabilities: ['Разомкнуть печать', 'Удержать контур от активации'], synergies: ['Архив свидетельств'], counters: ['Скрытая или ложная схема имени'], examples: ['Останавливает запирающую печать ворот до её полного смыкания.'], techniques: [], canonStatus: 'original',
+    })
 
     const campaign = normalizeWorld(generatedWorldSchema.parse(generated), request)
     expect(campaign.world.legends?.[0]?.characterId).toBe(campaign.player.id)
@@ -149,6 +154,41 @@ describe('legend ecosystem patch contract', () => {
     expect(parsedLegend?.currentState).not.toHaveProperty('lastUpdatedTurn')
     expect(parsedLegend?.emergence).not.toHaveProperty('lastEvaluatedTurn')
     expect(parsedLegend?.discovery).not.toHaveProperty('updatedTurn')
+  })
+
+  it('rejects a legend update that omits its factual power profile', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const campaign = normalizeWorld(generatedWorldSchema.parse(demoWorld(request)), request)
+    const legend: any = structuredClone(campaign.world.legends![0])
+    delete legend.powerStanding
+    delete legend.createdTurn
+    delete legend.lastChangedTurn
+    delete legend.currentState.lastUpdatedTurn
+    delete legend.emergence.lastEvaluatedTurn
+    delete legend.discovery.updatedTurn
+    legend.discovery.evidence.forEach((entry: any) => delete entry.learnedTurn)
+
+    const result = turnPatchSchema.safeParse({ world: { upsertLegends: [legend] } })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.path.join('.').endsWith('powerStanding'))).toBe(true)
+  })
+
+  it('rejects a famous figure whose factual strength is below its cultural stage', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const generated = demoWorld(request)
+    generated.world.legends[0].powerStanding.classification = 'capable'
+
+    const result = generatedWorldSchema.safeParse(generated)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.path.join('.').endsWith('powerStanding.classification'))).toBe(true)
   })
 })
 
@@ -215,8 +255,17 @@ describe('persistent living-world patches', () => {
       pacing: { beat: 'передышка', intensity: '24%', challengeTier: 'лёгкий', reason: 'После погони наступила короткая безопасная пауза.' },
       npcs: [{ operation: 'update', targetId: 'npc-legend', npc: { threatProfile: {
         tier: 'легендарный', scope: 'Способен изменить исход войны в одном регионе.', reputation: 'Пережил падение крепости.',
-        whyDangerous: ['Владеет пространством боя.'], knownFeats: ['Остановил армию у перевала.'], constraints: ['Не может покинуть границы клятвы.'],
-        defeatRequirements: ['Разрушить якорь клятвы.'], escalationTriggers: ['Угроза охраняемому городу.'], visibility: 'слухи',
+        powerBasis: 'Пространственная клятва связывает его с перевалом и всеми путями внутри него.', combatIdentity: 'Отсекает маршруты, дробит строй и вынуждает противника сражаться за саму возможность двигаться.',
+        signatureAbilities: ['Замыкание пути', 'Раскол строя'], threatVectors: ['Лишает отступления.', 'Разделяет союзников.', 'Перенаправляет дальние атаки.'],
+        defensiveLayers: ['Замкнутые пути возвращают атаку к исходной точке.', 'Клятва переносит часть воздействия в каменные метки.'], battlefieldControl: ['Перестраивает доступные маршруты перевала.'],
+        informationAdvantages: ['Чувствует нарушение каждой каменной метки.'], preparedAssets: ['Сеть заранее нанесённых меток пути.'],
+        engagementPhases: [
+          { name: 'Закрытие путей', trigger: 'Враг входит между первой и второй меткой.', doctrine: 'Разделить строй и проверить способы перемещения.', priorities: ['Отсечь разведчиков.'], signatureMoves: ['Замыкание пути'], openings: ['Разрушение внешней метки временно открывает один маршрут.'], exitConditions: ['Внешний контур разрушен.'] },
+          { name: 'Удержание якоря', trigger: 'Внешний контур разрушен.', doctrine: 'Сжать область вокруг центрального якоря.', priorities: ['Сохранить якорь клятвы.'], signatureMoves: ['Раскол строя'], openings: ['Сжатие области лишает его дальнего контроля.'], exitConditions: ['Якорь разрушен или противник отступил.'] },
+        ],
+        collateralRisks: ['Обрушение старых путей от перегрузки клятвы.'], whyDangerous: ['Владеет пространством боя.', 'Лишает противника привычной логистики.', 'Меняет доктрину после разрушения внешнего контура.'],
+        knownFeats: ['Остановил армию у перевала.', 'Три дня удерживал путь без подкрепления.'], constraints: ['Не может покинуть границы клятвы.', 'Каждый контур зависит от физической метки.'],
+        defeatRequirements: ['Разрушить якорь клятвы.', 'Лишить его сведений о состоянии внешних меток.'], escalationTriggers: ['Угроза охраняемому городу.'], visibility: 'слухи',
       } } }],
       upsertWorldPressures: [{
         id: 'pressure-corp', sourceKind: 'корпорация', sourceName: 'Орден Меди', targetIds: ['player-1'],
