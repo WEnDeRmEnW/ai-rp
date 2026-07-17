@@ -1,121 +1,232 @@
-# Летопись
+# Letopis — Living AI Roleplay Engine
 
-Local-first приложение для живого текстового RP с нейросетью. Рассказчик ведёт мир и NPC, но не принимает решения за героя. Инвентарь, характеристики, способности, отношения, квесты и лор хранятся как отдельное проверяемое состояние, а не извлекаются задним числом из прозы.
+> A stateful text-roleplay application where the AI narrates a living world without taking control of the player character.
 
-![Статус](https://img.shields.io/badge/status-working%20vertical%20slice-71d3b1)
+[![Live demo](https://img.shields.io/badge/live-2--26--80--121.sslip.io-71d3b1)](https://2-26-80-121.sslip.io)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
+![Tests](https://img.shields.io/badge/tests-272%20passing-71d3b1)
+![Codex](https://img.shields.io/badge/built%20with-OpenAI%20Codex-111827)
+![GPT-5.6](https://img.shields.io/badge/engineering-GPT--5.6-7c3aed)
 
-## Что уже работает
+**Live application:** [https://2-26-80-121.sslip.io](https://2-26-80-121.sslip.io)
 
-- генерация цельного мира из одной фразы: законы, фракции, места, NPC, тайны, лорбук, герой и открывающая сцена;
-- собственная система каждого мира: прогрессия, разрешение конфликтов, последствия, слоты экипировки, характеристики, ресурсы и валюты;
-- адаптивный интерфейс мира: AI создаёт спокойную палитру, визуальный мотив и названия разделов, действий, предметных категорий и редкостей;
-- глубокий AI-ход: фоновая симуляция → режиссёр → два черновика → критик непротиворечивости → финальная сцена → куратор памяти;
-- режимы ввода «Действие», «Реплика», «Мета» и «Продолжить»;
-- многоуровневая память для очень долгих историй: полная переписка, дословные свежие сцены, архивы сцен/глав/эр, закреплённые факты, условный лор и канон-RAG;
-- профиль `DeepSeek 1M` с бюджетом 2,8 млн знаков и запасом под инструкции, рассуждение и ответ;
-- автоматический рюкзак, экипировка, ресурсы, характеристики, способности, состояния, отношения и квесты;
-- живые структурные изменения: AI может добавлять и развивать NPC, менять профиль героя, календарь, правила, фракции, локации и тайны мира;
-- матрица знаний и заблуждений NPC, отношения NPC↔NPC, обещания, долги, свидетели, слухи, фракционная репутация и жизнь мира вне кадра;
-- отложенные мировые события, карта маршрутов, состав отряда и адаптивные проверки риска;
-- импорт TXT/Markdown/JSON как канона, «рентген контекста» и экспорт истории как Markdown-книги;
-- «Живой шов» — квитанция изменений рядом со сценой, которая их вызвала;
-- атомарный Undo: текст и игровое состояние откатываются вместе;
-- повторная генерация последнего хода и создание независимой ветки кампании;
-- ручное редактирование рюкзака, характеристик, лора и памяти;
-- локальное автосохранение в IndexedDB, импорт и экспорт кампаний;
-- OpenAI, OpenRouter, Ollama и любой OpenAI-совместимый endpoint;
-- полноценные тёмная/светлая темы, desktop/tablet/mobile layout и клавиатурная навигация;
-- рабочий демо-рассказчик без API-ключа.
+Letopis treats prose and game state as two connected but separate systems. The model can describe an injury, item, relationship change, new ability, political reaction, or world event, but that change becomes real only after it passes typed schema validation and the state engine applies it atomically.
 
-## Быстрый запуск
+The result is long-form roleplay with persistent consequences instead of a chatbot that gradually forgets what happened.
 
-Нужен Node.js 20 или новее.
+## Why this project exists
 
-```powershell
-npm install
+Most text-RP systems eventually encounter the same problems:
+
+- the model decides what the player thinks or does;
+- health, resources, equipment, and abilities drift away from the story;
+- powerful NPCs become passive or forget their own plans;
+- lore exists only around the current scene;
+- long campaigns fill the context window with raw transcript;
+- one malformed JSON response can interrupt the entire story.
+
+Letopis addresses these problems with explicit player-agency rules, a persistent simulation model, layered memory, strict contracts, targeted repair, and a world-specific interface generated from real campaign data.
+
+## Core features
+
+### Living roleplay
+
+- The player controls the protagonist's decisions, words, feelings, and commitments.
+- NPCs have independent goals, knowledge, misconceptions, relationships, resources, tactics, and countermeasures.
+- Strong opponents use actual abilities, preparation, information, terrain, allies, and retreat conditions instead of artificial difficulty labels.
+- Factions, settlements, corporations, cultures, religions, countries, and distant conflicts can continue developing outside the current scene.
+- A universal event director can seed, foreshadow, manifest, resolve, or cancel unusual events while preserving causality and player agency.
+
+### Persistent typed state
+
+- Health, resources, statistics, conditions, currency, inventory, equipment, abilities, techniques, artifacts, relationships, party membership, quests, reputation, and time.
+- Deep ability profiles with activation rules, capabilities, techniques, effects, costs, limitations, counters, synergies, examples, evolution paths, and history.
+- Deep artifact profiles with rarity evidence, components, powers, combined effects, attunement, bond, awakening paths, drawbacks, counters, and provenance.
+- Atomic undo restores both the prose and every state mutation from the same turn.
+- Manual and AI-assisted campaign editing use the same validated state engine.
+
+### Long-running worlds
+
+- Recent scenes remain verbatim while older material is compressed into scene, chapter, and era archives.
+- Persistent facts, episodic memories, lorebook entries, imported canon documents, world processes, and event signatures are retrieved separately.
+- Hidden information stays available to simulation while the UI reveals only what the protagonist has actually learned.
+- Legendary figures have real histories, transmitted myths, legacies, current status, encounter conditions, and mechanically supported power.
+
+### Resilient world generation
+
+World generation is split into six full-depth stages:
+
+1. world foundation, player, abilities, and starting inventory;
+2. geography, civilizations, factions, laws, and mechanics;
+3. living NPCs, social links, strategies, and centers of power;
+4. legendarium, historical eras, exceptional figures, and lore;
+5. autonomous processes, narrative threads, mysteries, and opening scene;
+6. adaptive interface bound to the facts that already exist.
+
+Every stage receives the established facts from earlier stages. The assembled world then passes one strict cross-entity validator and a holistic quality review. If a binding or reference is wrong, Letopis regenerates only the section that owns the error instead of asking the provider to recreate the entire world. Cloudflare `520–526` failures, including `524`, retry only the active stage.
+
+### Adaptive UI and accounts
+
+- Six stable campaign tabs whose labels and supporting modules can adapt to the current world.
+- Desktop, tablet, and phone layouts with collapsible side panels and readable long-form prose.
+- Email/password registration, secure sessions, device revocation, password management, and optional Google OAuth.
+- IndexedDB works as a local/offline copy; authenticated campaigns synchronize through SQLite across browsers and devices.
+- Owner/admin panel for users, sessions, campaigns, moderation, and audit history.
+- A movable “Ask about the world” panel answers questions without changing campaign state.
+
+## How Codex & GPT-5.6 were used
+
+This project was developed through an extended human-directed collaboration with **OpenAI Codex and GPT-5.6**. They were used as an engineering partner, not merely as a one-shot code generator.
+
+### Architecture and implementation
+
+Codex inspected and modified the real repository, traced failures across React, Express, SQLite, Zod, IndexedDB, and the model orchestration layer, and implemented changes directly in the working application. GPT-5.6 was used for system-level reasoning about state ownership, causal consistency, long-context memory, player agency, and failure recovery.
+
+Concrete examples include:
+
+- designing the semantic event-director contract and mapping event requirements to persistent state;
+- separating model-authored prose from authoritative game mutations;
+- building multi-stage world generation without reducing the depth of NPCs, abilities, artifacts, or lore;
+- introducing section-owned repair so malformed model output never forces a full-world rewrite;
+- modeling intelligent enemies, hidden knowledge, autonomous factions, legendary figures, and gradual information disclosure;
+- implementing registration, synchronization, admin tooling, responsive UI, and production deployment;
+- diagnosing live DeepSeek schema failures and converting them into reproducible validators and regression tests.
+
+### Evaluation and reliability
+
+Codex and GPT-5.6 were also used to turn reported failures into tests rather than patching individual examples. The current suite covers:
+
+- malformed provider JSON and Cloudflare `524` recovery;
+- cross-world references and adaptive-interface bindings;
+- NPC disclosure and player-agency protection;
+- inventory, rarity, abilities, artifacts, and synchronized progression;
+- event-director compliance and persistent consequences;
+- multi-stage generation and targeted section repair;
+- long-story rendering, account flows, storage, and responsive components.
+
+The repository currently passes **272 automated tests**, strict TypeScript checking, ESLint, and a production Vite build.
+
+### Human direction
+
+The product vision, RP requirements, acceptance decisions, and live-world testing came from the project owner. Codex and GPT-5.6 converted that direction into architecture, implementation, validation, tests, documentation, and deployment. They are development tools for this repository; the runtime remains provider-agnostic and does not require GPT-5.6.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    P["Player input"] --> C["Context selection"]
+    C --> S["Off-screen simulation"]
+    S --> E["Event director"]
+    E --> D["Turn director"]
+    D --> V["Zod + domain validation"]
+    V --> N["Narrator candidates"]
+    N --> Q["Continuity + agency + consequence audits"]
+    Q --> A["Atomic state commit"]
+    A --> M["Memory, timeline, IndexedDB, cloud sync"]
+    V -. "targeted repair" .-> D
+```
+
+The key invariant is simple: **a statement in the narrative is not authoritative state by itself**. A change is persisted only through a validated mutation.
+
+For a deeper technical breakdown, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Technology
+
+- React 19 and TypeScript
+- Vite
+- Express 5
+- Zod
+- SQLite via `better-sqlite3`
+- IndexedDB via `idb`
+- OpenAI-compatible provider adapter
+- Vitest and Testing Library
+- Nginx and systemd in production
+
+## Quick start
+
+Requirements: **Node.js 20+**.
+
+```bash
+git clone https://github.com/WEnDeRmEnW/ai-rp.git
+cd ai-rp
+npm ci
 npm run dev
 ```
 
-Откройте [http://127.0.0.1:5173](http://127.0.0.1:5173). API запускается на `127.0.0.1:8787`.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The API runs on `127.0.0.1:8787`.
 
-Проверка проекта:
+### Production build
 
-```powershell
+```bash
+npm run build
+npm start
+```
+
+The production client and API are then served from [http://127.0.0.1:8787](http://127.0.0.1:8787).
+
+### Verification
+
+```bash
 npm test
 npm run lint
 npm run build
 ```
 
-Production-запуск:
+## Configuration
 
-```powershell
-npm run build
-npm start
-```
-
-После этого клиент и API доступны на [http://127.0.0.1:8787](http://127.0.0.1:8787).
-
-## Подключение модели
-
-Откройте «Настройки» и выберите провайдера. Ключ, введённый в интерфейсе, хранится только в `sessionStorage` текущей вкладки и передаётся локальному серверу при генерации. Он не попадает в IndexedDB, экспорт кампании или файлы проекта.
-
-Для серверного ключа скопируйте `.env.example` в `.env`:
+Copy `.env.example` to `.env` for optional server configuration:
 
 ```dotenv
-OPENAI_API_KEY=...
+PORT=8787
+LETOPIS_DATA_DIR=.data
+PUBLIC_URL=http://127.0.0.1:8787
+
+OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_BASE_URL=https://api.openai.com/v1
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+ADMIN_BOOTSTRAP_TOKEN=
 ```
 
-Для Ollama по умолчанию используется OpenAI-совместимый адрес `http://127.0.0.1:11434/v1`. Название установленной модели можно изменить в настройках.
-
-Для Ollama Cloud выберите тот же провайдер, задайте `https://ollama.com/v1`, модель из вашего Cloud-списка и API-ключ Ollama. Ключ останется в `sessionStorage` текущей вкладки.
-
-## Почему RP остаётся связным
-
-Каждый ход собирается из отдельных слоёв:
-
-1. договор агентности игрока и стиль рассказчика;
-2. краткая библия мира и неизменяемые законы;
-3. герой, рюкзак, квесты, отряд и текущая сцена;
-4. NPC, их цели, знания, заблуждения и социальный граф;
-5. всегда активный лор;
-6. лор, найденный по ключам с поддержкой русских словоформ;
-7. релевантные эпизодические воспоминания и архивы старых сцен/глав;
-8. подходящие фрагменты пользовательских канон-документов;
-9. до 260 последних сообщений дословно в профиле DeepSeek 1M;
-10. режиссёрская заметка пользователя.
-
-Старая проза не удаляется и остаётся в IndexedDB. В запрос она попадает иерархически: свежая — дословно, старая — через релевантные архивы и факты. Поэтому история может расти, не забивая окно всей перепиской подряд. Перед сценой симулируются внешние процессы мира; после двух черновиков отдельный критик проверяет канон, знания NPC и агентность игрока, а куратор сохраняет долговечную память.
-
-Подробная схема находится в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Исследовательская база
-
-Архитектура объединяет лучшие проверенные механики, не копируя интерфейсы конкурентов:
-
-- раздельные summary и episodic memory: [AI Dungeon Memory System](https://help.aidungeon.com/faq/the-memory-system);
-- условно активируемые знания: [AI Dungeon Story Cards](https://help.aidungeon.com/faq/story-cards);
-- Lorebook, Memory и Author's Note: [NovelAI Lorebook](https://docs.novelai.net/en/text/lorebook/) и [Story Settings](https://docs.novelai.net/en/text/editor/storysettings/);
-- keyword + vector retrieval: [SillyTavern World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) и [Data Bank](https://docs.sillytavern.app/usage/core-concepts/data-bank/);
-- прозрачная редактируемая память: [Character.AI Smarter Memory](https://blog.character.ai/memory/);
-- требования доступности: [WCAG 2.2](https://www.w3.org/WAI/standards-guidelines/wcag/).
-
-## Честные границы первого релиза
-
-- Точность известных вселенных зависит от выбранной модели и пользовательского лорбука. Проект намеренно не поставляет скопированные вики или чужие книги.
-- Retrieval локальный и лексический: он прозрачен, предсказуем и не требует отдельной embedding-модели. Большие канон-документы режутся на фрагменты и извлекаются по смысловым ключам.
-- Нет облачной регистрации, мультиплеера, изображений, голоса и marketplace. Local-first данные принадлежат одному браузерному профилю.
-- При выключении вкладки активный запрос останавливается; частично сгенерированный ход не коммитится.
-
-## Структура
+Google OAuth is optional. The callback URL is:
 
 ```text
-shared/          общие типы и retrieval
-server/          API, провайдеры, prompts, Zod и orchestration
-src/components/  интерфейс
-src/lib/         state engine, IndexedDB, API adapter, demo world
-src/state/       состояние приложения
-docs/            архитектурные решения
+<PUBLIC_URL>/api/auth/google/callback
 ```
+
+## Model providers
+
+Letopis supports:
+
+- OpenAI;
+- OpenRouter;
+- Ollama and Ollama Cloud;
+- DeepSeek through an OpenAI-compatible endpoint;
+- custom OpenAI-compatible providers;
+- a built-in demo narrator that requires no API key.
+
+An API key entered in the interface is kept in the current tab's `sessionStorage`. It is not written to IndexedDB, synchronized campaigns, exports, SQLite, or this repository.
+
+## Project structure
+
+```text
+shared/          shared campaign types, retrieval, rarity, and event logic
+server/          Express API, auth, SQLite, prompts, schemas, and orchestration
+src/components/  React UI and responsive campaign panels
+src/lib/         state engine, storage, API adapters, formatting, and utilities
+src/state/       application and authentication state
+docs/            architecture notes
+```
+
+## Current limitations
+
+- Canon accuracy still depends on the selected model and the user's supplied canon material.
+- The local retrieval layer is deterministic and lexical; it intentionally avoids requiring a separate embedding provider.
+- Google login requires the repository owner to configure OAuth credentials.
+- The public deployment is an evolving project rather than a finished commercial service.
+
+## Security note
+
+Do not commit `.env`, database files, provider keys, OAuth secrets, or admin bootstrap tokens. The supplied `.gitignore` excludes local environment files, build output, logs, coverage, and the `.data` directory.
