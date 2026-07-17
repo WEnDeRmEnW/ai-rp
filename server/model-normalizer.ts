@@ -971,6 +971,81 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
   return enumFor(value, key, path)
 }
 
+const TURN_PLAN_WRAPPER_KEYS = [
+  'plan', 'turnPlan', 'turn_plan', 'directorPlan', 'director_plan', 'response', 'data',
+  'payload', 'output', 'final', 'answer', 'json', 'план', 'ответ', 'результат',
+] as const
+
+const TURN_PLAN_FIELD_ALIASES = {
+  outcome: ['result', 'summary', 'resolution', 'outcomeText', 'outcome_text', 'итог', 'исход', 'результат'],
+  beats: ['keyBeats', 'key_beats', 'sceneBeats', 'scene_beats', 'keyEvents', 'key_events', 'events', 'события', 'ключевыеСобытия', 'ходСобытий'],
+  suggestions: ['options', 'choices', 'nextActions', 'next_actions', 'actions', 'варианты', 'предложения', 'следующиеДействия', 'вариантыДействий'],
+  statePatch: ['patch', 'state_patch', 'stateChanges', 'state_changes', 'changes', 'updates', 'изменения', 'измененияСостояния', 'обновлениеСостояния'],
+} as const
+
+function parseEmbeddedJsonObject(value: unknown): Record<string, unknown> | undefined {
+  if (isRecord(value)) return value
+  if (typeof value !== 'string') return undefined
+  const text = value.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
+  if (!text.startsWith('{') || !text.endsWith('}')) return undefined
+  try {
+    const parsed = JSON.parse(text)
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function turnPlanFieldScore(value: Record<string, unknown>): number {
+  const values = (canonical: keyof typeof TURN_PLAN_FIELD_ALIASES) => [value[canonical], ...TURN_PLAN_FIELD_ALIASES[canonical].map((key) => value[key])]
+  const hasOutcome = values('outcome').some((entry) => typeof entry === 'string' && Boolean(entry.trim()))
+  const hasBeats = values('beats').some((entry) => Array.isArray(entry) || typeof entry === 'string')
+  const hasSuggestions = values('suggestions').some((entry) => Array.isArray(entry) || typeof entry === 'string')
+  const hasPatch = values('statePatch').some((entry) => isRecord(entry))
+  return [hasOutcome, hasBeats, hasSuggestions, hasPatch].filter(Boolean).length
+}
+
+/**
+ * DeepSeek occasionally returns a correct director plan under a harmless transport wrapper
+ * (`plan`, `result`, `response`, or an embedded JSON string). Unwrap only model-authored
+ * content and rename known fields; never synthesize a missing outcome, beat, suggestion or
+ * state change. This keeps the strict turn contract while avoiding five futile repair calls.
+ */
+export function normalizeTurnPlan(value: unknown): unknown {
+  const normalized = normalizeModelOutput(value)
+  if (!isRecord(normalized)) return normalized
+
+  let payload = normalized
+  for (let depth = 0; depth < 4 && turnPlanFieldScore(payload) < 2; depth += 1) {
+    let unwrapped: Record<string, unknown> | undefined
+    for (const wrapperKey of TURN_PLAN_WRAPPER_KEYS) {
+      const wrapped = parseEmbeddedJsonObject(payload[wrapperKey])
+      if (!wrapped) continue
+      unwrapped = wrapped
+      break
+    }
+
+    if (!unwrapped) {
+      const nested = Object.values(payload)
+        .map(parseEmbeddedJsonObject)
+        .filter((entry): entry is Record<string, unknown> => entry !== undefined && turnPlanFieldScore(entry) >= 2)
+      if (nested.length === 1) unwrapped = nested[0]
+    }
+    if (!unwrapped || unwrapped === payload) break
+    payload = unwrapped
+  }
+
+  const result = { ...payload }
+  for (const [canonical, aliases] of Object.entries(TURN_PLAN_FIELD_ALIASES)) {
+    if (result[canonical] === undefined) {
+      const alias = aliases.find((key) => result[key] !== undefined)
+      if (alias) result[canonical] = result[alias]
+    }
+    aliases.forEach((alias) => delete result[alias])
+  }
+  return normalizeModelOutput(result)
+}
+
 /**
  * Normalizes a standalone TurnPatch without confusing its absolute faction
  * reputation field with the same-named generated-world collection.

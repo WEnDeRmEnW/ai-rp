@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { demoWorld } from './demo'
-import { normalizeModelOutput, normalizeTurnPatch } from './model-normalizer'
+import { normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan } from './model-normalizer'
 import { continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, turnPatchSchema, turnPlanSchema } from './schemas'
 
 const worldRequest = {
@@ -341,6 +341,43 @@ describe('global DeepSeek output normalization', () => {
     expect(parsed.statePatch.inventory?.[0]).toMatchObject({
       operation: 'add', item: { category: 'quest', quantity: 1, rarity: 'common', equipped: false, effects: ['Подтверждает условия'] },
     })
+  })
+
+  it('unwraps a complete turn plan returned under DeepSeek transport wrappers', () => {
+    const parsed = turnPlanSchema.parse({
+      response: {
+        plan: {
+          outcome: 'Дверь открывается, и шум привлекает стража.',
+          beats: ['Замок поддаётся.', 'Страж слышит металлический щелчок.'],
+          suggestions: ['Спрятаться за дверью', 'Встретить стража открыто'],
+          statePatch: { scene: { tension: 56 } },
+        },
+      },
+    })
+
+    expect(parsed).toMatchObject({
+      outcome: 'Дверь открывается, и шум привлекает стража.',
+      suggestions: ['Спрятаться за дверью', 'Встретить стража открыто'],
+      statePatch: { scene: { tension: 56 } },
+    })
+  })
+
+  it('normalizes Russian turn-plan keys without inventing absent content', () => {
+    const parsed = turnPlanSchema.parse({
+      результат: 'Переговоры заканчиваются отказом.',
+      события: 'Посол закрывает папку и встаёт.',
+      варианты: ['Остановить посла вопросом', 'Позволить ему уйти'],
+      измененияСостояния: { scene: { tension: '63%' } },
+    })
+
+    expect(parsed).toMatchObject({
+      outcome: 'Переговоры заканчиваются отказом.',
+      beats: ['Посол закрывает папку и встаёт.'],
+      suggestions: ['Остановить посла вопросом', 'Позволить ему уйти'],
+      statePatch: { scene: { tension: 63 } },
+    })
+    expect(() => turnPlanSchema.parse({ patch: { scene: { tension: 10 } } })).toThrow()
+    expect(normalizeTurnPlan({ patch: { scene: { tension: 10 } } })).not.toHaveProperty('outcome')
   })
 
   it('normalizes every adaptive-world patch collection and its id arrays without a repair pass', () => {

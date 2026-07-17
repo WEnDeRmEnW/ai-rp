@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { assessLegendEcology, assessStrongCharacterEcology } from '../shared/legend-ecology.js'
-import { normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
+import { normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
 
 const stringifyScalar = (value: unknown) => typeof value === 'number' || typeof value === 'boolean' ? String(value) : value
 const idSchema = z.preprocess(stringifyScalar, z.string().min(1).max(120))
@@ -1695,7 +1695,7 @@ const turnPlanContract = z.object({
   statePatch: turnPatchSchema,
 }).strict()
 
-export const turnPlanSchema = z.preprocess((value) => normalizeModelOutput(value), turnPlanContract)
+export const turnPlanSchema = z.preprocess(normalizeTurnPlan, turnPlanContract)
 
 const consequenceDomainSchema = z.enum([
   'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
