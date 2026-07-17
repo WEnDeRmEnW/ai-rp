@@ -148,4 +148,21 @@ describe('structured provider recovery', () => {
     expect(result).toBe('Связь восстановлена.')
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  it('retries Cloudflare 524 for the same bounded generation stage', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('<html>524: A timeout occurred</html>', { status: 524 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: '{"stage":"ready"}' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(completeJson(
+      { provider: 'ollama', model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', apiKey: 'test', temperature: 0.8 },
+      [{ role: 'system', content: 'Многоэтапная генерация мира.' }, { role: 'user', content: 'Создай только один раздел.' }],
+      { stage: 'world' },
+    )).resolves.toEqual({ stage: 'ready' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
 })

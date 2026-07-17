@@ -2352,6 +2352,77 @@ const generatedWorldStructuralContract = z.object({
   }),
 }).strict()
 
+// World creation is intentionally split into bounded contracts. Each contract is complete for
+// its own domain, while generatedWorldContract below remains the single source of truth for the
+// assembled world's cross-entity guarantees. This keeps provider requests short enough to avoid
+// gateway timeouts without weakening any field or semantic validation.
+const generatedWorldCoreContract = z.object({
+  title: generatedWorldStructuralContract.shape.title,
+  world: generatedWorldStructuralContract.shape.world.pick({
+    name: true,
+    tagline: true,
+    inspiration: true,
+    genre: true,
+    tone: true,
+    era: true,
+    overview: true,
+    rules: true,
+    system: true,
+    presentation: true,
+  }).strict(),
+  player: generatedWorldStructuralContract.shape.player,
+  inventory: generatedWorldStructuralContract.shape.inventory,
+}).strict()
+
+const generatedWorldCivilizationContract = z.object({
+  world: generatedWorldStructuralContract.shape.world.pick({
+    factions: true,
+    locations: true,
+    places: true,
+    routes: true,
+    laws: true,
+    mechanics: true,
+  }).strict(),
+}).strict()
+
+const generatedWorldCharactersContract = generatedWorldStructuralContract.pick({
+  npcs: true,
+  socialLinks: true,
+  characterArcs: true,
+  antagonistPlans: true,
+  worldPressures: true,
+  influenceAssets: true,
+}).strict()
+
+const generatedWorldLegendsContract = z.object({
+  world: generatedWorldStructuralContract.shape.world.pick({
+    legendarium: true,
+    legends: true,
+  }).strict(),
+  lore: generatedWorldStructuralContract.shape.lore,
+}).strict()
+
+const generatedWorldNarrativeContract = z.object({
+  world: generatedWorldStructuralContract.shape.world.pick({
+    processes: true,
+    mysteries: true,
+  }).strict(),
+  worldEvents: generatedWorldStructuralContract.shape.worldEvents,
+  factionReputation: generatedWorldStructuralContract.shape.factionReputation,
+  threads: generatedWorldStructuralContract.shape.threads,
+  mysteryCases: generatedWorldStructuralContract.shape.mysteryCases,
+  quests: generatedWorldStructuralContract.shape.quests,
+  opening: generatedWorldStructuralContract.shape.opening,
+}).strict()
+
+const generatedWorldInterfaceContract = z.object({
+  world: generatedWorldStructuralContract.shape.world.pick({
+    interfaceModules: true,
+    interfaceBlueprint: true,
+    metrics: true,
+  }).strict(),
+}).strict()
+
 const generatedWorldContract = generatedWorldStructuralContract.superRefine((world, context) => {
   const normalizeBindingReference = (value?: string) => value?.trim().toLocaleLowerCase('ru-RU').replaceAll('ё', 'е') ?? ''
   const sameBindingReference = (left?: string, right?: string) => normalizeBindingReference(left) === normalizeBindingReference(right)
@@ -2803,10 +2874,22 @@ const generatedWorldEcologyRepairContract = z.object({
  * unrelated law, item, place and UI module five times.
  */
 export const generatedWorldDraftSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldStructuralContract)
+export const generatedWorldCoreSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCoreContract)
+export const generatedWorldCivilizationSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCivilizationContract)
+export const generatedWorldCharactersSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCharactersContract)
+export const generatedWorldLegendsSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldLegendsContract)
+export const generatedWorldNarrativeSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldNarrativeContract)
+export const generatedWorldInterfaceSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldInterfaceContract)
 export const generatedWorldEcologyRepairSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldEcologyRepairContract)
 export const generatedWorldSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldContract)
 
 export type GeneratedWorld = z.infer<typeof generatedWorldSchema>
+export type GeneratedWorldCore = z.infer<typeof generatedWorldCoreSchema>
+export type GeneratedWorldCivilization = z.infer<typeof generatedWorldCivilizationSchema>
+export type GeneratedWorldCharacters = z.infer<typeof generatedWorldCharactersSchema>
+export type GeneratedWorldLegends = z.infer<typeof generatedWorldLegendsSchema>
+export type GeneratedWorldNarrative = z.infer<typeof generatedWorldNarrativeSchema>
+export type GeneratedWorldInterface = z.infer<typeof generatedWorldInterfaceSchema>
 export type GeneratedWorldEcologyRepair = z.infer<typeof generatedWorldEcologyRepairSchema>
 export type ConceptAnalysis = z.infer<typeof conceptAnalysisSchema>
 export type WorldQualityReview = z.infer<typeof worldQualityReviewSchema>

@@ -84,7 +84,10 @@ function assertSafeEndpoint(rawUrl: string) {
   }
 }
 
-const transientStatuses = new Set([408, 425, 429, 500, 502, 503, 504])
+// 520–526 are Cloudflare origin/gateway failures. In particular, tokengo may return 524 while a
+// previous generation is still being processed; retrying the same bounded stage is safe because
+// no campaign state is persisted until the complete world passes validation.
+const transientStatuses = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526])
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 async function fetchProvider(endpoint: string, init: Omit<RequestInit, 'signal'>): Promise<Response> {

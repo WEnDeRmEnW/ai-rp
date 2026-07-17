@@ -4,8 +4,8 @@ import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEve
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldArchitectPrompt, worldEcologyRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, worldRewritePrompt } from './prompts.js'
-import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldDraftSchema, generatedWorldEcologyRepairSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldEcologyRepair, type WorldQualityReview } from './schemas.js'
+import { agencyRevisionPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder } from '../shared/rarity.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
@@ -2100,15 +2100,51 @@ export async function answerWorldQuestion(request: WorldQuestionRequest, report?
   }
 }
 
-const generatedWorldIssueIsEcologyOwned = (issue: { path: PropertyKey[] }) => (
-  issue.path[0] === 'npcs'
-  || (issue.path[0] === 'world' && issue.path[1] === 'legends')
-)
+export interface GeneratedWorldSections {
+  core: GeneratedWorldCore
+  civilization: GeneratedWorldCivilization
+  characters: GeneratedWorldCharacters
+  legends: GeneratedWorldLegends
+  narrative: GeneratedWorldNarrative
+  interface: GeneratedWorldInterface
+}
 
-function mergeGeneratedNamed<T extends { name: string }>(existing: T[], repaired: T[]) {
-  const merged = new Map(existing.map((entry) => [normalizedReference(entry.name), entry]))
-  repaired.forEach((entry) => merged.set(normalizedReference(entry.name), entry))
-  return [...merged.values()]
+export function assembleGeneratedWorldSections(sections: GeneratedWorldSections): GeneratedWorld {
+  return {
+    title: sections.core.title,
+    world: {
+      ...sections.core.world,
+      ...sections.civilization.world,
+      ...sections.legends.world,
+      ...sections.narrative.world,
+      ...sections.interface.world,
+    },
+    player: sections.core.player,
+    inventory: sections.core.inventory,
+    ...sections.characters,
+    worldEvents: sections.narrative.worldEvents,
+    factionReputation: sections.narrative.factionReputation,
+    threads: sections.narrative.threads,
+    mysteryCases: sections.narrative.mysteryCases,
+    quests: sections.narrative.quests,
+    lore: sections.legends.lore,
+    opening: sections.narrative.opening,
+  }
+}
+
+function worldStageForIssue(path: PropertyKey[]): WorldGenerationStage {
+  const [root, child] = path.map(String)
+  if (root === 'player' || root === 'inventory' || root === 'title') return 'core'
+  if (root === 'npcs' || root === 'socialLinks' || root === 'characterArcs' || root === 'antagonistPlans' || root === 'worldPressures' || root === 'influenceAssets') return 'characters'
+  if (root === 'lore') return 'legends'
+  if (root === 'worldEvents' || root === 'factionReputation' || root === 'threads' || root === 'mysteryCases' || root === 'quests' || root === 'opening') return 'narrative'
+  if (root === 'world') {
+    if (child === 'legends' || child === 'legendarium') return 'legends'
+    if (child === 'processes' || child === 'mysteries') return 'narrative'
+    if (child === 'interfaceModules' || child === 'interfaceBlueprint' || child === 'metrics') return 'interface'
+    if (child === 'factions' || child === 'locations' || child === 'places' || child === 'routes' || child === 'laws' || child === 'mechanics') return 'civilization'
+  }
+  return 'core'
 }
 
 /**
@@ -2165,80 +2201,139 @@ export function normalizeGeneratedWorldReferences(source: GeneratedWorld, reques
   return world
 }
 
-async function ensureGeneratedWorldIntegrity(
-  source: GeneratedWorld,
+export function splitGeneratedWorldSections(world: GeneratedWorld): GeneratedWorldSections {
+  const {
+    factions, locations, places, processes, legendarium, legends, mysteries, routes, laws, mechanics,
+    interfaceModules, interfaceBlueprint, metrics, ...coreWorld
+  } = world.world
+  return {
+    core: { title: world.title, world: coreWorld, player: world.player, inventory: world.inventory },
+    civilization: { world: { factions, locations, places, routes, laws, mechanics } },
+    characters: {
+      npcs: world.npcs,
+      socialLinks: world.socialLinks,
+      characterArcs: world.characterArcs,
+      antagonistPlans: world.antagonistPlans,
+      worldPressures: world.worldPressures,
+      influenceAssets: world.influenceAssets,
+    },
+    legends: { world: { legendarium, legends }, lore: world.lore },
+    narrative: {
+      world: { processes, mysteries },
+      worldEvents: world.worldEvents,
+      factionReputation: world.factionReputation,
+      threads: world.threads,
+      mysteryCases: world.mysteryCases,
+      quests: world.quests,
+      opening: world.opening,
+    },
+    interface: { world: { interfaceModules, interfaceBlueprint, metrics } },
+  }
+}
+
+function establishedFactsForStage(sections: Partial<GeneratedWorldSections>, stage: WorldGenerationStage) {
+  return Object.fromEntries(Object.entries(sections).filter(([key]) => key !== stage))
+}
+
+async function generateWorldSection<T>(
   request: WorldGenerationRequest,
   concept: ConceptAnalysis,
-  originalMessages: ReturnType<typeof worldArchitectPrompt> | ReturnType<typeof worldRewritePrompt>,
+  sections: Partial<GeneratedWorldSections>,
+  stage: WorldGenerationStage,
+  schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } } },
+  issues?: string,
+): Promise<T> {
+  const establishedFacts = establishedFactsForStage(sections, stage)
+  const currentSection = sections[stage]
+  const messages = issues && currentSection
+    ? worldGenerationStageRepairPrompt(request, concept, stage, establishedFacts, currentSection, issues)
+    : worldGenerationStagePrompt(request, concept, stage, establishedFacts)
+  const maxOutputTokens = stage === 'characters' || stage === 'legends' ? 65_536 : 49_152
+  const raw = await completeJson(request.provider, messages, { stage: 'world', maxOutputTokens })
+  return parseWithRepair<T>(raw, schema, request.provider, messages)
+}
+
+async function regenerateOwnedWorldSection(
+  stage: WorldGenerationStage,
+  sections: GeneratedWorldSections,
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
+  issues: string,
+): Promise<GeneratedWorldSections> {
+  const next = { ...sections }
+  if (stage === 'core') next.core = await generateWorldSection(request, concept, sections, stage, generatedWorldCoreSchema, issues)
+  else if (stage === 'civilization') next.civilization = await generateWorldSection(request, concept, sections, stage, generatedWorldCivilizationSchema, issues)
+  else if (stage === 'characters') next.characters = await generateWorldSection(request, concept, sections, stage, generatedWorldCharactersSchema, issues)
+  else if (stage === 'legends') next.legends = await generateWorldSection(request, concept, sections, stage, generatedWorldLegendsSchema, issues)
+  else if (stage === 'narrative') next.narrative = await generateWorldSection(request, concept, sections, stage, generatedWorldNarrativeSchema, issues)
+  else next.interface = await generateWorldSection(request, concept, sections, stage, generatedWorldInterfaceSchema, issues)
+  return next
+}
+
+async function ensureGeneratedWorldIntegrity(
+  source: GeneratedWorldSections,
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
   report?: ProgressReporter,
-): Promise<GeneratedWorld> {
-  let world = normalizeGeneratedWorldReferences(source, request.characterName)
-  let strict = generatedWorldSchema.safeParse(world)
-  if (strict.success) return strict.data
+): Promise<{ world: GeneratedWorld; sections: GeneratedWorldSections }> {
+  let sections = source
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
+    sections = splitGeneratedWorldSections(world)
+    const strict = generatedWorldSchema.safeParse(world)
+    if (strict.success) return { world: strict.data, sections: splitGeneratedWorldSections(strict.data) }
 
-  // Preserve the previous whole-world repair path for unrelated semantic failures. Ecology is
-  // handled below by a smaller contract so DeepSeek can spend its output on real characters.
-  if (strict.error.issues.some((issue) => !generatedWorldIssueIsEcologyOwned(issue))) {
-    world = normalizeGeneratedWorldReferences(
-      await parseWithRepair<GeneratedWorld>(world, generatedWorldSchema, request.provider, originalMessages),
-      request.characterName,
-    )
-    strict = generatedWorldSchema.safeParse(world)
-    if (strict.success) return strict.data
-  }
-
-  for (let attempt = 0; attempt < 3 && !strict.success; attempt += 1) {
-    reportProgress(report, 47 + attempt * 4, 'world-integrity', attempt === 0
-      ? 'Связываем легендарных фигур с полноценными персонажами, силами и точными местами'
-      : `Доводим связи сильных персонажей и легенд: проход ${attempt + 1}`, 3, 6)
-    const issues = compactIssues(strict.error, world)
-    const repairMessages = worldEcologyRepairPrompt(request, concept, world, issues)
-    const rawRepair = await completeJson(request.provider, repairMessages, { stage: 'world', maxOutputTokens: 65_536 })
-    const repair = await parseWithRepair<GeneratedWorldEcologyRepair>(
-      rawRepair,
-      generatedWorldEcologyRepairSchema,
-      request.provider,
-      repairMessages,
-    )
-    world = normalizeGeneratedWorldReferences({
-      ...world,
-      npcs: mergeGeneratedNamed(world.npcs, repair.npcs),
-      world: {
-        ...world.world,
-        legends: mergeGeneratedNamed(world.world.legends, repair.legends),
-      },
-    }, request.characterName)
-    strict = generatedWorldSchema.safeParse(world)
-    if (strict.success) return strict.data
-
-    // A repaired NPC array can expose an unrelated old dangling reference. Use the existing
-    // full repair only for that exceptional case, then return to the focused validator.
-    if (strict.error.issues.some((issue) => !generatedWorldIssueIsEcologyOwned(issue))) {
-      world = normalizeGeneratedWorldReferences(
-        await parseWithRepair<GeneratedWorld>(world, generatedWorldSchema, request.provider, originalMessages),
-        request.characterName,
+    const grouped = new Map<WorldGenerationStage, typeof strict.error.issues>()
+    strict.error.issues.forEach((issue) => {
+      const stage = worldStageForIssue(issue.path)
+      grouped.set(stage, [...(grouped.get(stage) ?? []), issue])
+    })
+    const orderedStages: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
+    for (const stage of orderedStages.filter((entry) => grouped.has(entry))) {
+      const ownedIssues = grouped.get(stage) ?? []
+      reportProgress(report, 80 + attempt * 2, 'world-integrity', `Исправляем только раздел «${stage}», не пересоздавая остальной мир`, 9, 11)
+      sections = await regenerateOwnedWorldSection(
+        stage,
+        sections,
+        request,
+        concept,
+        compactIssues({ issues: ownedIssues }, assembleGeneratedWorldSections(sections)),
       )
-      strict = generatedWorldSchema.safeParse(world)
-      if (strict.success) return strict.data
     }
   }
 
+  const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
   const finalCheck = generatedWorldSchema.safeParse(world)
-  if (finalCheck.success) return finalCheck.data
-  throw new Error(`DeepSeek не смог завершить обязательную структуру после специализированного исправления экологии мира: ${compactIssues(finalCheck.error, world)}`)
+  if (finalCheck.success) return { world: finalCheck.data, sections: splitGeneratedWorldSections(finalCheck.data) }
+  throw new Error(`DeepSeek не смог связать разделы мира после четырёх точечных исправлений: ${compactIssues(finalCheck.error, world)}`)
+}
+
+function qualityRepairStages(review: WorldQualityReview): WorldGenerationStage[] {
+  const stages = new Set<WorldGenerationStage>()
+  const locations = [...review.coverageAudit.map((entry) => entry.location), ...review.constraintAudit.map((entry) => entry.location)]
+  locations.filter(Boolean).forEach((location) => stages.add(worldStageForIssue(String(location).replaceAll('[', '.').replaceAll(']', '').split('.').filter(Boolean))))
+  const text = JSON.stringify(review).toLocaleLowerCase('ru-RU')
+  const addWhen = (pattern: RegExp, stage: WorldGenerationStage) => { if (pattern.test(text)) stages.add(stage) }
+  addWhen(/player|hero|inventory|artifact|abilit|startingaccess|геро|инвентар|артеф|способност|предмет/, 'core')
+  addWhen(/faction|location|place|route|law|mechanic|географ|фракц|локац|маршрут|закон|механик/, 'civilization')
+  addWhen(/npc|character|threatprofile|sociallink|worldpressure|персонаж|нпс|угроз|давлен/, 'characters')
+  addWhen(/legend|legendarium|lore|миф|легенд|предан/, 'legends')
+  addWhen(/opening|process|worldevent|thread|quest|mystery|сцен|процесс|событ|нить|квест|тайн/, 'narrative')
+  addWhen(/interface|blueprint|metric|binding|интерфейс|метрик|привяз/, 'interface')
+  return stages.size ? [...stages] : ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
 }
 
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {
-  reportProgress(report, 4, 'concept', 'Разбираем замысел, героя и ограничения', 1, 6)
+  reportProgress(report, 3, 'concept', 'Разбираем замысел, героя и ограничения', 1, 11)
   if (request.provider.provider === 'demo') {
-    reportProgress(report, 86, 'assembling', 'Собираем адаптивный демонстрационный мир', 5, 6)
+    reportProgress(report, 96, 'assembling', 'Собираем адаптивный демонстрационный мир', 10, 11)
     return demoWorld(request)
   }
   const analysisMessages = conceptAnalystPrompt(request)
   const rawAnalysis = await completeJson(request.provider, analysisMessages)
   let concept = await parseWithRepair<ConceptAnalysis>(rawAnalysis, conceptAnalysisSchema, request.provider, analysisMessages)
   if (concept.recognizedCanon) {
-    reportProgress(report, 17, 'canon', 'Сверяем канон, эпоху и заявленные силы', 2, 6)
+    reportProgress(report, 10, 'canon', 'Сверяем канон, эпоху и заявленные силы', 2, 11)
     const verifierMessages = canonVerifierPrompt(request, concept)
     concept = await optionalStage<ConceptAnalysis>('canon-verifier', async () => {
       const verified = await completeJson(request.provider, verifierMessages)
@@ -2246,34 +2341,28 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     }, concept)
   }
 
-  const createCandidate = async (messages: ReturnType<typeof worldArchitectPrompt> | ReturnType<typeof worldRewritePrompt>) => {
-    const parseCandidate = async (raw: unknown, candidateMessages: typeof messages) => {
-      const structural = await parseWithRepair<GeneratedWorld>(raw, generatedWorldDraftSchema, request.provider, candidateMessages)
-      return ensureGeneratedWorldIntegrity(structural, request, concept, candidateMessages, report)
-    }
-    try {
-      const raw = await completeJson(request.provider, messages)
-      return await parseCandidate(raw, messages)
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.startsWith('DeepSeek не смог завершить обязательную структуру')) throw error
-      const retryMessages = [
-        ...messages,
-        {
-          role: 'user' as const,
-          content: 'Предыдущий цикл автоматического восстановления не завершил контракт. Создай весь мир заново с тем же замыслом, полным набором способностей и той же содержательной глубиной. Перед отправкой проверь тип каждого поля, наличие всех обязательных массивов и вложенных объектов, а также покрытие канонического checklist. Верни только полный JSON.',
-        },
-      ]
-      const regenerated = await completeJson(request.provider, retryMessages)
-      return parseCandidate(regenerated, retryMessages)
-    }
-  }
+  const sections: Partial<GeneratedWorldSections> = {}
+  reportProgress(report, 18, 'world-core', 'Создаём фундамент мира, героя, способности и предметы', 3, 11)
+  sections.core = await generateWorldSection(request, concept, sections, 'core', generatedWorldCoreSchema)
+  reportProgress(report, 30, 'world-civilization', 'Строим географию, общества, законы и механику мира', 4, 11)
+  sections.civilization = await generateWorldSection(request, concept, sections, 'civilization', generatedWorldCivilizationSchema)
+  reportProgress(report, 42, 'world-characters', 'Населяем мир самостоятельными и сильными персонажами', 5, 11)
+  sections.characters = await generateWorldSection(request, concept, sections, 'characters', generatedWorldCharactersSchema)
+  reportProgress(report, 55, 'world-legends', 'Создаём эпохи, легендарных личностей и глубокий лор', 6, 11)
+  sections.legends = await generateWorldSection(request, concept, sections, 'legends', generatedWorldLegendsSchema)
+  reportProgress(report, 67, 'world-narrative', 'Запускаем автономные процессы и готовим первую сцену', 7, 11)
+  sections.narrative = await generateWorldSection(request, concept, sections, 'narrative', generatedWorldNarrativeSchema)
+  reportProgress(report, 76, 'world-interface', 'Проектируем интерфейс по уже созданным фактам мира', 8, 11)
+  sections.interface = await generateWorldSection(request, concept, sections, 'interface', generatedWorldInterfaceSchema)
 
-  reportProgress(report, 31, 'architecture', 'Проектируем правила, лор, персонажей, предметы и систему мира', 3, 6)
-  let world = await createCandidate(worldArchitectPrompt(request, concept))
+  reportProgress(report, 80, 'world-integrity', 'Проверяем все связи между разделами мира', 9, 11)
+  let integrity = await ensureGeneratedWorldIntegrity(sections as GeneratedWorldSections, request, concept, report)
+  let world = integrity.world
+  let completeSections = integrity.sections
   const maxRewrites = concept.recognizedCanon ? 2 : 1
 
   for (let attempt = 0; attempt <= maxRewrites; attempt += 1) {
-    reportProgress(report, 61 + attempt * 13, 'quality', attempt === 0 ? 'Проверяем полноту, канон и механику мира' : `Пересобираем слабые места: проход ${attempt + 1}`, 4 + Math.min(attempt, 1), 6)
+    reportProgress(report, 88 + attempt * 3, 'quality', attempt === 0 ? 'Проверяем полноту, канон и глубину мира' : `Перепроверяем точечно улучшенные разделы: проход ${attempt + 1}`, 10, 11)
     const reviewMessages = worldQualityCriticPrompt(request, concept, world)
     const fallbackReview: WorldQualityReview = {
       pass: true,
@@ -2305,17 +2394,25 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
       || effectiveReview.constraintAudit.some((entry) => entry.verdict === 'unsupported' || entry.verdict === 'wrong-continuity')
     const requiredCoverage = concept.recognizedCanon ? 95 : 90
     if (effectiveReview.pass && effectiveReview.coverage >= requiredCoverage && !hasBlockingIssue) {
-      reportProgress(report, 97, 'finalizing', 'Мир проверен и готов к сохранению', 6, 6)
+      reportProgress(report, 97, 'finalizing', 'Все разделы мира проверены и готовы к сохранению', 11, 11)
       return world
     }
     if (attempt === maxRewrites) {
-      console.warn(`[model:world-quality] Мир возвращён после ${maxRewrites} содержательных переработок; итоговое покрытие ${effectiveReview.coverage}%.`)
-      reportProgress(report, 97, 'finalizing', 'Завершаем лучший проверенный вариант мира', 6, 6)
+      console.warn(`[model:world-quality] Мир возвращён после ${maxRewrites} точечных содержательных переработок; итоговое покрытие ${effectiveReview.coverage}%.`)
+      reportProgress(report, 97, 'finalizing', 'Завершаем лучший проверенный вариант мира', 11, 11)
       return world
     }
-    world = await createCandidate(worldRewritePrompt(request, concept, world, effectiveReview))
+
+    const repairSummary = JSON.stringify(effectiveReview)
+    for (const stage of qualityRepairStages(effectiveReview)) {
+      reportProgress(report, 90 + attempt * 3, 'world-section-rewrite', `Улучшаем только раздел «${stage}» по замечаниям редактора`, 10, 11)
+      completeSections = await regenerateOwnedWorldSection(stage, completeSections, request, concept, repairSummary)
+    }
+    integrity = await ensureGeneratedWorldIntegrity(completeSections, request, concept, report)
+    world = integrity.world
+    completeSections = integrity.sections
   }
 
-  reportProgress(report, 97, 'finalizing', 'Мир готов к сохранению', 6, 6)
+  reportProgress(report, 97, 'finalizing', 'Мир готов к сохранению', 11, 11)
   return world
 }

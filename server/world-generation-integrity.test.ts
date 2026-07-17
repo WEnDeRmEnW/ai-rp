@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { demoWorld } from './demo'
-import { normalizeGeneratedWorldReferences } from './orchestrator'
-import { generatedWorldDraftSchema, generatedWorldEcologyRepairSchema, generatedWorldSchema } from './schemas'
+import { assembleGeneratedWorldSections, normalizeGeneratedWorldReferences, splitGeneratedWorldSections } from './orchestrator'
+import { generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldDraftSchema, generatedWorldEcologyRepairSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema } from './schemas'
 
 const request = {
   inspiration: 'Эйдол',
@@ -18,6 +18,20 @@ const request = {
 const validWorld = () => demoWorld(request)
 
 describe('generated world integrity pipeline', () => {
+  it('splits a full-depth world into bounded contracts and reassembles it losslessly', () => {
+    const world = validWorld()
+    const sections = splitGeneratedWorldSections(world)
+
+    expect(generatedWorldCoreSchema.safeParse(sections.core).success).toBe(true)
+    expect(generatedWorldCivilizationSchema.safeParse(sections.civilization).success).toBe(true)
+    expect(generatedWorldCharactersSchema.safeParse(sections.characters).success).toBe(true)
+    expect(generatedWorldLegendsSchema.safeParse(sections.legends).success).toBe(true)
+    expect(generatedWorldNarrativeSchema.safeParse(sections.narrative).success).toBe(true)
+    expect(generatedWorldInterfaceSchema.safeParse(sections.interface).success).toBe(true)
+    expect(assembleGeneratedWorldSections(sections)).toEqual(world)
+    expect(generatedWorldSchema.safeParse(assembleGeneratedWorldSections(sections)).success).toBe(true)
+  })
+
   it('separates a complete JSON shape from cross-entity ecology validation', () => {
     const world = validWorld()
     world.npcs = world.npcs.slice(0, 1)

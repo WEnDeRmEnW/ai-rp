@@ -4,6 +4,8 @@ import { normalizeEventDirectorSettings } from '../shared/event-director.js'
 import { grantedItemAbilities } from '../shared/effective-abilities.js'
 import type { ConceptAnalysis, GeneratedWorld, WorldQualityReview } from './schemas.js'
 
+export type WorldGenerationStage = 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
+
 const actionLabels: Record<ActionType, string> = {
   do: 'действие героя',
   say: 'дословная реплика героя',
@@ -1900,6 +1902,71 @@ quests[{title,description,objectives[],reward?,giver?}]; lore[{title,type,conten
     {
       role: 'user' as const,
       content: `Замысел: ${input.inspiration}\nЖанр: ${input.genre}\nТон: ${input.tone}\nГерой: ${input.characterName} — ${input.characterConcept}\nЖелаемое начало: ${input.opening || 'выбери сильную стартовую сцену'}\nРежим канона: ${input.canonMode}\nГраницы контента: ${input.contentBoundaries || 'не заданы'}`,
+    },
+  ]
+}
+
+const worldGenerationStageContracts: Record<WorldGenerationStage, string> = {
+  core: `ЭТАП «ФУНДАМЕНТ И ГЕРОЙ».
+Верни только объект с ключами title, world, player, inventory.
+world содержит РОВНО: name, tagline, inspiration, genre, tone, era, overview, rules, system, presentation.
+Не создавай здесь NPC, географию, события, легенды, стартовую сцену, метрики или интерфейсные модули.
+Полностью проработай героя, его реальные способности, ресурсы и стартовые предметы/артефакты. Ничего не сокращай: этот этап владеет окончательными полями player и inventory.`,
+  civilization: `ЭТАП «МИР, ГЕОГРАФИЯ И ЦИВИЛИЗАЦИИ».
+Верни только {"world":{...}}. Внутри world должны быть РОВНО ключи factions, locations, places, routes, laws, mechanics.
+Опирайся на уже установленные фундамент, эпоху и правила. Создай обширный причинный мир нужного масштаба, иерархию мест, реальные силы общества и маршруты. Не создавай процессы, события, NPC, легенды, лор, стартовую сцену или интерфейс. Не повторяй переданные факты в ответе.`,
+  characters: `ЭТАП «ЖИВЫЕ ПЕРСОНАЖИ И ЦЕНТРЫ СИЛЫ».
+Верни РОВНО ключи npcs, socialLinks, characterArcs, antagonistPlans, worldPressures, influenceAssets.
+Все ссылки используют точные имена уже созданных героя, мест и фракций. Создай самостоятельных людей с полноценными способностями, ресурсами, знаниями, стратегиями, голосами и честным постепенным раскрытием. Выполни экологию сильных персонажей: минимум четыре действующих dangerous+, два hidden и два elite+; ранги подтверждаются механикой, а не ярлыком. Не создавай легенды или сюжетные события на этом этапе.`,
+  legends: `ЭТАП «ЛЕГЕНДАРИУМ И ГЛУБОКИЙ ЛОР».
+Верни только {"world":{"legendarium":...,"legends":[...]},"lore":[...]}.
+Все живые/returned фигуры с characterName должны буквально соответствовать герою или полному NPC из установленных фактов. Все места и фракции называй точно. Создай полноценную экологию минимум из десяти уникальных фигур со всеми требованиями основного контракта, различными эпохами, областями силы, подвигами, мифами, наследием, условиями встречи и постепенным раскрытием. Историческая фигура может не иметь characterName; не создавай для неё фиктивного NPC.`,
+  narrative: `ЭТАП «АВТОНОМНАЯ ИСТОРИЯ И СТАРТОВАЯ СЦЕНА».
+Верни объект с РОВНО следующими ключами: world, worldEvents, factionReputation, threads, mysteryCases, quests, opening.
+world содержит РОВНО processes и mysteries. Все ссылки используют точные имена уже созданных персонажей, мест и фракций. Processes, worldEvents и threads образуют единую причинную сеть с уникальными title; causeTitles могут ссылаться только на реально возвращённые в ЭТОМ ответе названия и не могут ссылаться сами на себя. opening использует только существующее место и только существующих присутствующих NPC, не раскрывает hidden-факты и не принимает решения за героя. Не создавай интерфейс.`,
+  interface: `ЭТАП «АДАПТИВНЫЙ ИНТЕРФЕЙС МИРА».
+Верни только {"world":{"interfaceModules":[...],"interfaceBlueprint":...,"metrics":[...]}}.
+Проектируй интерфейс ПОСЛЕ всего мира и используй только точные существующие key/id/name из установленных фактов. Каждая binding обязана разрешаться; видимые элементы не раскрывают hidden-сущности. Все шесть основных вкладок dashboard, scene, hero, inventory, changes, world присутствуют и visible=true. Не выдумывай показатели ради виджета: metrics создаются только для реально установленной устойчивой механики. Если отдельный модуль не нужен, массив может быть пустым; качество определяется уместностью, а не количеством.`,
+}
+
+/**
+ * Uses the same exhaustive creative rules as the original architect, but asks the provider to
+ * finish only one bounded JSON contract. Previous stages are immutable facts, so later calls can
+ * add depth and references without silently rewriting earlier work.
+ */
+export function worldGenerationStagePrompt(
+  input: WorldConceptInput,
+  concept: ConceptAnalysis,
+  stage: WorldGenerationStage,
+  establishedFacts?: unknown,
+) {
+  const [architectSystem] = worldArchitectPrompt(input, concept)
+  return [
+    {
+      role: 'system' as const,
+      content: `${architectSystem.content}\n\nМНОГОЭТАПНАЯ ГЕНЕРАЦИЯ — ПОСЛЕДНЕЕ И ОБЯЗАТЕЛЬНОЕ ПРАВИЛО:\n${worldGenerationStageContracts[stage]}\nПредыдущие этапы являются неизменяемыми фактами. Не возвращай полный мир, пояснения, Markdown или поля других этапов. Верни только полный JSON текущего этапа.`,
+    },
+    {
+      role: 'user' as const,
+      content: `ИСХОДНЫЙ ЗАМЫСЕЛ:\n${JSON.stringify({ ...input, provider: undefined })}\n\nПРОВЕРЕННЫЙ РАЗБОР КОНЦЕПТА:\n${JSON.stringify(concept)}${establishedFacts === undefined ? '' : `\n\nУЖЕ УСТАНОВЛЕННЫЕ НЕИЗМЕНЯЕМЫЕ ФАКТЫ:\n${JSON.stringify(establishedFacts)}`}\n\nСоздай только этап ${stage}.`,
+    },
+  ]
+}
+
+export function worldGenerationStageRepairPrompt(
+  input: WorldConceptInput,
+  concept: ConceptAnalysis,
+  stage: WorldGenerationStage,
+  establishedFacts: unknown,
+  currentSection: unknown,
+  issues: string,
+) {
+  return [
+    ...worldGenerationStagePrompt(input, concept, stage, establishedFacts),
+    { role: 'assistant' as const, content: JSON.stringify(currentSection) },
+    {
+      role: 'user' as const,
+      content: `Итоговая проверка собранного мира нашла проблемы, принадлежащие этому этапу:\n${issues}\n\nВерни заново только ПОЛНЫЙ JSON этапа ${stage}. Сохрани все удачные конкретные детали, исправь каждую указанную причинную связь и используй только точные сущности из установленных фактов. Не возвращай поля других этапов и не сокращай вложенные профили.`,
     },
   ]
 }
