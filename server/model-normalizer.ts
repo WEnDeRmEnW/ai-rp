@@ -823,8 +823,12 @@ function normalizeProgressionChanges(value: unknown, kind: 'ability' | 'artifact
           : entry)
       : [value]
   return source.flatMap((entry) => {
+    if (entry === undefined || entry === null) return []
+    if (typeof entry === 'string' && !entry.trim()) return []
     if (!isRecord(entry)) return [entry]
+    if (Object.keys(entry).length === 0) return []
     const normalized = canonicalizeProgressionChange(entry, kind)
+    if (Object.keys(normalized).length === 0) return []
     const histories = progressionHistoryValues(normalized.history)
     if (!histories || histories.length <= 1) {
       return [{ ...normalized, ...(histories?.length === 1 ? { history: histories[0] } : {}) }]

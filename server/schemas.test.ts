@@ -761,6 +761,22 @@ describe('lossless DeepSeek turn-patch compatibility', () => {
     }])
   })
 
+  it('drops empty DeepSeek progression slots instead of failing required object validation', () => {
+    const parsed = turnPatchSchema.parse({
+      abilityChanges: [undefined, null, {}],
+      artifactChanges: [undefined, null, {}],
+      npcs: [
+        { operation: 'update', targetId: 'npc-1', npc: { abilityChanges: [undefined, null, {}], currentGoal: 'Сохраняет дистанцию.' } },
+        { operation: 'update', targetId: 'npc-2', npc: { abilityChanges: [undefined] } },
+      ],
+    })
+
+    expect(parsed.abilityChanges).toEqual([])
+    expect(parsed.artifactChanges).toEqual([])
+    expect(parsed.npcs?.[0]).toEqual({ operation: 'update', targetId: 'npc-1', npc: { abilityChanges: [], currentGoal: 'Сохраняет дистанцию.' } })
+    expect(parsed.npcs?.[1]).toEqual({ operation: 'update', targetId: 'npc-2', npc: { abilityChanges: [] } })
+  })
+
   it('canonicalizes flat mutations, explicit id updates and array-shaped deltas', () => {
     const parsed = turnPatchSchema.parse({
       resourceDeltas: [{ key: 'health', delta: -3 }, { resource: 'focus', amount: -2 }],
