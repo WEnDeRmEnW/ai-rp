@@ -135,6 +135,29 @@ describe('universal narrative event contract', () => {
     if (parsed.mode === 'none') throw new Error('Expected a materialized event')
     expect(parsed.affectedDomains).toEqual(['mystery', 'antagonist-plan', 'status-effect', 'faction-reputation', 'metric'])
   })
+
+  it('accepts a typed owner event directive with an exact delivery and magnitude', () => {
+    const parsed = campaignEditResponseSchema.parse({
+      summary: 'Легендарная встреча поставлена на следующий ход.',
+      campaignPatch: {},
+      settingsPatch: {},
+      statePatch: {},
+      eventDirective: {
+        delivery: 'next-turn',
+        proposal: {
+          mode: 'manifest', lifecycleStage: 'manifested', concept: 'В город прибывает легендарный странник по собственной старой клятве.',
+          category: 'encounter', magnitude: 'legendary', miracleKind: 'none', originKind: 'new_npc',
+          sourceIds: [], causeIds: ['player-demo'], scopeIds: [], participantIds: [], affectedDomains: ['npc', 'scene'],
+          knowledgeChannel: 'Стража объявляет о прибытии у городских ворот.', trigger: 'Срок старой клятвы наступил именно сегодня.',
+          arrivalMethod: 'Странник прошёл существующим караванным маршрутом.', observableSigns: ['У ворот собирается стража.'],
+          immediateEffects: [{ domain: 'npc', operation: 'create', targetId: 'npc-legendary-stranger', requirement: 'Создать полного уникального NPC.', observable: true, mandatory: true }],
+          persistentEffects: [], counterplay: ['Не встречаться со странником.'], cancellationConditions: ['Странник получит доказательство, что клятва уже исполнена.'],
+          canonReasoning: 'Клятва связана с установленной историей героя.', pacingReasoning: 'Встреча открывает новую линию.', noveltyReasoning: 'Такого источника и способа прибытия прежде не было.', minimumDelay: 1,
+        },
+      },
+    })
+    expect(parsed.eventDirective).toMatchObject({ delivery: 'next-turn', proposal: { magnitude: 'legendary', category: 'encounter' } })
+  })
 })
 
 describe('legend ecosystem patch contract', () => {

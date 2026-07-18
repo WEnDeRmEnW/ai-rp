@@ -2281,6 +2281,11 @@ export const campaignEditRequestSchema = z.object({
   campaign: turnRequestSchema.shape.campaign,
   instruction: z.string().trim().min(3).max(20_000),
   provider: providerSchema,
+  eventOptions: z.object({
+    delivery: z.enum(['seed', 'next-turn', 'apply-now']),
+    magnitude: z.union([z.literal('auto'), narrativeEventMagnitudeSchema]),
+    category: z.union([z.literal('auto'), narrativeEventCategorySchema]),
+  }).strict().optional(),
 })
 
 export const worldQuestionRequestSchema = z.object({
@@ -2344,6 +2349,10 @@ export const campaignEditResponseSchema = z.object({
         miracles: modelBoolean.optional(),
       }).strict().optional(),
     }).strict().optional(),
+  }).strict().optional(),
+  eventDirective: z.object({
+    delivery: z.enum(['seed', 'next-turn', 'apply-now']),
+    proposal: narrativeEventProposalContract,
   }).strict().optional(),
 }).strict()
 

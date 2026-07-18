@@ -10,6 +10,7 @@ import type {
   NarrativeEventRequirement,
   NarrativeEventSignature,
   TurnPatch,
+  WorkshopEventDirective,
 } from './types.js'
 
 export const defaultEventDirectorSettings: EventDirectorSettings = {
@@ -120,6 +121,11 @@ export function normalizeEventDirectorState(state: EventDirectorState | undefine
       createdTurn: Math.max(0, Math.round(event.createdTurn)),
       lastAdvancedTurn: Math.max(0, Math.round(event.lastAdvancedTurn)),
       nextEligibleTurn: Math.max(0, Math.round(event.nextEligibleTurn)),
+      workshopDirective: event.workshopDirective ? {
+        requestedByOwner: true,
+        delivery: 'next-turn',
+        requestedTurn: Math.max(0, Math.round(event.workshopDirective.requestedTurn)),
+      } : undefined,
     })),
   }
 }
@@ -277,10 +283,16 @@ function permissionIssues(settings: EventDirectorSettings, proposal: NarrativeEv
 const agencyViolation = /(?:^|[\s,.;:!?])(?:герой\s+)?(?:решил|решила|согласил(?:ся|ась)|полюбил|полюбила|возненавидел|возненавидела|простил|простила|почувствовал(?:а)?\s+(?:любовь|ненависть)|выбрал(?:а)?\s+сторону)(?=$|[\s,.;:!?])/iu
 
 export function validateNarrativeEventProposal(campaign: Campaign, state: EventDirectorState, proposal: NarrativeEventDecision) {
-  if (proposal.mode === 'none') return []
   const turn = campaign.turn + 1
+  if (proposal.mode === 'none') return forcedWorkshopEventDecision(state, turn)
+    ? ['Владелец кампании назначил обязательное событие на этот ход; mode=none недопустим.']
+    : []
   const settings = normalizeEventDirectorSettings(campaign.settings.eventDirector)
   const issues = permissionIssues(settings, proposal)
+  const forcedWorkshopEvent = forcedWorkshopEventDecision(state, turn)
+  if (forcedWorkshopEvent && proposal.existingEventId !== forcedWorkshopEvent.existingEventId) {
+    issues.push('На этот ход назначено конкретное событие владельца; нельзя подменить его другим событием.')
+  }
   const requirements = [...proposal.immediateEffects, ...proposal.persistentEffects]
   const active = proposal.existingEventId ? state.activeEvents.find((event) => event.id === proposal.existingEventId) : undefined
   if (proposal.existingEventId && !active) issues.push('Указано неизвестное внутреннее событие.')
@@ -398,6 +410,38 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
   return [...new Set(issues)]
 }
 
+/** Returns the exact checked proposal that the owner explicitly scheduled for this turn. */
+export function forcedWorkshopEventDecision(state: EventDirectorState, turn: number): NarrativeEventProposal | undefined {
+  const event = state.activeEvents.find((entry) => (
+    entry.workshopDirective?.requestedByOwner
+    && entry.workshopDirective.delivery === 'next-turn'
+    && entry.nextEligibleTurn <= turn
+  ))
+  if (!event) return undefined
+  const {
+    id,
+    signature: _signature,
+    stage: _stage,
+    createdTurn: _createdTurn,
+    lastAdvancedTurn: _lastAdvancedTurn,
+    nextEligibleTurn: _nextEligibleTurn,
+    workshopDirective: _workshopDirective,
+    ...proposal
+  } = event
+  void _signature
+  void _stage
+  void _createdTurn
+  void _lastAdvancedTurn
+  void _nextEligibleTurn
+  void _workshopDirective
+  return {
+    ...proposal,
+    mode: 'manifest',
+    existingEventId: id,
+    lifecycleStage: 'manifested',
+  }
+}
+
 const stageForMode = {
   seed: 'seeded',
   foreshadow: 'foreshadowed',
@@ -461,6 +505,7 @@ export function applyNarrativeEventProposal(
   const nextRecord = {
     ...toRecord(proposal, id, existing?.createdTurn ?? turn, turn),
     createdTurn: existing?.createdTurn ?? turn,
+    workshopDirective: proposal.mode === 'manifest' ? undefined : existing?.workshopDirective,
   }
   const stage = proposal.lifecycleStage ?? nextRecord.stage
   const terminal = stage === 'resolved' || stage === 'cancelled'
@@ -523,6 +568,132 @@ export function applyNarrativeEventProposal(
     activeEvents: activeEvents.slice(-12),
     nextEvaluationTurn: turn + (proposal.mode === 'seed' ? 2 : 1),
     lastEvaluatedTurn: turn,
+  }
+}
+
+const workshopChargeFloor: Record<NarrativeEventMagnitude, number> = {
+  subtle: 45,
+  notable: 60,
+  major: 75,
+  legendary: 90,
+  mythic: 100,
+}
+
+/**
+ * Stores an owner-authored event without exposing direct writes to eventDirectorState.
+ * The event can remain a hidden seed, be guaranteed for the next RP turn, or be
+ * recorded as already materialized alongside a mechanically complete state patch.
+ */
+export function applyWorkshopEventDirective(
+  campaign: Campaign,
+  preparedState: EventDirectorState,
+  directive: WorkshopEventDirective,
+  createId: () => string,
+): EventDirectorState {
+  const state = normalizeEventDirectorState(preparedState, campaign.turn)
+  const proposal = directive.proposal
+  const currentTurn = campaign.turn
+  const existingIndex = proposal.existingEventId
+    ? state.activeEvents.findIndex((event) => event.id === proposal.existingEventId)
+    : -1
+  const existing = existingIndex >= 0 ? state.activeEvents[existingIndex] : undefined
+  const id = existing?.id ?? createId()
+  const baseRecord = {
+    ...toRecord(proposal, id, existing?.createdTurn ?? currentTurn, currentTurn),
+    createdTurn: existing?.createdTurn ?? currentTurn,
+    lastAdvancedTurn: currentTurn,
+  }
+  const activeEvents = [...state.activeEvents]
+
+  if (directive.delivery === 'seed') {
+    const record: NarrativeEventRecord = {
+      ...baseRecord,
+      stage: 'seeded',
+      nextEligibleTurn: currentTurn + Math.max(1, proposal.minimumDelay),
+      workshopDirective: undefined,
+    }
+    if (existingIndex >= 0) activeEvents[existingIndex] = record
+    else activeEvents.push(record)
+    return {
+      ...state,
+      surpriseCharge: Math.max(state.surpriseCharge, 30),
+      lastSeedTurn: currentTurn,
+      nextEvaluationTurn: Math.min(record.nextEligibleTurn, currentTurn + 2),
+      activeEvents: activeEvents.slice(-12),
+    }
+  }
+
+  if (directive.delivery === 'next-turn') {
+    const record: NarrativeEventRecord = {
+      ...baseRecord,
+      stage: 'imminent',
+      nextEligibleTurn: currentTurn + 1,
+      workshopDirective: {
+        requestedByOwner: true,
+        delivery: 'next-turn',
+        requestedTurn: currentTurn,
+      },
+    }
+    if (existingIndex >= 0) activeEvents[existingIndex] = record
+    else activeEvents.push(record)
+    return {
+      ...state,
+      surpriseCharge: Math.max(state.surpriseCharge, workshopChargeFloor[proposal.magnitude]),
+      nextEvaluationTurn: currentTurn + 1,
+      activeEvents: activeEvents.slice(-12),
+    }
+  }
+
+  const record: NarrativeEventRecord = {
+    ...baseRecord,
+    stage: 'manifested',
+    nextEligibleTurn: currentTurn + Math.max(1, proposal.minimumDelay),
+    workshopDirective: undefined,
+  }
+  if (existingIndex >= 0) activeEvents[existingIndex] = record
+  else activeEvents.push(record)
+  const signature: NarrativeEventSignature = {
+    signature: narrativeEventSignature(proposal),
+    category: proposal.category,
+    magnitude: proposal.magnitude,
+    originKind: proposal.originKind,
+    affectedDomains: proposal.affectedDomains,
+    turn: currentTurn,
+    outcome: 'manifested',
+  }
+  const historyEntry = {
+    ...signature,
+    id,
+    concept: proposal.concept,
+    sourceIds: proposal.sourceIds,
+    causeIds: proposal.causeIds,
+    scopeIds: proposal.scopeIds,
+    participantIds: proposal.participantIds,
+    keyConsequences: [...proposal.immediateEffects, ...proposal.persistentEffects]
+      .filter((effect) => effect.mandatory)
+      .map((effect) => effect.requirement)
+      .slice(0, 12),
+    previousEventId: proposal.existingEventId,
+  }
+  const history = [...state.history]
+  const previousHistoryIndex = history.findIndex((entry) => entry.id === id)
+  if (previousHistoryIndex >= 0) history[previousHistoryIndex] = historyEntry
+  else history.push(historyEntry)
+  return {
+    ...state,
+    surpriseCharge: 0,
+    lastManifestedTurn: currentTurn,
+    lastLegendaryTurn: ['legendary', 'mythic'].includes(proposal.magnitude) ? currentTurn : state.lastLegendaryTurn,
+    lastMiracleTurn: proposal.miracleKind === 'intervention' ? currentTurn : state.lastMiracleTurn,
+    miracleCount: state.miracleCount + (proposal.miracleKind === 'intervention' ? 1 : 0),
+    categoryCooldowns: {
+      ...state.categoryCooldowns,
+      [proposal.category]: currentTurn + (proposal.magnitude === 'mythic' ? 40 : proposal.magnitude === 'legendary' ? 18 : 10),
+    },
+    recentSignatures: [...state.recentSignatures, signature].slice(-24),
+    history: history.slice(-160),
+    activeEvents: activeEvents.slice(-12),
+    nextEvaluationTurn: currentTurn + 1,
   }
 }
 

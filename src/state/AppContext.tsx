@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ActionType, Campaign, OperationProgress, ProviderConfig, WorldGenerationRequest } from '../../shared/types'
+import type { ActionType, Campaign, OperationProgress, ProviderConfig, WorkshopEventOptions, WorldGenerationRequest } from '../../shared/types'
 import { normalizeEventDirectorSettings } from '../../shared/event-director'
 import { editCampaign as requestCampaignEdit, generateCampaign, takeTurn } from '../lib/api'
 import { ensureCampaignIdentity } from '../lib/campaign-identity'
@@ -37,7 +37,7 @@ interface AppContextValue {
   retryFailedTurn: () => Promise<boolean>
   canRetryFailedTurn: boolean
   createCampaign: (request: Omit<WorldGenerationRequest, 'provider'>) => Promise<Campaign | undefined>
-  aiEditCampaign: (instruction: string) => Promise<string | undefined>
+  aiEditCampaign: (instruction: string, eventOptions?: WorkshopEventOptions) => Promise<string | undefined>
   updateActiveCampaign: (updater: (campaign: Campaign) => Campaign) => Promise<void>
   undoLastEdit: () => Promise<void>
   canUndoEdit: boolean
@@ -306,7 +306,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [provider, setActiveCampaignId, upsert])
 
-  const aiEditCampaign = useCallback(async (instruction: string) => {
+  const aiEditCampaign = useCallback(async (instruction: string, eventOptions?: WorkshopEventOptions) => {
     const campaign = campaigns.find((candidate) => candidate.id === activeCampaignId)
     if (!campaign || generating || instruction.trim().length < 3) return undefined
     setGenerating(true)
@@ -315,7 +315,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      const response = await requestCampaignEdit({ campaign, instruction: instruction.trim(), provider }, controller.signal, setOperationProgress)
+      const response = await requestCampaignEdit({ campaign, instruction: instruction.trim(), provider, eventOptions }, controller.signal, setOperationProgress)
       const diagnostics: Parameters<typeof applyPatch>[3] = []
       const next = applyPatch(campaign, response.statePatch, campaign.turn, diagnostics, { advanceStatusClock: false })
       if (response.campaignPatch?.title?.trim()) next.title = response.campaignPatch.title.trim()

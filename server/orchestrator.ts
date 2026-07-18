@@ -1,6 +1,6 @@
-import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
+import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorkshopEventDirective, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
-import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
+import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, normalizeEventDirectorState, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
@@ -2099,6 +2099,14 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       return decision
     }, { mode: 'none', reason: 'Этап необычного события не завершился и был безопасно пропущен.' })
   }
+  const forcedWorkshopEvent = forcedWorkshopEventDecision(preparedEventState, request.campaign.turn + 1)
+  if (forcedWorkshopEvent && (
+    eventDecision.mode === 'none'
+    || eventDecision.existingEventId !== forcedWorkshopEvent.existingEventId
+  )) {
+    eventDecision = forcedWorkshopEvent
+    eventDirectorConsulted = true
+  }
 
   reportProgress(report, 26, 'directing', 'Режиссёр строит причинный план и последствия', 4, 11)
   let director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
@@ -2878,25 +2886,126 @@ async function repairCampaignEditorAbilities(
   return turnPlanSchema.parse(source)
 }
 
+function workshopEventResponseIssues(request: CampaignEditRequest, response: CampaignEditResponse) {
+  const directive = response.eventDirective
+  if (request.eventOptions && !directive) return ['Режим события выбран, но eventDirective отсутствует.']
+  if (!directive) return []
+  const issues: string[] = []
+  const options = request.eventOptions
+  if (options && directive.delivery !== options.delivery) {
+    issues.push(`delivery должен быть ${options.delivery}, получено ${directive.delivery}.`)
+  }
+  if (options?.magnitude !== undefined && options.magnitude !== 'auto' && directive.proposal.magnitude !== options.magnitude) {
+    issues.push(`Масштаб должен быть ${options.magnitude}, получено ${directive.proposal.magnitude}.`)
+  }
+  if (options?.category !== undefined && options.category !== 'auto' && directive.proposal.category !== options.category) {
+    issues.push(`Категория должна быть ${options.category}, получено ${directive.proposal.category}.`)
+  }
+  if (directive.delivery === 'seed') {
+    if (directive.proposal.mode !== 'seed' || directive.proposal.lifecycleStage !== 'seeded') {
+      issues.push('Скрытое зерно требует proposal.mode=seed и lifecycleStage=seeded.')
+    }
+    if (directive.proposal.immediateEffects.some((effect) => effect.mandatory)) {
+      issues.push('Скрытое зерно не может немедленно материализовать обязательное последствие.')
+    }
+  } else if (directive.proposal.mode !== 'manifest' || directive.proposal.lifecycleStage !== 'manifested') {
+    issues.push('Событие следующего хода или немедленное событие требует proposal.mode=manifest и lifecycleStage=manifested.')
+  }
+  const prematurePatchKeys = Object.entries(response.statePatch).filter(([key, value]) => {
+    if (key === 'eventDirectorState' || value === undefined) return false
+    if (Array.isArray(value)) return value.length > 0
+    if (value && typeof value === 'object') return Object.keys(value).length > 0
+    return true
+  }).map(([key]) => key)
+  if (directive.delivery !== 'apply-now' && prematurePatchKeys.length > 0) {
+    issues.push(`Отложенное событие не должно применять statePatch до своего сюжетного хода: ${prematurePatchKeys.join(', ')}.`)
+  }
+
+  const manualCampaign: Campaign = {
+    ...request.campaign,
+    settings: {
+      ...request.campaign.settings,
+      eventDirector: {
+        ...defaultEventDirectorSettings,
+        enabled: true,
+        maxMagnitude: 'mythic',
+        lethality: 'ruthless',
+        miraclePolicy: 'rare',
+        canonPolicy: 'free',
+        storyImpact: 'fate-changing',
+        repetitionPolicy: 'unrestricted',
+        permissions: { ...defaultEventDirectorSettings.permissions },
+      },
+    },
+  }
+  const manualState = {
+    ...normalizeEventDirectorState(request.campaign.eventDirectorState, request.campaign.turn),
+    surpriseCharge: 100,
+    categoryCooldowns: {},
+    lastMiracleTurn: undefined,
+  }
+  issues.push(...validateNarrativeEventProposal(manualCampaign, manualState, directive.proposal)
+    .filter((issue) => issue !== 'Фундаментальное изменение мира требует ранее заложенной арки минимум в три хода.'))
+  if (directive.delivery === 'apply-now') {
+    issues.push(...narrativeEventComplianceIssues(directive.proposal, response.statePatch))
+  }
+  return [...new Set(issues)]
+}
+
+async function repairWorkshopEventResponse(
+  request: CampaignEditRequest,
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  initial: CampaignEditResponse,
+) {
+  let response = initial
+  let issues = workshopEventResponseIssues(request, response)
+  if (!issues.length) return response
+  const repairMessages = [
+    ...messages,
+    { role: 'assistant' as const, content: JSON.stringify(response) },
+    {
+      role: 'user' as const,
+      content: `Программная проверка команды события отклонила результат:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни весь JSON ответа редактора заново. Сохрани точный выбранный delivery, масштаб и категорию. Для seed/next-turn не применяй последствия заранее; для apply-now полностью реализуй каждое mandatory-требование через настоящий statePatch. Не отвечай пояснением.`,
+    },
+  ]
+  const repairedRaw = await completeJson(request.provider, repairMessages)
+  response = await parseWithRepair<CampaignEditResponse>(repairedRaw, campaignEditResponseSchema, request.provider, repairMessages)
+  issues = workshopEventResponseIssues(request, response)
+  if (issues.length) throw new Error(`Мастерская не смогла безопасно подготовить выбранное событие: ${issues.join(' ')}`)
+  return response
+}
+
 export async function editCampaign(request: CampaignEditRequest, report?: ProgressReporter): Promise<CampaignEditResponse> {
   if (request.provider.provider === 'demo') throw new Error('ИИ-корректор требует подключённую модель. Выберите DeepSeek V4 Flash в настройках.')
   reportProgress(report, 8, 'reading-state', 'Изучаем выбранную кампанию и точные идентификаторы', 1, 4)
-  const messages = campaignEditorPrompt(request.campaign, request.instruction)
+  const messages = campaignEditorPrompt(request.campaign, request.instruction, request.eventOptions)
   reportProgress(report, 28, 'planning-edit', 'ИИ проектирует минимальную корректировку без сюжетного хода', 2, 4)
   const raw = await completeJson(request.provider, messages)
   reportProgress(report, 68, 'validating-edit', 'Проверяем структуру, ссылки и допустимые изменения', 3, 4)
-  const parsed = await parseWithRepair<CampaignEditResponse>(raw, campaignEditResponseSchema, request.provider, messages)
+  const parsedInitial = await parseWithRepair<CampaignEditResponse>(raw, campaignEditResponseSchema, request.provider, messages)
+  const parsed = await repairWorkshopEventResponse(request, messages, parsedInitial)
   const plan = turnPlanSchema.parse({ outcome: parsed.summary, beats: [parsed.summary], suggestions: ['Продолжить', 'Осмотреть изменения'], statePatch: parsed.statePatch })
   const sanitized = sanitizePlan(request.campaign, plan)
   const repairedPlan = await repairCampaignEditorArtifacts(request, messages, sanitized.plan, report)
   const abilitySafePlan = await repairCampaignEditorAbilities(request, repairedPlan, report)
   const finalSanitized = sanitizePlan(request.campaign, abilitySafePlan)
   reportProgress(report, 96, 'finalizing-edit', 'Подготавливаем безопасное применение корректировки', 4, 4)
-  return {
+  const finalResponse: CampaignEditResponse = {
     ...parsed,
     summary: [...sanitized.notes, ...finalSanitized.notes].length ? `${parsed.summary} Часть небезопасных ссылок отклонена: ${[...sanitized.notes, ...finalSanitized.notes].join(' ')}` : parsed.summary,
     statePatch: finalSanitized.plan.statePatch,
   }
+  const finalEventIssues = workshopEventResponseIssues(request, finalResponse)
+  if (finalEventIssues.length) throw new Error(`Финальная проверка события остановила неполное изменение: ${finalEventIssues.join(' ')}`)
+  if (parsed.eventDirective) {
+    finalResponse.statePatch.eventDirectorState = applyWorkshopEventDirective(
+      request.campaign,
+      normalizeEventDirectorState(request.campaign.eventDirectorState, request.campaign.turn),
+      parsed.eventDirective as WorkshopEventDirective,
+      randomUUID,
+    )
+  }
+  return finalResponse
 }
 
 export async function answerWorldQuestion(request: WorldQuestionRequest, report?: ProgressReporter): Promise<WorldQuestionResponse> {

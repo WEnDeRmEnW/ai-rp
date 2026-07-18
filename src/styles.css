@@ -1173,6 +1173,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .editor-success span { min-width: 0; flex: 1; }
 .editor-success button { display: inline-flex; flex: 0 0 auto; min-height: 29px; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid currentColor; border-radius: 8px; color: #64d6a5; font-size: 8.5px; }
 .editor-ai-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.editor-event-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; padding: 12px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--accent) 5%, var(--surface-2)); }
 .app-loading { display: grid; place-items: center; align-content: center; gap: 14px; width: 100%; height: 100%; background: var(--bg); color: var(--muted); font-size: 12px; }
 .brand-mark--large { width: 50px; height: 50px; border-radius: 16px; }
 .spin { animation: spin 1s linear infinite; }
@@ -1692,6 +1693,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 /* Mobile */
 @media (max-width: 800px) {
   :root { --sidebar-width: 278px; --inspector-width: min(92vw, 360px); }
+  .editor-event-controls { grid-template-columns: 1fr; }
   .app-shell, .app-shell:not(.has-inspector), .app-shell.has-sidebar { display: block; height: 100dvh; }
   .workspace { width: 100%; height: 100%; grid-template-rows: 52px auto minmax(0, 1fr) auto; }
   .sidebar { position: fixed; z-index: 90; top: 0; bottom: 0; left: 0; width: var(--sidebar-width); border-right-color: var(--border); box-shadow: 20px 0 65px rgba(0, 0, 0, .38); transform: translateX(-105%); transition: transform .18s ease; }

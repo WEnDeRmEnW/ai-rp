@@ -225,6 +225,14 @@ describe('runtime customization prompts', () => {
     expect(director).toContain('metricDeltas используй только после фактического причинного триггера')
     expect(director).toContain('interfaceBlueprint не перестраивай на каждом ходе')
     expect(director).toContain('Досье NPC — строгая граница знаний ГЕРОЯ')
+
+    const eventEditor = campaignEditorPrompt(campaign, 'Создай прибытие легендарного наёмника.', {
+      delivery: 'next-turn', magnitude: 'legendary', category: 'encounter',
+    })[0].content
+    expect(eventEditor).toContain('ВЛАДЕЛЕЦ ВКЛЮЧИЛ РЕЖИМ СОБЫТИЯ')
+    expect(eventEditor).toContain('delivery=next-turn; magnitude=legendary; category=encounter')
+    expect(eventEditor).toContain('statePatch остаётся пустым')
+    expect(eventEditor).toContain('любого поддерживаемого содержания и масштаба')
   })
 
   it('separates semantic event invention from the checked state patch and supports one full-plan repair', () => {

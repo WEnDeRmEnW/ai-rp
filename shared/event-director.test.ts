@@ -4,7 +4,9 @@ import { createDemoCampaign } from '../src/lib/demo'
 import { commitTurn, rewindLastTurn } from '../src/lib/engine'
 import {
   applyNarrativeEventProposal,
+  applyWorkshopEventDirective,
   defaultEventDirectorState,
+  forcedWorkshopEventDecision,
   narrativeEventComplianceIssues,
   prepareEventDirectorState,
   shouldConsultEventDirector,
@@ -123,6 +125,57 @@ describe('universal narrative event director', () => {
       keyConsequences: ['Напряжение и наблюдаемая обстановка сцены отражают проявление аномалии.'],
       outcome: 'manifested',
     })
+  })
+
+  it('guarantees an owner-scheduled event on the next RP turn without applying consequences early', () => {
+    const campaign = createDemoCampaign()
+    const requested = proposal({
+      mode: 'manifest',
+      lifecycleStage: 'manifested',
+      category: 'encounter',
+      magnitude: 'legendary',
+      affectedDomains: ['npc', 'scene'],
+      immediateEffects: [
+        { domain: 'npc', operation: 'create', targetId: 'npc-workshop-arrival', requirement: 'Создать полного уникального прибывшего персонажа.', observable: true, mandatory: true },
+        { domain: 'scene', operation: 'update', requirement: 'Показать его причинное прибытие в сцене.', observable: true, mandatory: true },
+      ],
+      counterplay: ['Не вступать в контакт.', 'Уйти до прибытия персонажа.'],
+      minimumDelay: 0,
+    })
+    const queued = applyWorkshopEventDirective(campaign, defaultEventDirectorState(campaign.turn), {
+      delivery: 'next-turn',
+      proposal: requested,
+    }, () => 'event-workshop-1')
+
+    expect(queued.activeEvents[0]).toMatchObject({
+      id: 'event-workshop-1',
+      stage: 'imminent',
+      magnitude: 'legendary',
+      nextEligibleTurn: campaign.turn + 1,
+      workshopDirective: { requestedByOwner: true, delivery: 'next-turn' },
+    })
+    const forced = forcedWorkshopEventDecision(queued, campaign.turn + 1)
+    expect(forced).toMatchObject({ mode: 'manifest', existingEventId: 'event-workshop-1', magnitude: 'legendary' })
+    expect(validateNarrativeEventProposal(campaign, queued, { mode: 'none', reason: 'Пропустить.' })).toContain('Владелец кампании назначил обязательное событие на этот ход; mode=none недопустим.')
+  })
+
+  it('records an immediate workshop event at the current turn', () => {
+    const campaign = createDemoCampaign()
+    campaign.turn = 12
+    const immediate = proposal({
+      mode: 'manifest',
+      lifecycleStage: 'manifested',
+      category: 'revelation',
+      magnitude: 'notable',
+      affectedDomains: ['lore'],
+      immediateEffects: [{ domain: 'lore', operation: 'create', targetId: 'lore-workshop', requirement: 'Добавить подтверждённое открытие.', observable: true, mandatory: true }],
+    })
+    const applied = applyWorkshopEventDirective(campaign, defaultEventDirectorState(campaign.turn), {
+      delivery: 'apply-now',
+      proposal: immediate,
+    }, () => 'event-workshop-now')
+    expect(applied.history[0]).toMatchObject({ id: 'event-workshop-now', turn: 12, magnitude: 'notable', outcome: 'manifested' })
+    expect(applied.lastManifestedTurn).toBe(12)
   })
 
   it('does not call the model on every turn after an honest no-event decision', () => {

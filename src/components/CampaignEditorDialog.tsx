@@ -1,12 +1,12 @@
 import { Bot, Braces, Check, PencilLine, RotateCcw, Save, Sparkles, WandSparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { Campaign, OperationProgress } from '../../shared/types'
+import type { Campaign, OperationProgress, WorkshopEventOptions } from '../../shared/types'
 import { migrateCampaign } from '../lib/storage'
 import { Modal } from './Modal'
 import { OperationProgressPanel } from './OperationProgressPanel'
 
 type EditorMode = 'basic' | 'ai' | 'json'
-type AiEditScope = 'all' | 'world' | 'interface' | 'hero' | 'ability' | 'artifact' | 'npc' | 'faction' | 'mechanic'
+type AiEditScope = 'all' | 'event' | 'world' | 'interface' | 'hero' | 'ability' | 'artifact' | 'npc' | 'faction' | 'mechanic'
 
 interface CampaignEditorDialogProps {
   open: boolean
@@ -15,7 +15,7 @@ interface CampaignEditorDialogProps {
   progress?: OperationProgress
   onClose: () => void
   onManual: (updater: (campaign: Campaign) => Campaign) => Promise<void>
-  onAi: (instruction: string) => Promise<string | undefined>
+  onAi: (instruction: string, eventOptions?: WorkshopEventOptions) => Promise<string | undefined>
   onUndoEdit?: () => Promise<void>
   canUndoEdit?: boolean
 }
@@ -30,8 +30,30 @@ const aiSeeds = [
 ]
 
 const scopeLabels: Record<AiEditScope, string> = {
-  all: 'Вся кампания', world: 'Мир и его жизнь', interface: 'Правая панель и механики', hero: 'Главный герой', ability: 'Способность героя',
+  all: 'Вся кампания', event: 'Режиссёрское событие', world: 'Мир и его жизнь', interface: 'Правая панель и механики', hero: 'Главный герой', ability: 'Способность героя',
   artifact: 'Предмет или артефакт', npc: 'Персонаж мира', faction: 'Фракция', mechanic: 'Закон или механика',
+}
+
+const eventDeliveryLabels: Record<WorkshopEventOptions['delivery'], string> = {
+  seed: 'Скрыто заложить в мир',
+  'next-turn': 'Обязательно на следующем ходу',
+  'apply-now': 'Применить к состоянию сейчас',
+}
+
+const eventMagnitudeLabels: Record<WorkshopEventOptions['magnitude'], string> = {
+  auto: 'ИИ определит по замыслу',
+  subtle: 'Едва заметное',
+  notable: 'Заметное',
+  major: 'Крупное',
+  legendary: 'Легендарное',
+  mythic: 'Мифическое',
+}
+
+const eventCategoryLabels: Record<WorkshopEventOptions['category'], string> = {
+  auto: 'Любое — ИИ решит', encounter: 'Встреча или появление', consequence: 'Последствие', opportunity: 'Возможность', revelation: 'Открытие',
+  transformation: 'Превращение', power_shift: 'Новая или изменённая сила', artifact_shift: 'Предмет или артефакт', faction_move: 'Действие фракции',
+  social_reversal: 'Социальный перелом', environmental: 'Изменение среды', anomaly: 'Аномалия', disaster: 'Катастрофа', legend: 'Легендарное явление',
+  divine: 'Божественное событие', temporal: 'Событие времени', dimensional: 'Измерения', law_change: 'Изменение закона мира', other: 'Иное',
 }
 
 function validateEditableCampaign(value: unknown, protectedId: string): Campaign {
@@ -76,6 +98,9 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
   const [error, setError] = useState<string>()
   const [scope, setScope] = useState<AiEditScope>('all')
   const [entityId, setEntityId] = useState('')
+  const [eventDelivery, setEventDelivery] = useState<WorkshopEventOptions['delivery']>('next-turn')
+  const [eventMagnitude, setEventMagnitude] = useState<WorkshopEventOptions['magnitude']>('auto')
+  const [eventCategory, setEventCategory] = useState<WorkshopEventOptions['category']>('auto')
   const bodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -86,6 +111,9 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
     setError(undefined)
     setScope('all')
     setEntityId('')
+    setEventDelivery('next-turn')
+    setEventMagnitude('auto')
+    setEventCategory('auto')
   }, [open, campaign])
 
   useEffect(() => {
@@ -131,7 +159,11 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
             : scope === 'mechanic' ? (campaign.world.mechanics ?? []).map((entry) => ({ id: entry.id, name: entry.name })) : []
     const entity = candidates.find((entry) => entry.id === entityId)
     const scopeInstruction = `ОБЛАСТЬ ПРАВКИ: ${scopeLabels[scope]}.${entity ? ` ТОЧНАЯ СУЩНОСТЬ: «${entity.name}», id=${entity.id}.` : ''} Не изменяй данные вне выбранной области, кроме обязательных ссылок для целостности.\n\n${instruction.trim()}`
-    const result = await onAi(scopeInstruction)
+    const result = await onAi(scopeInstruction, scope === 'event' ? {
+      delivery: eventDelivery,
+      magnitude: eventMagnitude,
+      category: eventCategory,
+    } : undefined)
     if (result) {
       setMessage(result)
       setInstruction('')
@@ -195,10 +227,19 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
       </div>}
 
       {mode === 'ai' && <div className="campaign-editor-ai">
-        <div className="editor-ai-intro"><WandSparkles size={22} /><div><strong>Корректировка без сюжетного хода</strong><span>ИИ читает фактическое состояние, использует точные идентификаторы и возвращает только проверенные изменения. Время и история не двигаются.</span></div></div>
+        <div className="editor-ai-intro"><WandSparkles size={22} /><div><strong>{scope === 'event' ? 'Управляемый режиссёр событий' : 'Корректировка без сюжетного хода'}</strong><span>{scope === 'event' ? 'Вы задаёте момент, масштаб и вид события. ИИ строит уникальную причинную реализацию, а движок проверяет и сохраняет все обязательные последствия.' : 'ИИ читает фактическое состояние, использует точные идентификаторы и возвращает только проверенные изменения. Время и история не двигаются.'}</span></div></div>
         <div className="editor-ai-scope"><label className="field"><span>Область правки</span><select value={scope} onChange={(event) => { setScope(event.target.value as AiEditScope); setEntityId('') }}>{Object.entries(scopeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{entityOptions.length > 0 && <label className="field"><span>Точная сущность</span><select value={entityId} onChange={(event) => setEntityId(event.target.value)}><option value="">Выбрать…</option>{entityOptions.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</select></label>}</div>
-        <label className="field field--large"><span>Что изменить</span><textarea autoFocus rows={7} value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Например: Нунобоко должен быть каноничным оружием из мира Naruto. Перепроверь его силы, ограничения и связь со способностью героя, сохрани уже произошедшие сцены…" /></label>
-        <div className="editor-ai-seeds">{aiSeeds.map((seed) => <button key={seed} onClick={() => setInstruction(seed)}>{seed}</button>)}</div>
+        {scope === 'event' && <div className="editor-event-controls">
+          <label className="field"><span>Когда</span><select value={eventDelivery} onChange={(event) => setEventDelivery(event.target.value as WorkshopEventOptions['delivery'])}>{Object.entries(eventDeliveryLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+          <label className="field"><span>Масштаб</span><select value={eventMagnitude} onChange={(event) => setEventMagnitude(event.target.value as WorkshopEventOptions['magnitude'])}>{Object.entries(eventMagnitudeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+          <label className="field"><span>Вид события</span><select value={eventCategory} onChange={(event) => setEventCategory(event.target.value as WorkshopEventOptions['category'])}>{Object.entries(eventCategoryLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+        </div>}
+        <label className="field field--large"><span>{scope === 'event' ? 'Какое событие создать' : 'Что изменить'}</span><textarea autoFocus rows={7} value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={scope === 'event' ? 'Например: незнакомый охотник за реликвиями прибывает в город по следу украденного артефакта. Он не знает героя лично и действует по собственной цели…' : 'Например: Нунобоко должен быть каноничным оружием из мира Naruto. Перепроверь его силы, ограничения и связь со способностью героя, сохрани уже произошедшие сцены…'} /></label>
+        <div className="editor-ai-seeds">{(scope === 'event' ? [
+          'Полностью самостоятельно придумай неожиданное событие, которое естественно вырастает из этого мира и не повторяет недавние линии.',
+          'Создай появление уникального сильного персонажа со своей целью, ресурсами и честными способами взаимодействия.',
+          'Создай необычное открытие новой силы или механики мира с полноценными последствиями и возможностями реакции.',
+        ] : aiSeeds).map((seed) => <button key={seed} onClick={() => setInstruction(seed)}>{seed}</button>)}</div>
         {generating && <OperationProgressPanel progress={progress} />}
       </div>}
 

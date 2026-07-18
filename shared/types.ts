@@ -1842,6 +1842,23 @@ export interface NarrativeEventProposal {
   minimumDelay: number
 }
 
+export type WorkshopEventDelivery = 'seed' | 'next-turn' | 'apply-now'
+export type WorkshopEventMagnitude = 'auto' | NarrativeEventMagnitude
+export type WorkshopEventCategory = 'auto' | NarrativeEventCategory
+
+/** Explicit owner controls sent by the campaign workshop, never inferred by the event director. */
+export interface WorkshopEventOptions {
+  delivery: WorkshopEventDelivery
+  magnitude: WorkshopEventMagnitude
+  category: WorkshopEventCategory
+}
+
+/** A fully authored event accepted by the workshop and routed through the checked event director. */
+export interface WorkshopEventDirective {
+  delivery: WorkshopEventDelivery
+  proposal: NarrativeEventProposal
+}
+
 export type NarrativeEventDecision =
   | { mode: 'none'; reason: string }
   | NarrativeEventProposal
@@ -1853,6 +1870,11 @@ export interface NarrativeEventRecord extends Omit<NarrativeEventProposal, 'mode
   createdTurn: number
   lastAdvancedTurn: number
   nextEligibleTurn: number
+  workshopDirective?: {
+    requestedByOwner: true
+    delivery: 'next-turn'
+    requestedTurn: number
+  }
 }
 
 export interface NarrativeEventSignature {
@@ -2340,6 +2362,7 @@ export interface CampaignEditRequest {
   campaign: Campaign
   instruction: string
   provider: ProviderConfig
+  eventOptions?: WorkshopEventOptions
 }
 
 export interface CampaignEditResponse {
@@ -2351,6 +2374,7 @@ export interface CampaignEditResponse {
       permissions?: Partial<EventDirectorPermissions>
     }
   }
+  eventDirective?: WorkshopEventDirective
 }
 
 export type WorldQuestionScope = 'known' | 'complete'
