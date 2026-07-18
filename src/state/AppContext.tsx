@@ -94,15 +94,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const reconcileOwner = useCallback(async () => {
-    if (!auth.user) return getCampaignsForOwner('guest')
+  const reconcileOwner = useCallback(async (knownLocal?: Campaign[], timeoutMs?: number) => {
+    if (!auth.user) return knownLocal ?? getCampaignsForOwner('guest')
     setSyncState('syncing')
     setSyncMessage('Объединяем истории с облаком…')
     await claimGuestCampaigns(auth.user.id)
-    const local = await getCampaignsForOwner(auth.user.id)
+    const local = knownLocal ?? await getCampaignsForOwner(auth.user.id)
     try {
       const pending = getPendingDeletes(auth.user.id)
-      const result = await syncApi.reconcile(local, pending)
+      const result = await syncApi.reconcile(local, pending, timeoutMs)
       for (const tombstone of result.tombstones) await deleteStoredCampaign(tombstone.id)
       for (const campaign of result.campaigns) await saveCampaign(campaign, auth.user.id)
       setPendingDeletes(auth.user.id, [])
@@ -120,20 +120,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (auth.loading) return
     const sequence = ++loadSequenceRef.current
+    const showCampaigns = (stored: Campaign[]) => {
+      if (sequence !== loadSequenceRef.current || !stored.length) return
+      setCampaigns(stored)
+      const preferred = localStorage.getItem(`${ACTIVE_KEY}-${ownerId}`)
+      setActiveId(stored.some((campaign) => campaign.id === preferred) ? preferred! : stored[0].id)
+    }
     void (async () => {
       setLoading(true)
       try {
-        let stored = await reconcileOwner()
+        if (auth.user) await claimGuestCampaigns(auth.user.id)
+        let stored = await getCampaignsForOwner(ownerId)
+
+        // Open the durable local copy before a potentially large cloud merge.
+        // The merge continues in the background and replaces the list only
+        // after the complete remote result has been saved locally.
+        if (stored.length) {
+          showCampaigns(stored)
+          if (sequence === loadSequenceRef.current) setLoading(false)
+          if (auth.user) {
+            void reconcileOwner(stored).then((merged) => {
+              if (merged.length) showCampaigns(merged)
+            }).catch((cause) => {
+              setSyncState('error')
+              setSyncMessage(cause instanceof Error ? cause.message : 'Облако временно недоступно. Локальная копия уже открыта.')
+            })
+          }
+          return
+        }
+
+        // On a genuinely new device there is no local copy to open. Wait once
+        // for the bounded cloud request, then fall back to a usable local world.
+        if (auth.user) stored = await reconcileOwner(stored, 12_000)
         if (!stored.length) {
           const demo = createDemoCampaign()
           await saveCampaign(demo, ownerId)
           stored = [demo]
           if (auth.user) queueCloudWrite(() => syncApi.save(demo))
         }
-        if (sequence !== loadSequenceRef.current) return
-        setCampaigns(stored)
-        const preferred = localStorage.getItem(`${ACTIVE_KEY}-${ownerId}`)
-        setActiveId(stored.some((campaign) => campaign.id === preferred) ? preferred! : stored[0].id)
+        showCampaigns(stored)
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Не удалось открыть локальное хранилище.')
       } finally {

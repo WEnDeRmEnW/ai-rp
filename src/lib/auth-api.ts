@@ -22,18 +22,33 @@ export interface AccountSession {
   current: 0 | 1
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    credentials: 'same-origin',
-    headers: init?.body ? { 'content-type': 'application/json', ...init.headers } : init?.headers,
-  })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { error?: string } | null
-    throw new Error(body?.error || `Сервер вернул ошибку ${response.status}.`)
+async function request<T>(url: string, init?: RequestInit, timeoutMs = 15_000): Promise<T> {
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  const timeout = window.setTimeout(abort, timeoutMs)
+  init?.signal?.addEventListener('abort', abort, { once: true })
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      credentials: 'same-origin',
+      headers: init?.body ? { 'content-type': 'application/json', ...init.headers } : init?.headers,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: string } | null
+      throw new Error(body?.error || `Сервер вернул ошибку ${response.status}.`)
+    }
+    if (response.status === 204) return undefined as T
+    return response.json() as Promise<T>
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError' && !init?.signal?.aborted) {
+      throw new Error('Сервер не ответил вовремя. Локальные истории остаются доступны; синхронизацию можно повторить позже.')
+    }
+    throw cause
+  } finally {
+    window.clearTimeout(timeout)
+    init?.signal?.removeEventListener('abort', abort)
   }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
 }
 
 export const authApi = {
@@ -56,8 +71,8 @@ export interface SyncResult {
 }
 
 export const syncApi = {
-  reconcile: (campaigns: Campaign[], deletedIds: string[]) => request<SyncResult>('/api/sync/reconcile', { method: 'POST', body: JSON.stringify({ campaigns, deletedIds }) }),
-  save: (campaign: Campaign) => request<{ campaign: Campaign; syncedAt: string }>(`/api/sync/campaigns/${campaign.id}`, { method: 'PUT', body: JSON.stringify(campaign) }),
+  reconcile: (campaigns: Campaign[], deletedIds: string[], timeoutMs = 60_000) => request<SyncResult>('/api/sync/reconcile', { method: 'POST', body: JSON.stringify({ campaigns, deletedIds }) }, timeoutMs),
+  save: (campaign: Campaign) => request<{ campaign: Campaign; syncedAt: string }>(`/api/sync/campaigns/${campaign.id}`, { method: 'PUT', body: JSON.stringify(campaign) }, 60_000),
   remove: (id: string) => request<void>(`/api/sync/campaigns/${id}`, { method: 'DELETE' }),
 }
 
