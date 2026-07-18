@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assessItemRarity, rarityFromKnownCopies } from './rarity'
+import { assessItemRarity, rarityFromKnownCopies, rarityRequirementDeficits } from './rarity'
 
 describe('real item rarity', () => {
   it('does not turn a weak unique object into a legendary item', () => {
@@ -60,5 +60,36 @@ describe('real item rarity', () => {
       },
     })
     expect(assessment.rarity).toBe('transcendent')
+  })
+
+  it('does not confuse a very strong mythic artifact with the transcendent class', () => {
+    const assessment = assessItemRarity({
+      category: 'artifact', rarity: 'transcendent', effects: ['Reshapes an existing cosmic force'],
+      rarityProfile: {
+        basis: 'A masterpiece of the current cosmic order', scarcity: 'Only one is known', knownCopies: 1,
+        recognition: 'Recognized by imperial workshops', marketImpact: 'Cannot be priced', acquisitionRisk: 100,
+        potency: 100, versatility: 100, worldImpact: 95, provenance: 100,
+        limitations: [], assessment: 'Epochal, but it still obeys the existing laws of reality.',
+      },
+    })
+
+    expect(assessment.score).toBeGreaterThanOrEqual(92)
+    expect(assessment.rarity).toBe('mythic')
+    expect(rarityRequirementDeficits(assessment, 'transcendent')).toContain('worldImpact 95/98')
+  })
+
+  it('recognizes the exact transcendent contract without weakening it', () => {
+    const assessment = assessItemRarity({
+      category: 'artifact', rarity: 'mythic', effects: ['Overrides one fundamental law of causality'],
+      rarityProfile: {
+        basis: 'Authority cut from the first causal boundary', scarcity: 'One established instance', knownCopies: 1,
+        recognition: 'Reality custodians perceive its authority', marketImpact: 'Outside ordinary exchange', acquisitionRisk: 80,
+        potency: 95, versatility: 85, worldImpact: 98, provenance: 85,
+        limitations: ['Its authority must be stated precisely'], assessment: 'It can replace a fundamental rule rather than merely exploit it.',
+      },
+    })
+
+    expect(assessment.rarity).toBe('transcendent')
+    expect(rarityRequirementDeficits(assessment, 'transcendent')).toEqual([])
   })
 })

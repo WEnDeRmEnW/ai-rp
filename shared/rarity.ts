@@ -15,6 +15,20 @@ export interface ItemClassAssessment {
   inferred: boolean
 }
 
+export const upperRarityRequirements = {
+  mythic: {
+    potency: 88,
+    worldImpact: 91,
+    breadthOrProvenance: 75,
+  },
+  transcendent: {
+    potency: 95,
+    worldImpact: 98,
+    breadthOrProvenance: 85,
+    scarcityOrAcquisitionRisk: 80,
+  },
+} as const
+
 const clamp = (value: number) => Math.min(100, Math.max(0, value))
 const finite = (value: number | undefined) => Number.isFinite(value) ? clamp(value as number) : undefined
 
@@ -53,14 +67,56 @@ function rarityForAssessment(
   dimensions: Pick<ItemClassAssessment, 'potency' | 'versatility' | 'worldImpact' | 'provenance' | 'scarcity' | 'acquisitionRisk'>,
 ): Rarity {
   const { potency, versatility, worldImpact, provenance, scarcity, acquisitionRisk } = dimensions
+  const transcendent = upperRarityRequirements.transcendent
   if (
-    worldImpact >= 98
-    && potency >= 95
-    && Math.max(versatility, provenance) >= 85
-    && Math.max(scarcity, acquisitionRisk) >= 80
+    worldImpact >= transcendent.worldImpact
+    && potency >= transcendent.potency
+    && Math.max(versatility, provenance) >= transcendent.breadthOrProvenance
+    && Math.max(scarcity, acquisitionRisk) >= transcendent.scarcityOrAcquisitionRisk
   ) return 'transcendent'
-  if (worldImpact >= 91 && potency >= 88 && Math.max(versatility, provenance) >= 75) return 'mythic'
-  return rarityForScore(score)
+  const mythic = upperRarityRequirements.mythic
+  if (
+    worldImpact >= mythic.worldImpact
+    && potency >= mythic.potency
+    && Math.max(versatility, provenance) >= mythic.breadthOrProvenance
+  ) return 'mythic'
+
+  // Mythic and transcendent are semantic promises, not just high weighted totals.
+  // A rare, dangerous and prestigious object may score extremely well while still
+  // lacking epochal power. It remains legendary until its real mechanics satisfy
+  // one of the upper-tier contracts above.
+  const scored = rarityForScore(score)
+  return rarityOrder.indexOf(scored) > rarityOrder.indexOf('legendary') ? 'legendary' : scored
+}
+
+export function rarityRequirementDeficits(assessment: ItemClassAssessment, target: Rarity): string[] {
+  if (target === 'transcendent') {
+    const requirement = upperRarityRequirements.transcendent
+    return [
+      assessment.potency < requirement.potency ? `potency ${assessment.potency}/${requirement.potency}` : '',
+      assessment.worldImpact < requirement.worldImpact ? `worldImpact ${assessment.worldImpact}/${requirement.worldImpact}` : '',
+      Math.max(assessment.versatility, assessment.provenance) < requirement.breadthOrProvenance
+        ? `versatility или provenance ${Math.max(assessment.versatility, assessment.provenance)}/${requirement.breadthOrProvenance}`
+        : '',
+      Math.max(assessment.scarcity, assessment.acquisitionRisk) < requirement.scarcityOrAcquisitionRisk
+        ? `scarcity или acquisitionRisk ${Math.max(assessment.scarcity, assessment.acquisitionRisk)}/${requirement.scarcityOrAcquisitionRisk}`
+        : '',
+    ].filter(Boolean)
+  }
+  if (target === 'mythic') {
+    const requirement = upperRarityRequirements.mythic
+    return [
+      assessment.potency < requirement.potency ? `potency ${assessment.potency}/${requirement.potency}` : '',
+      assessment.worldImpact < requirement.worldImpact ? `worldImpact ${assessment.worldImpact}/${requirement.worldImpact}` : '',
+      Math.max(assessment.versatility, assessment.provenance) < requirement.breadthOrProvenance
+        ? `versatility или provenance ${Math.max(assessment.versatility, assessment.provenance)}/${requirement.breadthOrProvenance}`
+        : '',
+    ].filter(Boolean)
+  }
+  const requiredScore = [0, 20, 34, 48, 60, 72][rarityOrder.indexOf(target)]
+  return requiredScore !== undefined && assessment.score < requiredScore
+    ? [`итоговая сила ${assessment.score}/${requiredScore}`]
+    : []
 }
 
 function scaleImpact(scale: unknown) {

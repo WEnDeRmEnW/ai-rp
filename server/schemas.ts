@@ -1393,6 +1393,16 @@ const inventoryItemAddSchema = inventoryItemPatchSchema.extend({
   effects: z.array(z.string().trim().max(300)).max(12),
 }).strict()
 
+const artifactRewardRepairContract = z.object({
+  item: inventoryItemAddSchema.extend({
+    category: z.literal('artifact'),
+    rarityProfile: rarityProfileSchema,
+    artifact: artifactProfileSchema,
+  }).strict(),
+}).strict()
+
+export const artifactRewardRepairSchema = z.preprocess((value) => normalizeModelOutput(value), artifactRewardRepairContract)
+
 const questDraftSchema = z.object({
   id: idSchema.optional(),
   title: shortText.optional(),

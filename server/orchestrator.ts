@@ -4,9 +4,9 @@ import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEve
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
-import { assessItemRarity, rarityOrder } from '../shared/rarity.js'
+import { agencyRevisionPrompt, artifactFocusedRepairPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { agencyAuditSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
+import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 import { findAgencyViolations, type AgencyViolation } from './agency-guard.js'
@@ -1647,7 +1647,7 @@ function startingAccessIssues(concept: ConceptAnalysis, world: GeneratedWorld): 
 }
 
 const rarityRequestPatterns: Array<{ rarity: typeof rarityOrder[number]; pattern: RegExp }> = [
-  { rarity: 'transcendent', pattern: /трансцендент|transcendent/iu },
+  { rarity: 'transcendent', pattern: /трансцендент|transcendent|божественн|сильнейш|сам(?:ый|ого|ую|ое)\s+сильн|высш(?:ий|его|ую|ее)\s+(?:класс|уров)|максимальн\S*\s+(?:класс|уров)/iu },
   { rarity: 'mythic', pattern: /мифическ|mythic/iu },
   { rarity: 'legendary', pattern: /легендарн|legendary/iu },
   { rarity: 'epic', pattern: /эпическ|epic/iu },
@@ -1657,65 +1657,81 @@ const rarityRequestPatterns: Array<{ rarity: typeof rarityOrder[number]; pattern
   { rarity: 'common', pattern: /обычн|common/iu },
 ]
 
-function requestedArtifactRarity(input: string) {
+export function requestedArtifactRarity(input: string) {
   const artifactIntent = /артефакт|реликви|особ(?:ый|ого|ую)\s+предмет|оружи|artifact|relic/iu.test(input)
   if (!artifactIntent) return undefined
   return rarityRequestPatterns.find((entry) => entry.pattern.test(input))?.rarity
 }
 
-function artifactPlanQualityIssues(input: string, plan: ReturnType<typeof turnPlanSchema.parse>): string[] {
+type PlannedInventoryMutation = NonNullable<ReturnType<typeof turnPlanSchema.parse>['statePatch']['inventory']>[number]
+type PlannedArtifactItem = Extract<PlannedInventoryMutation, { operation: 'add' }>['item']
+
+function artifactItemQualityIssues(item: PlannedArtifactItem, requested?: typeof rarityOrder[number]): string[] {
+  const issues: string[] = []
+  const assessment = assessItemRarity({
+    category: item.category,
+    effects: item.effects ?? [],
+    artifact: item.artifact,
+    rarity: item.rarity,
+    rarityProfile: item.rarityProfile,
+  })
+  const claimedRank = rarityOrder.indexOf(item.rarity)
+  const assessedRank = rarityOrder.indexOf(assessment.rarity)
+  const requestedRank = requested ? rarityOrder.indexOf(requested) : -1
+  const requiredRank = Math.max(claimedRank, requestedRank)
+  const requiredRarity = rarityOrder[requiredRank]
+  if (claimedRank >= rarityOrder.indexOf('legendary') && assessedRank < claimedRank) {
+    issues.push(`«${item.name}» заявлен как ${item.rarity}, но реальные свойства дают только ${assessment.rarity} (${assessment.score}/100). Исправь свойства и оценки либо честно понизь заявленный класс.`)
+  }
+  if (requested && requestedRank >= 0 && assessedRank < requestedRank) {
+    issues.push(`Игрок запросил класс ${requested}, а «${item.name}» фактически имеет класс ${assessment.rarity}. Если запрос исполнен, создай предмет не ниже ${requested}; одна смена rarity без новых возможностей не подходит.`)
+  }
+  if (requiredRarity && requiredRank >= rarityOrder.indexOf('legendary')) {
+    const deficits = rarityRequirementDeficits(assessment, requiredRarity)
+    if (deficits.length) issues.push(`«${item.name}» не достигает класса ${requiredRarity}: ${deficits.join(', ')}.`)
+  }
+  if (!item.artifact) {
+    issues.push(`Особый предмет «${item.name}» не имеет полного artifact-профиля и его силы не попадут во вкладку героя.`)
+    return issues
+  }
+  const highTier = requiredRank >= rarityOrder.indexOf('mythic')
+  if (!highTier) return issues
+  if (!item.artifact.operatingPrinciple?.trim()) issues.push(`У «${item.name}» не описан уникальный operatingPrinciple, связывающий все силы предмета.`)
+  if (!item.artifact.powerSource?.trim()) issues.push(`У «${item.name}» не установлен конкретный powerSource из этого мира.`)
+  if (!item.artifact.scale?.trim()) issues.push(`У «${item.name}» не указан реальный масштаб действия.`)
+  const powers = item.artifact.powers ?? []
+  const concreteApplications = powers.reduce((sum, power) => sum
+    + (power.capabilities?.length ?? 0)
+    + (power.techniques?.length ?? 0)
+    + (power.examples?.length ?? 0), 0)
+    + (item.artifact.passiveEffects?.length ?? 0)
+    + (item.artifact.combinedEffects?.length ?? 0)
+  const transcendent = requiredRank >= rarityOrder.indexOf('transcendent')
+  const requiredTechniquesForSinglePower = transcendent ? 5 : 3
+  const requiredPowerCount = transcendent ? 3 : 2
+  if (powers.length < requiredPowerCount && !(powers.length === 1 && (powers[0].techniques?.length ?? 0) >= requiredTechniquesForSinglePower)) {
+    issues.push(`«${item.name}» уровня ${requiredRarity} должен иметь минимум ${requiredPowerCount} различимые силы либо одну фундаментальную силу минимум с ${requiredTechniquesForSinglePower} полноценными приёмами.`)
+  }
+  const requiredApplications = transcendent ? 12 : 8
+  if (concreteApplications < requiredApplications) issues.push(`«${item.name}» описан слишком поверхностно: нужно минимум ${requiredApplications} конкретных возможностей, приёмов, примеров, пассивных и совместных эффектов без повторов.`)
+  powers.forEach((power) => {
+    if (!power.activation?.trim()) issues.push(`У силы «${item.name} / ${power.name}» не описана настоящая активация.`)
+    if (!power.capabilities?.length) issues.push(`У силы «${item.name} / ${power.name}» нет конкретных возможностей.`)
+    if (!power.counters?.length) issues.push(`У силы «${item.name} / ${power.name}» не описано причинное противодействие.`)
+    if (!power.examples?.length) issues.push(`У силы «${item.name} / ${power.name}» нет понятного примера применения.`)
+  })
+  if (transcendent && !(item.artifact.combinedEffects?.length)) {
+    issues.push(`Трансцендентный «${item.name}» должен описывать хотя бы один настоящий combinedEffect своей фундаментальной власти.`)
+  }
+  return [...new Set(issues)]
+}
+
+export function artifactPlanQualityIssues(input: string, plan: ReturnType<typeof turnPlanSchema.parse>): string[] {
   const requested = requestedArtifactRarity(input)
   const additions = (plan.statePatch.inventory ?? []).flatMap((mutation) => (
     mutation.operation === 'add' && mutation.item?.category === 'artifact' ? [mutation.item] : []
   ))
-  const issues: string[] = []
-  for (const item of additions) {
-    const assessment = assessItemRarity({
-      category: item.category,
-      effects: item.effects ?? [],
-      artifact: item.artifact,
-      rarity: item.rarity,
-      rarityProfile: item.rarityProfile,
-    })
-    const claimedRank = rarityOrder.indexOf(item.rarity)
-    const assessedRank = rarityOrder.indexOf(assessment.rarity)
-    const requestedRank = requested ? rarityOrder.indexOf(requested) : -1
-    if (claimedRank >= rarityOrder.indexOf('legendary') && assessedRank < claimedRank) {
-      issues.push(`«${item.name}» заявлен как ${item.rarity}, но реальные свойства дают только ${assessment.rarity} (${assessment.score}/100). Исправь свойства и оценки либо честно понизь заявленный класс.`)
-    }
-    if (requested && requestedRank >= 0 && assessedRank < requestedRank) {
-      issues.push(`Игрок запросил класс ${requested}, а «${item.name}» фактически имеет класс ${assessment.rarity}. Если запрос исполнен, создай предмет не ниже ${requested}; одна смена rarity без новых возможностей не подходит.`)
-    }
-    if (!item.artifact) {
-      issues.push(`Особый предмет «${item.name}» не имеет полного artifact-профиля и его силы не попадут во вкладку героя.`)
-      continue
-    }
-    const highTier = Math.max(claimedRank, requestedRank) >= rarityOrder.indexOf('mythic')
-    if (!highTier) continue
-    const powers = item.artifact.powers ?? []
-    const concreteApplications = powers.reduce((sum, power) => sum
-      + (power.capabilities?.length ?? 0)
-      + (power.techniques?.length ?? 0)
-      + (power.examples?.length ?? 0), 0)
-      + (item.artifact.passiveEffects?.length ?? 0)
-      + (item.artifact.combinedEffects?.length ?? 0)
-    if (powers.length < 2 && !(powers.length === 1 && (powers[0].techniques?.length ?? 0) >= 3)) {
-      issues.push(`«${item.name}» уровня mythic/transcendent должен иметь несколько различимых сил либо одну фундаментальную силу с полноценной системой приёмов.`)
-    }
-    if (concreteApplications < 8) issues.push(`«${item.name}» описан слишком поверхностно: нужно минимум восемь конкретных возможностей, приёмов, примеров и совместных эффектов без повторов.`)
-    powers.forEach((power) => {
-      if (!power.activation?.trim()) issues.push(`У силы «${item.name} / ${power.name}» не описана настоящая активация.`)
-      if (!power.capabilities?.length) issues.push(`У силы «${item.name} / ${power.name}» нет конкретных возможностей.`)
-      if (!power.counters?.length) issues.push(`У силы «${item.name} / ${power.name}» не описано причинное противодействие.`)
-      if (!power.examples?.length) issues.push(`У силы «${item.name} / ${power.name}» нет понятного примера применения.`)
-    })
-    if (Math.max(claimedRank, requestedRank) >= rarityOrder.indexOf('transcendent')) {
-      if ((item.rarityProfile?.potency ?? 0) < 95 || (item.rarityProfile?.worldImpact ?? 0) < 95) {
-        issues.push(`Трансцендентный «${item.name}» обязан иметь potency и worldImpact не ниже 95 и подтверждать их реальными механиками.`)
-      }
-    }
-  }
-  return [...new Set(issues)]
+  return [...new Set(additions.flatMap((item) => artifactItemQualityIssues(item, requested)))]
 }
 
 export async function runTurn(request: TurnRequest, report?: ProgressReporter): Promise<TurnResponse> {
@@ -1775,27 +1791,79 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
   let validPlan = await createPlan()
 
-  let artifactIssues = artifactPlanQualityIssues(request.input, validPlan)
-  for (let artifactAttempt = 0; artifactIssues.length > 0 && artifactAttempt < 2; artifactAttempt += 1) {
-    reportProgress(report, 31 + artifactAttempt * 2, 'artifact-quality', artifactAttempt === 0
-      ? 'Сверяем класс, оригинальность и полный набор сил нового предмета'
-      : 'Пересобираем неполный особый предмет', 5, 11)
-    const repairMessages = artifactQualityRepairPrompt(director.messages, validPlan, artifactIssues)
-    try {
-      const repairedRaw = await completeJson(request.provider, repairMessages)
-      validPlan = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
-      artifactIssues = artifactPlanQualityIssues(request.input, validPlan)
-    } catch (error) {
-      console.warn(`[artifact-quality] Optional repair was safely skipped: ${error instanceof Error ? error.message : String(error)}`)
-      break
+  const enforceArtifactQuality = async (
+    initialPlan: ReturnType<typeof turnPlanSchema.parse>,
+    allowWholePlanRepair = true,
+  ) => {
+    let plan = initialPlan
+    let artifactIssues = artifactPlanQualityIssues(request.input, plan)
+    if (allowWholePlanRepair) {
+      for (let artifactAttempt = 0; artifactIssues.length > 0 && artifactAttempt < 2; artifactAttempt += 1) {
+        reportProgress(report, 31 + artifactAttempt * 2, 'artifact-quality', artifactAttempt === 0
+          ? 'Сверяем класс, оригинальность и полный набор сил нового предмета'
+          : 'Пересобираем неполный особый предмет', 5, 11)
+        const repairMessages = artifactQualityRepairPrompt(director.messages, plan, artifactIssues)
+        try {
+          const repairedRaw = await completeJson(request.provider, repairMessages)
+          plan = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+          artifactIssues = artifactPlanQualityIssues(request.input, plan)
+        } catch (error) {
+          console.warn(`[artifact-quality] Whole-plan repair was skipped: ${error instanceof Error ? error.message : String(error)}`)
+          break
+        }
+      }
     }
+
+    const requested = requestedArtifactRarity(request.input)
+    if (artifactIssues.length && plan.statePatch.inventory?.length) {
+      const inventory = [...plan.statePatch.inventory]
+      for (let index = 0; index < inventory.length; index += 1) {
+        const mutation = inventory[index]
+        if (mutation?.operation !== 'add' || mutation.item.category !== 'artifact') continue
+        let item = mutation.item
+        let itemIssues = artifactItemQualityIssues(item, requested)
+        if (!itemIssues.length) continue
+        const claimedRank = rarityOrder.indexOf(item.rarity)
+        const requestedRank = requested ? rarityOrder.indexOf(requested) : -1
+        const requiredRarity = rarityOrder[Math.max(claimedRank, requestedRank)] ?? item.rarity
+        const identity = { id: item.id, name: item.name, origin: item.origin }
+
+        for (let focusedAttempt = 0; itemIssues.length > 0 && focusedAttempt < 3; focusedAttempt += 1) {
+          reportProgress(report, 35 + focusedAttempt, 'artifact-quality', `Проектируем настоящий артефакт класса ${requiredRarity}: попытка ${focusedAttempt + 1}`, 5, 11)
+          const repairMessages = artifactFocusedRepairPrompt(director.messages, plan, item, requiredRarity, itemIssues)
+          try {
+            const repairedRaw = await completeJson(request.provider, repairMessages)
+            const repaired = await parseWithRepair(repairedRaw, artifactRewardRepairSchema, request.provider, repairMessages)
+            item = {
+              ...repaired.item,
+              ...(identity.id ? { id: identity.id } : {}),
+              name: identity.name,
+              ...(identity.origin ? { origin: identity.origin } : {}),
+            }
+            itemIssues = artifactItemQualityIssues(item, requested)
+          } catch (error) {
+            console.warn(`[artifact-quality] Focused repair failed: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+        inventory[index] = { operation: 'add', item }
+      }
+      plan = turnPlanSchema.parse({ ...plan, statePatch: { ...plan.statePatch, inventory } })
+      artifactIssues = artifactPlanQualityIssues(request.input, plan)
+    }
+
+    if (artifactIssues.length) {
+      const requestedRewardStillPresent = Boolean(requested && plan.statePatch.inventory?.some((mutation) => (
+        mutation.operation === 'add' && mutation.item.category === 'artifact'
+      )))
+      if (requestedRewardStillPresent) {
+        throw new Error(`DeepSeek не смог спроектировать настоящий артефакт класса ${requested}. Более слабая подмена не применена: ${artifactIssues.join(' ')}`)
+      }
+      console.warn(`[artifact-quality] High-tier claim was normalized to its factual class: ${artifactIssues.join(' ')}`)
+    }
+    return plan
   }
-  if (artifactIssues.length) {
-    // The ordinary rarity normalizer will still prevent a decorative high-tier label.
-    // Do not fail the whole RP turn: a malformed optional reward is safer when honestly
-    // downgraded than when it interrupts the scene after every other consequence succeeded.
-    console.warn(`[artifact-quality] DeepSeek left unresolved quality issues: ${artifactIssues.join(' ')}`)
-  }
+
+  validPlan = await enforceArtifactQuality(validPlan)
 
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed') {
     const complianceIssues = narrativeEventComplianceIssues(eventDecision, validPlan.statePatch)
@@ -1874,6 +1942,8 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       sanitized = sanitizePlan(request.campaign, validPlan)
     }
   }
+  validPlan = await enforceArtifactQuality(sanitized.plan, false)
+  sanitized = sanitizePlan(request.campaign, validPlan)
   reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
   const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
   const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
@@ -2052,6 +2122,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   ;(reconciled.plan.statePatch as TurnPatch).eventDirectorState = eventDirectorConsulted
     ? applyNarrativeEventProposal(request.campaign, preparedEventState, eventDecision, randomUUID)
     : preparedEventState
+
+  const finalArtifactIssues = artifactPlanQualityIssues(request.input, reconciled.plan)
+  if (requestedArtifactRarity(request.input) && finalArtifactIssues.length) {
+    throw new Error(`Финальная сверка остановила более слабую подмену запрошенного артефакта: ${finalArtifactIssues.join(' ')}`)
+  }
 
   reportProgress(report, 98, 'finalizing', 'Формируем атомарный ответ и изменения', 11, 11)
   return {

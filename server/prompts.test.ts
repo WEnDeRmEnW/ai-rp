@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
-import { backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt } from './prompts'
+import { artifactFocusedRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt } from './prompts'
 import { demoWorld } from './demo'
 
 describe('world architect prompt', () => {
@@ -519,6 +519,18 @@ describe('progression audit prompt', () => {
 describe('turn patch prompt contracts', () => {
   const oldAmbiguousArtifactWording = 'powerMastery/attunement/bond'
   const exactHistory = 'history в abilityChanges и artifactChanges — ровно один JSON-объект'
+
+  it('teaches the workshop the strict ordered mythic and transcendent power scale', () => {
+    const messages = artifactFocusedRepairPrompt([], { outcome: 'Выдан артефакт.' }, { name: 'Предел' }, 'transcendent', ['Недостаточная сила.'])
+    const instruction = messages.at(-1)?.content ?? ''
+
+    expect(instruction).toContain('transcendent — высший класс над mythic')
+    expect(instruction).toContain('potency>=95, worldImpact>=98')
+    expect(instruction).toContain('max(вычисляемая scarcity,acquisitionRisk)>=80')
+    expect(instruction).toContain('не менее трёх различимых сил')
+    expect(instruction).toContain('не менее двенадцати конкретных возможностей')
+    expect(instruction).toContain('Верни только {"item":{...}}')
+  })
 
   function expectProgressionShapes(content: string) {
     expect(content).toContain('{"abilityChanges":[{"abilityId":"<точный abilityId>","masteryDelta":3')
