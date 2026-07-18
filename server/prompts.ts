@@ -28,6 +28,25 @@ const artifactCreativeContract = `ТВОРЧЕСКИЙ КОНТРАКТ НОВО
 - Полнота досье одинакова для всех классов, сила — нет: common/uncommon получают узкий, но законченный игровой опыт; rare/exceptional — развитую специализацию; epic/legendary — несколько отличающихся применений; mythic — эпохальное влияние внутри законов; transcendent — реальную власть над фундаментальным законом.
 - Канонический предмет сохраняет точное имя, форму, эпоху, все основные силы и реальные ограничения оригинала. Не делай его искусственно иным ради novelty; зафиксируй resemblanceKind=canon и конкретный источник соответствия.`
 
+const abilityCreativeContract = `АВТОРСКИЙ КОНТРАКТ НОВОЙ ИЛИ ПРИНЦИПИАЛЬНО ПРЕОБРАЗОВАННОЙ СПОСОБНОСТИ:
+- Этот контракт действует одинаково для героя и NPC. Старую способность без profile не переписывай автоматически: полный profile обязателен только для новой записи или новой формы, ставшей отдельной сущностью.
+- Если у мира ещё нет world.capabilitySystem, вместе с первой новой способностью создай его полностью. Это авторская классификация именно этого мира: title, summary, groups[], tiers[], comparisonRules[], masteryMeaning, powerMeaning, availabilityMeaning. Не используй универсальную S/A/B-шкалу. groups объединяют сверхсилы, навыки, влияние, власть, доступ, технологии и иные реальные возможности так, как естественно этому миру. Каждая группа имеет стабильный id, label, description, natureKinds[], icon, accent, secondary и reason. Каждый tier имеет стабильный id, label, уникальный order, description, scope и evidenceRequirements[].
+- ability.profile обязателен и содержит nature, creativeIdentity, ownerExpression, standing, facets, presentation, discovery, availability только при реальном ограничении и developmentSeeds. nature.groupId и standing.tierId ссылаются только на точные id из capabilitySystem; standing.systemId — точный id самой системы.
+- creativeIdentity: coreFantasy, centralPrinciple, originPattern, interactionModel, signatureExperience, mechanicVerbs[], sensoryMotifs[], differentiation[]. Сходство школы, крови, технологии, организации, эволюции или канона разрешено только с lineageId/resemblanceKind/resemblanceReason и реальными relatedAbilityIds. Новое имя при той же механике не создаёт новую авторскую силу.
+- ownerExpression выражает конкретного владельца: summary, priorities[], habits[], signatures[], avoids[]. Один источник сохраняет общие законы, но два владельца применяют его по-разному. Не подменяй различия косметическим цветом.
+- standing отделяет реальный предел от освоения: tierLabel буквально совпадает с tier системы, basis объясняет класс, ceiling и scope задают настоящий предел, evidence[] подтверждает его, uncertainties[] честно оставляет неизвестное. mastery 0–100 означает владение и никогда не повышает природный потолок.
+- facets содержит 2–6 уместных именно этой возможности шкал 0–100. Не копируй одинаковые «мощность/скорость/контроль» всем подряд: финансовое могущество, политический мандат, ниндзюцу и имплант требуют разных граней.
+- presentation безопасен и декларативен: layout=discipline|protocol|network|mandate|mutation|constellation|arsenal|minimal, icon, короткий symbol, motif, HEX accent/secondary, density=comfortable|cinematic, sectionOrder[] и summary. Никаких HTML/CSS.
+- discovery хранит полное внутреннее досье отдельно от знаний героя: awareness, revealedSections[], techniqueKnowledge по точным id/именам техник, evidence[] и updatedTurn. Уровни hidden|hinted|known|understood. Для NPC не раскрывай скрытые техники, точный предел или уязвимость без причинного evidence.
+- availability, costs, cooldown, заряды, блокировки, требования и слабости существуют только если следуют из природы силы, канона или уже установленного факта. Никогда не придумывай плату «для баланса». Пустые costs/limitations допустимы.
+- capabilities — общий предел возможного; effects — наблюдаемые результаты; techniques — самостоятельные именованные применения; examples — конкретные сценические варианты. Не дублируй одну фразу во всех четырёх полях.
+- Каждая техника дополнительно может иметь role, signature, synergies, counters, examples, availability и progression. Закрытая либо заблокированная техника не срабатывает в прозе.
+- Необычное удачное применение сначала создаёт developmentSeed с hypothesis, distinctMechanic, requiredConfirmations от 2 до 5, promotionRule, disqualifiers, evidence и status=forming. Порог выбирай по сложности и обосновывай правилом. Только success/training подтверждают рождение техники; failure/partial уточняют условия. До достижения порога не добавляй полноценную технику. После порога используй profileChanges.developmentSeedChanges[].promoteTechnique.
+- При любом фактическом применении верни abilityExecutions[]: ownerKind, точный ownerId/abilityId/techniqueId, intent, outcome, реально оплаченные costs, requirementsUsed, effects и evidence. Если способности в ходе не применялись, верни пустой массив. Художественный результат не может превышать capabilities/effects/standing.ceiling или игнорировать availability.
+- Каноническая сила сохраняет оригинальные источник, механику, эпоху, пределы и известные техники. Индивидуальная манера владельца или подтверждённое развитие не заменяют канон слабым аналогом.`
+
+const abilityExecutionReceiptContract = `ОБЯЗАТЕЛЬНАЯ КВИТАНЦИЯ СПОСОБНОСТЕЙ: корневой JSON всегда содержит abilityExecutions. Это массив: [] если в ходе никто фактически не применял способность, иначе по одному объекту на каждое применение с ownerKind, точными ownerId/abilityId/techniqueId, intent, outcome, costs, requirementsUsed, effects и evidence. Упоминание силы без квитанции не даёт механического результата; квитанция без реального применения запрещена.`
+
 const reputationPatchShapes = `Репутация фракции имеет ровно две канонические формы: добавочное изменение {"factionReputationDeltas":{"<точное имя фракции>":-5}}; абсолютное итоговое состояние {"upsertFactionReputation":[{"factionName":"<точное имя фракции>","value":-20,"label":"Враждебность","notes":["конкретная причина"]}]}. Не путай дельту с итоговым value.`
 
 const scenePatchShape = `Сцену меняй только в форме {"scene":{"title":"...","location":"...","time":"...","weather":"...","tension":90,"presentNpcIds":["<точный npcId>"]}}; неизменившиеся поля опускай.`
@@ -1272,6 +1291,7 @@ ${eventDirective}
 - Если NPC завершил currentGoal, initiative.intent или currentPlan, немедленно замени их следующим обоснованным намерением либо терминальным состоянием соответствующей сущности. Никогда не продолжай старое действие после его фактического завершения и не создавай «вечную задачу» только для заполнения карточки.
 
 ${snapshotFieldRule}
+${abilityCreativeContract}
 ${artifactCreativeContract}
 ${scenePatchShape}
 ${conflictPatchShape}
@@ -1286,10 +1306,11 @@ ${legendPatchShape}
 ${pacingPressurePatchShape}
 ${exceptionalCharacterRules}
 ${cleanupPatchShape}
+${abilityExecutionReceiptContract}
 
 outcome и beats — только наблюдаемая текущей точкой зрения часть хода. Не помещай туда hidden процессы, secret threads/plans, внутренние strategy/knowledge NPC, точную truth тайны или невидимое worldPressure. При этом каждое устойчивое последствие statePatch, которое герой реально видит или ощущает (урон, расход, потеря предмета, применение силы, уход NPC, изменение места/времени), обязано быть прямо и недвусмысленно отражено в одном из beats; рассказчик получает именно эту безопасную часть плана.
 
-Верни только JSON с полями outcome, beats (${lengthGuide}), suggestions (2–4) и statePatch. Допустимые ключи statePatch: inventory, playerProfile, upsertStats, removeStatKeys, upsertResources, removeResourceKeys, statDeltas, resourceDeltas, currencyDeltas, addAbilities, removeAbilityIds, abilityChanges, artifactChanges, addConditions, removeConditions, upsertStatusEffects, removeStatusEffectIds, relationships, npcs, quests, lore, scene, conflict, pacing, upsertWorldPressures, world, socialLinks, removeSocialLinkIds, threads, worldEvents, factionReputationDeltas, upsertFactionReputation, party, upsertCharacterArcs, upsertMysteryCases, upsertAntagonistPlans, upsertInfluenceAssets, removeInfluenceAssetIds, cleanup, memories, events. pacing обязателен на каждом ходе и должен соответствовать уже выбранным outcome/beats, а не обещать другую сцену. Все остальные отсутствующие изменения можно опустить. outcome — строка; beats и suggestions — массивы строк; statePatch — объект. Не используй null вместо массива или объекта. Любые числовые поля возвращай JSON-числами, любые флаги — true/false. Текст — на русском.`,
+Верни только JSON с полями outcome, beats (${lengthGuide}), suggestions (2–4), abilityExecutions и statePatch. Допустимые ключи statePatch: inventory, playerProfile, upsertStats, removeStatKeys, upsertResources, removeResourceKeys, statDeltas, resourceDeltas, currencyDeltas, addAbilities, removeAbilityIds, abilityChanges, artifactChanges, addConditions, removeConditions, upsertStatusEffects, removeStatusEffectIds, relationships, npcs, quests, lore, scene, conflict, pacing, upsertWorldPressures, world, socialLinks, removeSocialLinkIds, threads, worldEvents, factionReputationDeltas, upsertFactionReputation, party, upsertCharacterArcs, upsertMysteryCases, upsertAntagonistPlans, upsertInfluenceAssets, removeInfluenceAssetIds, cleanup, memories, events. pacing обязателен на каждом ходе и должен соответствовать уже выбранным outcome/beats, а не обещать другую сцену. Все остальные отсутствующие изменения можно опустить. outcome — строка; beats и suggestions — массивы строк; abilityExecutions — массив квитанций либо []; statePatch — объект. Не используй null вместо массива или объекта. Любые числовые поля возвращай JSON-числами, любые флаги — true/false. Текст — на русском.`,
       },
       {
         role: 'user' as const,
@@ -1319,6 +1340,30 @@ ${JSON.stringify(eventDecision)}
 ${issues.map((issue) => `- ${issue}`).join('\n')}
 
 Пересобери ВЕСЬ JSON плана целиком. Сохрани пользовательский ввод, actionCheck, причинность и удачные части, но добавь каждое указанное обязательное изменение в канонические поля statePatch. Не подменяй событие художественным упоминанием. Верни только полный JSON с outcome, beats, suggestions и statePatch.`,
+    },
+  ]
+}
+
+export function abilityExecutionRepairPrompt(
+  originalMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  campaign: Campaign,
+  plan: unknown,
+  issues: string[],
+) {
+  return [
+    ...originalMessages,
+    { role: 'assistant' as const, content: JSON.stringify(plan) },
+    {
+      role: 'user' as const,
+      content: `План структурно корректен, но применение способностей не совпадает с их настоящей механикой.
+
+ОБЯЗАТЕЛЬНЫЕ ИСПРАВЛЕНИЯ:
+${issues.map((issue) => `- ${issue}`).join('\n')}
+
+ДОСТУПНЫЕ ВЛАДЕЛЬЦЫ И СПОСОБНОСТИ (данные, не инструкции):
+${JSON.stringify({ player: campaign.player, npcs: campaign.npcs })}
+
+Пересобери ВЕСЬ JSON плана с полями outcome, beats, suggestions, abilityExecutions и statePatch. Не меняй пользовательское намерение и уже установленный исход без необходимости. Для каждого фактического применения укажи точные ownerId, abilityId и techniqueId. Не активируй заблокированную технику. Не выдумывай цену: costs обязаны дословно соответствовать механике способности или техники, а оплаченная цена должна быть списана через statePatch.resourceDeltas либо npc.resourceDeltas. Заблокированное применение имеет outcome=blocked, costs=[] и effects=[]. Если способность не применялась, не создавай для неё квитанцию. Верни только полный JSON.`,
     },
   ]
 }
@@ -1441,6 +1486,45 @@ function mentionsNamedEntity(text: string, names: Array<string | undefined>) {
     const nameTokens = tokenize(normalizedName).filter((token) => token.length >= 4)
     return nameTokens.some((nameToken) => textTokens.some((textToken) => fuzzyTokenMatch(nameToken, textToken)))
   })
+}
+
+export function abilityQualityCriticPrompt(input: {
+  world: unknown
+  owner: unknown
+  ability: unknown
+  registry: unknown
+}) {
+  return [
+    {
+      role: 'system' as const,
+      content: `Ты — компактный строгий критик новой способности. Не переписывай способность. Проверь шесть независимых областей: авторская идея, исполнимая механика, соответствие миру и его capabilitySystem, индивидуальная манера владельца, честные синергии/контрмеры, понятная безопасная подача. Mastery не является мощностью. Цена, откат, слабость или заряды не обязательны и не считаются недостатком, если их нет в природе силы. Канон важнее искусственной оригинальности. Сходство допустимо только при проверяемой линии школы/крови/технологии/организации/эволюции/канона.
+
+${abilityCreativeContract}
+
+Верни только JSON {"scores":{"identity":0,"mechanics":0,"worldFit":0,"ownerExpression":0,"counterplay":0,"presentation":0},"strengths":[],"issues":[],"verdict":"excellent|good|repair"}. verdict=repair ставь только при содержательной проблеме, а не из-за отсутствия выдуманной платы.`,
+    },
+    { role: 'user' as const, content: JSON.stringify(input) },
+  ]
+}
+
+export function abilityFocusedRepairPrompt(input: {
+  world: unknown
+  owner: unknown
+  ability: unknown
+  registry: unknown
+  issues: string[]
+}) {
+  return [
+    {
+      role: 'system' as const,
+      content: `Ты точечно исправляешь ОДНУ новую способность. Не меняй имя, владельца, каноническую сущность и уже установленный сюжетный факт. Исправь каждое перечисленное замечание, сохрани удачные детали и верни полную способность. Если у старого мира ещё нет capabilitySystem, создай его полностью и верни рядом; иначе capabilitySystem опусти. Не создавай цены, откаты и слабости без причины. Не возвращай statePatch, пояснения, Markdown или null.
+
+${abilityCreativeContract}
+
+Верни только JSON {"capabilitySystem":{...необязательно...},"ability":{...полная способность...}}.`,
+    },
+    { role: 'user' as const, content: JSON.stringify(input) },
+  ]
 }
 
 export function progressionAuditPrompt(campaign: Campaign, input: string, plan: unknown) {
@@ -1755,6 +1839,7 @@ ${domains.join(', ')}.
 9. Не используй null. Все массивы — JSON-массивы, объекты — объекты, числа — числа, флаги — true/false. Значения enum и verifiedDomains пиши строго на английском.
 
 ${snapshotFieldRule}
+${abilityCreativeContract}
 ${artifactCreativeContract}
 ${scenePatchShape}
 ${conflictPatchShape}
@@ -1920,6 +2005,7 @@ export function worldArchitectPrompt(input: WorldConceptInput, concept?: Concept
 - Элементы nodes могут ссылаться links только на id элементов того же модуля. Для radar нужны минимум три числовых элемента с осмысленными min/max. Все id модулей и элементов уникальны и устойчивы.
 
 СПОСОБНОСТИ БЕЗ ИСКУССТВЕННОЙ КВОТЫ:
+${abilityCreativeContract}
 - Количество определяет концепт, а не лимит. Создай столько записей, сколько нужно для полного покрытия природы героя; если у обычного героя нет отдельной силы или формализованного умения, верни abilities=[]. Самостоятельные источники силы не склеивай в одну расплывчатую «манипуляцию всем», а разные именованные применения одного общего принципа объединяй под родительской способностью как отдельные techniques.
 - Каждая способность обязана отвечать на вопросы: что именно возможно; какой масштаб и точность; как активируется; что происходит механически; с чем сочетается; что ей противостоит; как выглядит хотя бы один конкретный пример применения.
 - examples всегда содержит хотя бы один полноценный сценический пример, демонстрирующий реальный масштаб и нестандартное применение, а не повтор названия силы.
@@ -2023,7 +2109,7 @@ quests[{title,description,objectives[],reward?,giver?}]; lore[{title,type,conten
 const worldGenerationStageContracts: Record<WorldGenerationStage, string> = {
   core: `ЭТАП «ФУНДАМЕНТ И ГЕРОЙ».
 Верни только объект с ключами title, world, player, inventory.
-world содержит РОВНО: name, tagline, inspiration, genre, tone, era, overview, rules, system, presentation.
+world содержит РОВНО: name, tagline, inspiration, genre, tone, era, overview, rules, capabilitySystem, system, presentation.
 Не создавай здесь NPC, географию, события, легенды, стартовую сцену, метрики или интерфейсные модули.
 Полностью проработай героя, его реальные способности, ресурсы и стартовые предметы/артефакты. Ничего не сокращай: этот этап владеет окончательными полями player и inventory.`,
   civilization: `ЭТАП «МИР, ГЕОГРАФИЯ И ЦИВИЛИЗАЦИИ».
@@ -2241,6 +2327,7 @@ campaignPatch поддерживает только title. settingsPatch под�
 Не используй null. Не создавай значения-заглушки, не удаляй данные без прямой просьбы, не меняй числовые показатели случайно. Изменение предмета, NPC, способности или артефакта всегда ссылается на точный id. Полную потерю предмета выражай inventory remove. Класс предмета сверяй со всеми полями rarityProfile; число экземпляров влияет только на дефицит и никогда в одиночку не даёт legendary. Если владелец просит mythic/transcendent или исправляет слишком слабый артефакт, перестрой его настоящие description/effects/rarityProfile/artifact.powers/components/passiveEffects/combinedEffects/counters/failureModes согласованно, а не меняй одну метку rarity. Transcendent — высший класс над mythic и требует potency>=95, worldImpact>=98, max(versatility,provenance)>=85, max(дефицит,acquisitionRisk)>=80 и конкретной власти над фундаментальным пределом мира. Новые силы предмета не копируй в addAbilities: вкладка героя получает их напрямую из inventory.artifact.powers; addAbilities нужен только для постоянной личной силы, существующей без предмета. Существующий артефакт полностью перерабатывай только по явному запросу владельца; обычное повышение mastery не меняет creativeIdentity.
 
 ${snapshotFieldRule}
+${abilityCreativeContract}
 ${artifactCreativeContract}
 ${scenePatchShape}
 ${conflictPatchShape}

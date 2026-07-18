@@ -1,4 +1,4 @@
-import type { Ability, AbilityKind, ArtifactPower, Campaign, InventoryItem, Rarity } from './types.js'
+import type { Ability, AbilityKind, ArtifactPower, ArtifactPresentation, Campaign, InventoryItem, Rarity } from './types.js'
 import { artifactPowerKnowledge, artifactSectionKnown } from './artifacts.js'
 
 export interface GrantedItemAbility {
@@ -6,6 +6,7 @@ export interface GrantedItemAbility {
   itemId: string
   itemName: string
   itemRarity: Rarity
+  itemPresentation?: ArtifactPresentation
   available: boolean
   blockers: string[]
   equipped: boolean
@@ -119,6 +120,7 @@ export function grantedItemAbilities(campaign: Pick<Campaign, 'inventory'>): Gra
       itemId: item.id,
       itemName: item.name,
       itemRarity: item.rarity,
+      itemPresentation: item.artifact?.presentation,
       available: blockers.length === 0,
       blockers,
       equipped: item.equipped,

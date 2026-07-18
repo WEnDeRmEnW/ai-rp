@@ -3,11 +3,12 @@ import {
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { Ability, ArtifactPower, ArtifactSection, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
+import type { Ability, ArtifactPower, ArtifactSection, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldCapabilitySystem, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { assessItemRarity } from '../../shared/rarity'
 import { grantedItemAbilities, type GrantedItemAbility } from '../../shared/effective-abilities'
 import { artifactComponentKnowledge, artifactPowerKnowledge, artifactSectionKnown } from '../../shared/artifacts'
+import { abilitySectionKnown, visibleAbilityTechniques } from '../../shared/abilities'
 import { readCanonDocument } from '../lib/canon'
 import { localizeTechnicalText, resourceUiLabel, uiLabel } from '../lib/ui-labels'
 import { getWorldInterfaceBlueprint, getWorldPresentation, getWorldSystem } from '../lib/world-customization'
@@ -133,9 +134,54 @@ function TechniqueCollection({ source, resources }: { source: Ability | Artifact
   </section>
 }
 
-function AbilityCard({ ability, expanded, onToggle, resources, access }: { ability: Ability; expanded: boolean; onToggle: () => void; resources?: Campaign['player']['resources']; access?: Pick<GrantedItemAbility, 'available' | 'blockers' | 'itemName'> }) {
+const availabilityLabels = {
+  ready: 'Готова', limited: 'Доступна частично', cooldown: 'Восстанавливается', blocked: 'Заблокирована', disabled: 'Недоступна',
+} as const
+
+function abilityGroup(system: WorldCapabilitySystem | undefined, ability: Ability) {
+  return system?.groups.find((group) => group.id === ability.profile?.nature.groupId)
+}
+
+function AbilityCard({ ability, expanded, onToggle, onOpenSource, resources, access, capabilitySystem }: { ability: Ability; expanded: boolean; onToggle: () => void; onOpenSource?: () => void; resources?: Campaign['player']['resources']; access?: Pick<GrantedItemAbility, 'available' | 'blockers' | 'itemName' | 'itemPresentation'>; capabilitySystem?: WorldCapabilitySystem }) {
   const techniqueCount = visibleTechniqueCount(ability)
-  return <div className={`ability-card ${expanded ? 'is-expanded' : ''} ${access && !access.available ? 'is-unavailable' : ''}`}>
+  const profile = ability.profile
+  if (profile) {
+    const group = abilityGroup(capabilitySystem, ability)
+    const knownTechniques = visibleAbilityTechniques(ability)
+    const identityKnown = abilitySectionKnown(ability, 'identity')
+    const standingKnown = abilitySectionKnown(ability, 'standing')
+    const availability = profile.availability
+    const currentFact = availability?.reasons[0]
+      ?? (standingKnown ? profile.standing.ceiling : undefined)
+      ?? (abilitySectionKnown(ability, 'source') ? profile.creativeIdentity.originPattern : undefined)
+    const style = {
+      '--ability-accent': profile.presentation.accent,
+      '--ability-secondary': profile.presentation.secondary,
+    } as CSSProperties
+    return <article className={`ability-card ability-card--authored layout-${profile.presentation.layout} ${access && !access.available ? 'is-unavailable' : ''}`} style={style}>
+      <button className="ability-main ability-main--authored" onClick={onToggle}>
+        <span className="ability-icon ability-icon--symbol" aria-hidden="true">{profile.presentation.symbol || '✦'}</span>
+        <span className="ability-copy">
+          <span className="ability-kicker">{group?.label ?? profile.nature.label}{standingKnown ? ` · ${profile.standing.tierLabel}` : ''}</span>
+          <strong>{ability.name}</strong>
+          <p>{identityKnown ? profile.creativeIdentity.coreFantasy : ability.description}</p>
+          <span className="ability-compact-meta">
+            <i><b>{Math.round(ability.mastery ?? 0)}%</b> освоения</i>
+            <i>{availability ? availabilityLabels[availability.state] : access?.available === false ? 'Недоступна' : 'Готова'}</i>
+            <i>{knownTechniques.length} {russianPlural(knownTechniques.length, 'приём открыт', 'приёма открыто', 'приёмов открыто')}</i>
+          </span>
+          {currentFact && <small className="ability-current-fact">{currentFact}</small>}
+          {access && <em className={`ability-access ${access.available ? 'is-ready' : 'is-locked'}`}>{access.available ? `Связана с предметом «${access.itemName}»` : access.blockers.join(' · ')}</em>}
+        </span>
+        <span className="ability-open-mark">Досье <ChevronDown size={13} /></span>
+      </button>
+    </article>
+  }
+  const sourceStyle = access?.itemPresentation ? {
+    '--ability-accent': access.itemPresentation.accent,
+    '--ability-secondary': access.itemPresentation.secondary,
+  } as CSSProperties : undefined
+  return <div className={`ability-card ${expanded ? 'is-expanded' : ''} ${access ? 'ability-card--item-projected' : ''} ${access && !access.available ? 'is-unavailable' : ''}`} style={sourceStyle}>
     <button className="ability-main" onClick={onToggle}>
       <span className="ability-icon"><Sparkles size={14} /></span><span className="ability-copy"><strong>{ability.name}{ability.rank ? ` · ${ability.rank}` : ''}</strong><p>{ability.description}</p><small>{uiLabel(ability.kind, 'Особенность')}{ability.source ? ` · ${ability.source}` : ''}{techniqueCount ? ` · ${techniqueCountLabel(techniqueCount)}` : ''}</small>{access && <em className={`ability-access ${access.available ? 'is-ready' : 'is-locked'}`}>{access.available ? 'Доступна сейчас' : access.blockers.join(' · ')}</em>}</span><ChevronDown size={14} />
     </button>
@@ -157,6 +203,7 @@ function AbilityCard({ ability, expanded, onToggle, resources, access }: { abili
       {ability.progression && <p><b>Развитие:</b> {ability.progression}</p>}
       {!!ability.evolutionPaths?.length && <div className="evolution-list"><b>Ветви развития</b>{ability.evolutionPaths.map((path) => <div className={path.unlocked ? 'is-unlocked' : ''} key={path.id}><strong>{path.name}</strong><span>{path.description}</span><small>{path.unlocked ? 'Открыто' : path.requirement}</small></div>)}</div>}
       {!!ability.history?.length && <div className="progress-history"><b>История способности</b>{[...ability.history].reverse().slice(0, 6).map((entry) => <div key={entry.id}><strong>{entry.title} · ход {entry.turn}</strong><span>{entry.description}</span></div>)}</div>}
+      {access && onOpenSource && <button type="button" className="ability-source-link" onClick={onOpenSource}><Backpack size={13} /> Открыть досье «{access.itemName}»</button>}
     </div>}
   </div>
 }
@@ -197,12 +244,14 @@ const threatTierLabels = {
   minor: 'Незначительная угроза', capable: 'Опытный противник', dangerous: 'Опасный противник', elite: 'Элитный противник', legendary: 'Легендарная угроза', mythic: 'Мифическая угроза',
 } as const
 
-function NpcCard({ npc, expanded, expandedAbilityId, onToggle, onToggleAbility }: {
+function NpcCard({ npc, expanded, expandedAbilityId, onToggle, onToggleAbility, onOpenAbility, capabilitySystem }: {
   npc: NPC
   expanded: boolean
   expandedAbilityId?: string
   onToggle: () => void
   onToggleAbility: (id: string) => void
+  onOpenAbility: (ability: Ability, resources: NPC['resources']) => void
+  capabilitySystem?: WorldCapabilitySystem
 }) {
   const disclosure = getNpcDisclosure(npc)
   const strategySections: NPCDossierSection[] = ['strategyOverview', 'strategyMetrics', 'strategyPlan', 'strategyDetails', 'countermeasures']
@@ -252,7 +301,7 @@ function NpcCard({ npc, expanded, expandedAbilityId, onToggle, onToggleAbility }
         {disclosure.has('countermeasures') && npc.strategy.visibility === 'known' && !!npc.strategy.countermeasures?.some((entry) => entry.visibility !== 'hidden') && <div className="countermeasure-list"><b>Известные контрмеры</b>{npc.strategy.countermeasures.filter((entry) => entry.visibility !== 'hidden').map((entry) => <article key={`${entry.name}:${entry.against}`} className={`countermeasure-${entry.status}`}><div><strong>{entry.name}</strong><span>{entry.status === 'prepared' ? 'Подготовлена' : entry.status === 'spent' ? 'Израсходована' : entry.status === 'broken' ? 'Сорвана' : 'Доступна'}</span></div><p>{entry.visibility === 'rumored' ? entry.against : entry.response}</p>{entry.visibility === 'known' && <><DetailList title="Против чего" values={[entry.against]} /><DetailList title="Условия" values={entry.requirements} /><DetailList title="Цена и риск" values={entry.tradeoffs} /></>}</article>)}</div>}
       </div>}
       <div className="npc-detail-heading"><strong><Sparkles size={13} /> Известные способности</strong>{disclosure.abilities.length > 0 && <span>Открыто: {disclosure.abilities.length}</span>}</div>
-      {disclosure.abilities.length > 0 ? <div className="ability-list npc-ability-list">{disclosure.abilities.map((ability) => { const expansionId = `${npc.id}:${ability.id}`; return <AbilityCard key={ability.id} ability={ability} resources={disclosure.resources} expanded={expandedAbilityId === expansionId} onToggle={() => onToggleAbility(expansionId)} /> })}</div> : <EmptyMini>Герой ещё не видел способностей этого персонажа и не получил надёжных сведений о них.</EmptyMini>}
+      {disclosure.abilities.length > 0 ? <div className="ability-list npc-ability-list">{disclosure.abilities.map((ability) => { const expansionId = `${npc.id}:${ability.id}`; return <AbilityCard key={ability.id} ability={ability} capabilitySystem={capabilitySystem} resources={disclosure.resources} expanded={expandedAbilityId === expansionId} onToggle={() => ability.profile ? onOpenAbility(ability, disclosure.resources) : onToggleAbility(expansionId)} /> })}</div> : <EmptyMini>Герой ещё не видел способностей этого персонажа и не получил надёжных сведений о них.</EmptyMini>}
       {!!disclosure.conditions.length && <div className="npc-effect-list"><strong>Известные состояния</strong>{disclosure.conditions.map((effect) => <div key={effect.id}><b>{effect.name}{effect.stacks > 1 ? ` ×${effect.stacks}` : ''}</b><span>{effect.description}</span><small>{effect.effects.join(' · ')}</small></div>)}</div>}
       {!disclosure.evidence.length && !disclosure.stats.length && !disclosure.resources.length && !disclosure.abilities.length && <div className="npc-locked-note"><Search size={13} /><span><b>Остальное пока неизвестно</b><small>Наблюдайте, разговаривайте, расследуйте и проверяйте слухи — карточка будет открываться по фактам истории.</small></span></div>}
     </div>}
@@ -368,6 +417,50 @@ function ItemRarityCard({ item, label }: { item: InventoryItem; label: string })
   </div>
 }
 
+function AbilityDossier({ ability, system, resources, ownerName, onClose }: {
+  ability?: Ability
+  system?: WorldCapabilitySystem
+  resources?: Campaign['player']['resources']
+  ownerName?: string
+  onClose: () => void
+}) {
+  if (!ability?.profile) return null
+  const profile = ability.profile
+  const group = abilityGroup(system, ability)
+  const techniques = visibleAbilityTechniques(ability)
+  const hiddenTechniques = (ability.techniques?.length ?? 0) > techniques.length
+  const section = (key: Parameters<typeof abilitySectionKnown>[1]) => abilitySectionKnown(ability, key)
+  const style = {
+    '--ability-accent': profile.presentation.accent,
+    '--ability-secondary': profile.presentation.secondary,
+  } as CSSProperties
+  return <Modal open onClose={onClose} title={ability.name} eyebrow={`${group?.label ?? profile.nature.label}${ownerName ? ` · ${ownerName}` : ''}`} width="large">
+    <div className={`ability-dossier layout-${profile.presentation.layout}`} style={style}>
+      <header className="ability-dossier-hero">
+        <span>{profile.presentation.symbol || '✦'}</span>
+        <div><b>{profile.standing.tierLabel}</b><p>{section('identity') ? profile.creativeIdentity.coreFantasy : ability.description}</p><small>{profile.presentation.motif}</small></div>
+      </header>
+      <div className="ability-dossier-scroll">
+        <section className="ability-dossier-mastery">
+          <div><span>Освоение владельцем</span><b>{Math.round(ability.mastery ?? 0)}%</b><i><em style={{ width: `${Math.max(0, Math.min(100, ability.mastery ?? 0))}%` }} /></i><small>{system?.masteryMeaning ?? 'Практическое владение этой возможностью'}</small></div>
+          {section('standing') && <article><span>Реальный предел</span><strong>{profile.standing.tierLabel}</strong><p>{profile.standing.ceiling}</p><small>{profile.standing.scope}</small></article>}
+        </section>
+        {section('facets') && <section className="ability-facets">{profile.facets.map((facet) => <article key={facet.key}><div><span>{facet.label}</span><b>{Math.round(facet.value)}</b></div><i><em style={{ width: `${Math.max(0, Math.min(100, facet.value))}%` }} /></i><p>{facet.description}</p></article>)}</section>}
+        {section('principle') && <section className="ability-dossier-section"><h3>Принцип и авторский стиль</h3><p>{profile.creativeIdentity.centralPrinciple}</p><p>{profile.creativeIdentity.interactionModel}</p><div className="ability-owner-expression"><b>Манера владельца</b><p>{profile.ownerExpression.summary}</p><DetailList title="Предпочитает" values={profile.ownerExpression.priorities} compact /><DetailList title="Характерные приёмы" values={profile.ownerExpression.signatures} compact /></div></section>}
+        {section('source') && <section className="ability-dossier-section"><h3>Источник</h3><p>{profile.creativeIdentity.originPattern}</p>{ability.source && <small>{ability.source}</small>}</section>}
+        {section('availability') && <section className="ability-dossier-section"><h3>Доступность сейчас</h3><div className={`ability-availability state-${profile.availability?.state ?? 'ready'}`}><strong>{profile.availability ? availabilityLabels[profile.availability.state] : 'Готова'}</strong>{profile.availability?.reasons.map((reason) => <p key={reason}>{reason}</p>)}{profile.availability?.charges && <small>{profile.availability.charges.label}: {profile.availability.charges.current} / {profile.availability.charges.max}</small>}</div>{ability.activation && <p><b>Активация:</b> {ability.activation}</p>}{!!ability.costs?.length && <p><b>Цена:</b> {ability.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, resources)}`).join(', ')}</p>}</section>}
+        {section('techniques') && <section className="ability-dossier-section"><h3>Техники</h3><TechniqueCollection source={{ ...ability, techniques }} resources={resources} />{hiddenTechniques && <div className="ability-unknown-trace"><Search size={14} /><span><b>Есть неизвестное проявление</b><small>Название и точный эффект откроются только после наблюдения или надёжного изучения.</small></span></div>}</section>}
+        {!section('techniques') && <div className="ability-unknown-trace"><Search size={14} /><span><b>Техники ещё не изучены</b><small>Интерфейс не раскрывает скрытые названия, эффекты и уязвимости.</small></span></div>}
+        {section('principle') && <section className="ability-dossier-section"><h3>Что действительно возможно</h3><DetailList title="Предел возможностей" values={ability.capabilities} /><DetailList title="Наблюдаемые эффекты" values={ability.effects} /><DetailList title="Сценические примеры" values={ability.examples} /></section>}
+        {section('counterplay') && <section className="ability-dossier-section dossier-columns"><div><h3>Синергии</h3><DetailList title="Сочетания" values={ability.synergies} /></div><div><h3>Контрмеры</h3><DetailList title="Противодействие" values={ability.counters} /><DetailList title="Реальные ограничения" values={ability.limitations} /></div></section>}
+        {section('progression') && <section className="ability-dossier-section"><h3>Развитие</h3>{ability.progression && <p>{ability.progression}</p>}{!!ability.evolutionPaths?.length && <div className="evolution-list">{ability.evolutionPaths.map((path) => <div className={path.unlocked ? 'is-unlocked' : ''} key={path.id}><strong>{path.name}</strong><span>{path.description}</span><small>{path.unlocked ? 'Открыто' : path.requirement}</small></div>)}</div>}{profile.developmentSeeds.filter((seed) => seed.status !== 'discarded').map((seed) => <article className="ability-seed" key={seed.id}><strong>{seed.name}</strong><p>{seed.hypothesis}</p><small>{seed.evidence.filter((entry) => ['success', 'training'].includes(entry.outcome)).length} / {seed.requiredConfirmations} подтверждений · {seed.promotionRule}</small></article>)}</section>}
+        {section('history') && !!ability.history?.length && <section className="ability-dossier-section"><h3>Подтверждённая история</h3><div className="progress-history">{[...ability.history].reverse().map((entry) => <div key={entry.id}><strong>{entry.title} · ход {entry.turn}</strong><span>{entry.description}</span></div>)}</div></section>}
+        {section('standing') && <section className="ability-dossier-section"><h3>Основания оценки</h3><DetailList title="Доказательства" values={profile.standing.evidence} /><DetailList title="Что ещё не установлено" values={profile.standing.uncertainties} /></section>}
+      </div>
+    </div>
+  </Modal>
+}
+
 const artifactSectionDefaults: ArtifactSection[] = [
   'identity', 'origin', 'principle', 'requirements', 'passives', 'components', 'powers',
   'combined', 'drawbacks', 'failureModes', 'evolution', 'history',
@@ -474,6 +567,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const [expandedAbility, setExpandedAbility] = useState<string>()
   const [expandedNpc, setExpandedNpc] = useState<string>()
   const [expandedNpcAbility, setExpandedNpcAbility] = useState<string>()
+  const [abilityDossier, setAbilityDossier] = useState<{ ability: Ability; ownerName: string; resources?: Campaign['player']['resources'] }>()
   const [expandedLore, setExpandedLore] = useState<string>()
   const [canonError, setCanonError] = useState<string>()
   const [changeFilter, setChangeFilter] = useState<ChangeFilter>('all')
@@ -520,6 +614,20 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const interfaceBlueprint = getWorldInterfaceBlueprint(campaign.world)
   const system = getWorldSystem(campaign.world)
   const labels = presentation.labels
+  const playerAbilityGroups = useMemo(() => {
+    const capabilitySystem = campaign.world.capabilitySystem
+    if (!capabilitySystem) return [{ id: 'legacy', label: labels.abilities, description: '', abilities: campaign.player.abilities }]
+    const groups = capabilitySystem.groups.map((group) => ({
+      id: group.id,
+      label: group.label,
+      description: group.description,
+      accent: group.accent,
+      abilities: campaign.player.abilities.filter((ability) => ability.profile?.nature.groupId === group.id),
+    })).filter((group) => group.abilities.length)
+    const ungrouped = campaign.player.abilities.filter((ability) => !ability.profile || !capabilitySystem.groups.some((group) => group.id === ability.profile?.nature.groupId))
+    if (ungrouped.length) groups.push({ id: 'legacy', label: 'Прежние возможности', description: 'Карточки из старого сохранения остаются без автоматической переработки.', accent: presentation.accent, abilities: ungrouped })
+    return groups
+  }, [campaign.player.abilities, campaign.world.capabilitySystem, labels.abilities, presentation.accent])
   const entityName = (entityId?: string) => entityId === campaign.player.id ? campaign.player.name : campaign.npcs.find((npc) => npc.id === entityId)?.name ?? entityId ?? 'Неизвестно'
   const placeName = (placeId?: string) => campaign.world.places?.find((place) => place.id === placeId)?.name ?? placeId ?? 'Весь мир'
   const contextPreview = useMemo(() => buildContextSelection(campaign, lastAssistant?.content ?? campaign.scene.location), [campaign, lastAssistant?.content])
@@ -602,7 +710,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
             <AdaptiveWorldModules campaign={campaign} placement="scene" />
             <Section title="В сцене" action={<Users size={15} />}>
               <div className="npc-list">
-                {campaign.npcs.filter((npc) => campaign.scene.presentNpcIds.includes(npc.id)).map((npc) => <NpcCard key={npc.id} npc={npc} expanded={expandedNpc === npc.id} expandedAbilityId={expandedNpcAbility} onToggle={() => setExpandedNpc(expandedNpc === npc.id ? undefined : npc.id)} onToggleAbility={(abilityId) => setExpandedNpcAbility(expandedNpcAbility === abilityId ? undefined : abilityId)} />)}
+                {campaign.npcs.filter((npc) => campaign.scene.presentNpcIds.includes(npc.id)).map((npc) => <NpcCard key={npc.id} npc={npc} capabilitySystem={campaign.world.capabilitySystem} expanded={expandedNpc === npc.id} expandedAbilityId={expandedNpcAbility} onToggle={() => setExpandedNpc(expandedNpc === npc.id ? undefined : npc.id)} onToggleAbility={(abilityId) => setExpandedNpcAbility(expandedNpcAbility === abilityId ? undefined : abilityId)} onOpenAbility={(ability, resources) => setAbilityDossier({ ability, ownerName: npc.name, resources })} />)}
                 {!campaign.scene.presentNpcIds.length && <EmptyMini>Сейчас рядом никого нет.</EmptyMini>}
               </div>
             </Section>
@@ -649,15 +757,20 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
               </div>
             </Section>
             <Section title={labels.abilities} action={<Sparkles size={15} />}>
-              <div className="ability-list">
-                {campaign.player.abilities.map((ability) => <AbilityCard key={ability.id} ability={ability} resources={campaign.player.resources} expanded={expandedAbility === ability.id} onToggle={() => setExpandedAbility(expandedAbility === ability.id ? undefined : ability.id)} />)}
+              <div className="capability-groups">
+                {playerAbilityGroups.map((group) => <section className="capability-group" key={group.id} style={{ '--group-accent': 'accent' in group ? group.accent : presentation.accent } as CSSProperties}>
+                  {campaign.world.capabilitySystem && <header><div><strong>{group.label}</strong>{group.description && <p>{group.description}</p>}</div><span>{group.abilities.length}</span></header>}
+                  <div className="ability-list">
+                    {group.abilities.map((ability) => <AbilityCard key={ability.id} ability={ability} capabilitySystem={campaign.world.capabilitySystem} resources={campaign.player.resources} expanded={expandedAbility === ability.id} onToggle={() => ability.profile ? setAbilityDossier({ ability, ownerName: campaign.player.name, resources: campaign.player.resources }) : setExpandedAbility(expandedAbility === ability.id ? undefined : ability.id)} />)}
+                  </div>
+                </section>)}
                 {!campaign.player.abilities.length && <EmptyMini>Личных способностей пока нет.</EmptyMini>}
               </div>
             </Section>
             {!!itemAbilities.length && <Section title="Силы предметов" action={<Backpack size={15} />}>
               <div className="item-ability-intro">Эти силы связаны с настоящими предметами в рюкзаке. Улучшение, поломка, запечатывание, экипировка или потеря предмета сразу меняют эту карточку.</div>
               <div className="ability-list item-ability-list">
-                {itemAbilities.map((entry) => <AbilityCard key={entry.ability.id} ability={entry.ability} access={entry} resources={campaign.player.resources} expanded={expandedAbility === entry.ability.id} onToggle={() => setExpandedAbility(expandedAbility === entry.ability.id ? undefined : entry.ability.id)} />)}
+                {itemAbilities.map((entry) => <AbilityCard key={entry.ability.id} ability={entry.ability} capabilitySystem={campaign.world.capabilitySystem} access={entry} resources={campaign.player.resources} expanded={expandedAbility === entry.ability.id} onToggle={() => entry.ability.profile ? setAbilityDossier({ ability: entry.ability, ownerName: campaign.player.name, resources: campaign.player.resources }) : setExpandedAbility(expandedAbility === entry.ability.id ? undefined : entry.ability.id)} onOpenSource={() => { setTab('inventory'); setExpandedItem(entry.itemId) }} />)}
               </div>
             </Section>}
             {!!campaign.characterArcs?.some((arc) => arc.ownerId === campaign.player.id && !arc.secret) && <Section title="Личная арка" action={<Target size={15} />}>
@@ -977,6 +1090,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
           </>}
         </div>
       </aside>
+      <AbilityDossier ability={abilityDossier?.ability} system={campaign.world.capabilitySystem} resources={abilityDossier?.resources} ownerName={abilityDossier?.ownerName} onClose={() => setAbilityDossier(undefined)} />
       <ItemEditor open={itemEditor} presentation={presentation} onClose={() => setItemEditor(false)} onSave={(item) => mutate((next) => { item.discoveredTurn = next.turn; next.inventory.push(item) })} />
       <LoreEditor open={loreEditor} onClose={() => setLoreEditor(false)} onSave={(entry) => mutate((next) => { next.lore.push(entry) })} />
     </>

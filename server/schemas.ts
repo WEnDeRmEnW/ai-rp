@@ -783,6 +783,81 @@ const abilityCostSchema = z.object({
   resource: shortText,
   amount: modelNumber(z.number().min(0).max(100_000)),
 }).strict()
+const capabilityNatureKindSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value
+  const key = value.trim().toLowerCase().replace(/[ _]+/g, '-')
+  const aliases: Record<string, string> = {
+    'врождённая': 'innate', 'врожденная': 'innate', 'обученная': 'trained', 'навык': 'trained',
+    'технология': 'technological', 'технологии': 'technological', 'социальная': 'social',
+    'влияние': 'social', 'власть': 'authority', 'доступ': 'access', 'экономическая': 'economic',
+    'организационная': 'organizational', 'договорная': 'contractual', 'божественная': 'divine',
+    'псионическая': 'psionic', 'магическая': 'magical', 'магия': 'magical',
+    'биологическая': 'biological', 'другое': 'other',
+  }
+  return aliases[key] ?? key
+}, z.enum(['innate', 'trained', 'technological', 'social', 'authority', 'access', 'economic', 'organizational', 'contractual', 'divine', 'psionic', 'magical', 'biological', 'other']))
+const abilityProfileSectionSchema = z.enum(['identity', 'principle', 'source', 'standing', 'facets', 'availability', 'techniques', 'counterplay', 'progression', 'history'])
+const abilityKnowledgeLevelSchema = z.enum(['hidden', 'hinted', 'known', 'understood'])
+const abilityPresentationLayoutSchema = z.enum(['discipline', 'protocol', 'network', 'mandate', 'mutation', 'constellation', 'arsenal', 'minimal'])
+const abilityAvailabilityStateSchema = z.enum(['ready', 'limited', 'cooldown', 'blocked', 'disabled'])
+const abilityAvailabilitySchema = z.object({
+  state: abilityAvailabilityStateSchema,
+  reasons: z.array(longText).max(16),
+  nextReady: z.object({
+    unit: z.enum(['turn', 'scene', 'day', 'condition']),
+    value: optionalModelNumber(z.number().int().min(0).max(100_000)),
+    condition: longText.optional(),
+  }).strict().optional(),
+  charges: z.object({
+    current: modelNumber(z.number().int().min(0).max(100_000)),
+    max: modelNumber(z.number().int().min(1).max(100_000)),
+    label: shortText,
+  }).strict().optional(),
+  lastUsedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict().superRefine((availability, context) => {
+  if (availability.charges && availability.charges.current > availability.charges.max) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['charges', 'current'], message: 'current charges cannot exceed maximum charges' })
+  }
+})
+const capabilityGroupDraftSchema = z.object({
+  id: idSchema.optional(),
+  label: shortText,
+  description: longText,
+  natureKinds: z.array(capabilityNatureKindSchema).min(1).max(8),
+  icon: interfaceIconSchema,
+  accent: colorSchema,
+  secondary: colorSchema,
+  reason: longText,
+}).strict()
+const capabilityTierDraftSchema = z.object({
+  id: idSchema.optional(),
+  label: shortText,
+  order: modelNumber(z.number().int().min(0).max(100)),
+  description: longText,
+  scope: longText,
+  evidenceRequirements: z.array(longText).min(1).max(12),
+}).strict()
+const worldCapabilitySystemObject = z.object({
+  id: idSchema.optional(),
+  title: shortText,
+  summary: longText,
+  groups: z.array(capabilityGroupDraftSchema).min(1).max(16),
+  tiers: z.array(capabilityTierDraftSchema).min(2).max(12),
+  comparisonRules: z.array(longText).min(2).max(16),
+  masteryMeaning: longText,
+  powerMeaning: longText,
+  availabilityMeaning: longText,
+}).strict()
+const worldCapabilitySystemDraftSchema = worldCapabilitySystemObject.superRefine((system, context) => {
+  const orders = system.tiers.map((entry) => entry.order)
+  if (new Set(orders).size !== orders.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ['tiers'], message: 'Capability tier order values must be unique' })
+})
+const techniqueHistoryDraftSchema = z.object({
+  id: idSchema.optional(),
+  turn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+  title: shortText,
+  description: longText,
+}).strict()
 const powerTechniqueDraftSchema = z.object({
   id: idSchema.optional(),
   name: shortText,
@@ -797,8 +872,21 @@ const powerTechniqueDraftSchema = z.object({
   requirements: z.array(longText).max(12),
   limitations: z.array(longText).max(12),
   unlocked: modelBoolean,
+  role: longText.optional(),
+  signature: longText.optional(),
+  synergies: z.array(longText).max(16).optional(),
+  counters: z.array(longText).max(16).optional(),
+  examples: z.array(longText).max(12).optional(),
+  availability: abilityAvailabilitySchema.optional(),
+  progression: longText.optional(),
 }).strict()
-const powerTechniqueSchema = powerTechniqueDraftSchema.extend({ id: idSchema }).strict()
+const powerTechniqueSchema = powerTechniqueDraftSchema.extend({
+  id: idSchema,
+  history: z.array(techniqueHistoryDraftSchema.extend({
+    id: idSchema,
+    turn: modelNumber(z.number().int().min(0).max(1_000_000)),
+  }).strict()).max(80).optional(),
+}).strict()
 const powerTechniqueChangeSchema = z.object({
   techniqueId: idSchema,
   name: shortText.optional(),
@@ -814,6 +902,14 @@ const powerTechniqueChangeSchema = z.object({
   requirements: z.array(longText).max(12).optional(),
   limitations: z.array(longText).max(12).optional(),
   unlocked: modelBoolean.optional(),
+  role: longText.optional(),
+  signature: longText.optional(),
+  synergies: z.array(longText).max(16).optional(),
+  counters: z.array(longText).max(16).optional(),
+  examples: z.array(longText).max(12).optional(),
+  availability: abilityAvailabilitySchema.optional(),
+  progression: longText.optional(),
+  history: z.object({ title: shortText, description: longText }).strict().optional(),
 }).strict()
 const evolutionPathDraftSchema = z.object({
   id: idSchema.optional(),
@@ -1186,6 +1282,146 @@ const artifactProfileSchema = z.object({
     })
   })
 })
+const abilityNatureSchema = z.object({
+  kind: capabilityNatureKindSchema,
+  groupId: shortText,
+  label: shortText,
+  explanation: longText,
+}).strict()
+const abilityCreativeIdentitySchema = z.object({
+  coreFantasy: longText,
+  centralPrinciple: longText,
+  originPattern: longText,
+  interactionModel: longText,
+  signatureExperience: longText,
+  mechanicVerbs: z.array(shortText).min(2).max(10),
+  sensoryMotifs: z.array(shortText).min(1).max(10),
+  differentiation: z.array(longText).min(1).max(10),
+  lineageId: idSchema.optional(),
+  resemblanceKind: z.enum(['canon', 'school', 'bloodline', 'technology', 'organization', 'evolution']).optional(),
+  resemblanceReason: longText.optional(),
+  relatedAbilityIds: z.array(idSchema).max(24).optional(),
+}).strict()
+const abilityOwnerExpressionSchema = z.object({
+  summary: longText,
+  priorities: z.array(longText).min(1).max(10),
+  habits: z.array(longText).max(10),
+  signatures: z.array(longText).min(1).max(10),
+  avoids: z.array(longText).max(10),
+}).strict()
+const abilityStandingSchema = z.object({
+  systemId: shortText,
+  tierId: shortText,
+  tierLabel: shortText,
+  basis: longText,
+  ceiling: longText,
+  scope: longText,
+  evidence: z.array(longText).min(1).max(16),
+  uncertainties: z.array(longText).max(12),
+}).strict()
+const abilityFacetSchema = z.object({
+  key: shortText,
+  label: shortText,
+  value: modelNumber(z.number().min(0).max(100)),
+  description: longText,
+}).strict()
+const abilityPresentationSchema = z.object({
+  layout: abilityPresentationLayoutSchema,
+  icon: interfaceIconSchema,
+  symbol: shortText,
+  motif: shortText,
+  accent: colorSchema,
+  secondary: colorSchema,
+  density: z.enum(['comfortable', 'cinematic']),
+  sectionOrder: z.array(abilityProfileSectionSchema).min(3).max(10),
+  summary: longText,
+}).strict()
+const abilityDiscoveryEvidenceDraftSchema = z.object({
+  id: idSchema.optional(),
+  section: abilityProfileSectionSchema,
+  summary: longText,
+  source: shortText,
+  reliability: modelNumber(z.number().min(0).max(100)),
+  learnedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+const abilityDiscoveryDraftSchema = z.object({
+  awareness: modelNumber(z.number().min(0).max(100)),
+  revealedSections: z.array(abilityProfileSectionSchema).max(10),
+  techniqueKnowledge: z.record(idSchema, abilityKnowledgeLevelSchema),
+  evidence: z.array(abilityDiscoveryEvidenceDraftSchema).max(80),
+  updatedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+const abilityDevelopmentEvidenceDraftSchema = z.object({
+  id: idSchema.optional(),
+  turn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
+  summary: longText,
+  outcome: z.enum(['success', 'partial', 'failure', 'training']),
+}).strict()
+const abilityDevelopmentSeedDraftSchema = z.object({
+  id: idSchema.optional(),
+  name: shortText,
+  hypothesis: longText,
+  distinctMechanic: longText,
+  requiredConfirmations: modelNumber(z.number().int().min(2).max(5)),
+  promotionRule: longText,
+  disqualifiers: z.array(longText).max(12),
+  evidence: z.array(abilityDevelopmentEvidenceDraftSchema).max(20),
+  status: z.enum(['forming', 'ready', 'promoted', 'discarded']),
+}).strict()
+const abilityProfileDraftSchema = z.object({
+  nature: abilityNatureSchema,
+  creativeIdentity: abilityCreativeIdentitySchema,
+  ownerExpression: abilityOwnerExpressionSchema,
+  standing: abilityStandingSchema,
+  facets: z.array(abilityFacetSchema).min(2).max(6),
+  presentation: abilityPresentationSchema,
+  discovery: abilityDiscoveryDraftSchema,
+  availability: abilityAvailabilitySchema.optional(),
+  developmentSeeds: z.array(abilityDevelopmentSeedDraftSchema).max(12),
+}).strict()
+const abilityDiscoverySchema = abilityDiscoveryDraftSchema.extend({
+  evidence: z.array(abilityDiscoveryEvidenceDraftSchema.extend({
+    id: idSchema,
+    learnedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+  }).strict()).max(80),
+  updatedTurn: modelNumber(z.number().int().min(0).max(1_000_000)),
+}).strict()
+const abilityDevelopmentSeedSchema = abilityDevelopmentSeedDraftSchema.extend({
+  id: idSchema,
+  evidence: z.array(abilityDevelopmentEvidenceDraftSchema.extend({
+    id: idSchema,
+    turn: modelNumber(z.number().int().min(0).max(1_000_000)),
+  }).strict()).max(20),
+}).strict()
+const abilityProfileSchema = abilityProfileDraftSchema.extend({
+  discovery: abilityDiscoverySchema,
+  developmentSeeds: z.array(abilityDevelopmentSeedSchema).max(12),
+}).strict()
+const abilityDevelopmentSeedChangeSchema = z.object({
+  seedId: idSchema,
+  name: shortText.optional(),
+  hypothesis: longText.optional(),
+  distinctMechanic: longText.optional(),
+  requiredConfirmations: optionalModelNumber(z.number().int().min(2).max(5)),
+  promotionRule: longText.optional(),
+  disqualifiers: z.array(longText).max(12).optional(),
+  addEvidence: z.array(abilityDevelopmentEvidenceDraftSchema).max(12).optional(),
+  status: z.enum(['forming', 'ready', 'promoted', 'discarded']).optional(),
+  promoteTechnique: powerTechniqueDraftSchema.optional(),
+}).strict()
+const abilityProfileChangeSchema = z.object({
+  nature: abilityNatureSchema.optional(),
+  creativeIdentity: abilityCreativeIdentitySchema.optional(),
+  ownerExpression: abilityOwnerExpressionSchema.optional(),
+  standing: abilityStandingSchema.optional(),
+  facets: z.array(abilityFacetSchema).min(2).max(6).optional(),
+  presentation: abilityPresentationSchema.optional(),
+  discovery: abilityDiscoveryDraftSchema.optional(),
+  availability: abilityAvailabilitySchema.optional(),
+  developmentSeedChanges: z.array(abilityDevelopmentSeedChangeSchema).max(12).optional(),
+  addDevelopmentSeeds: z.array(abilityDevelopmentSeedDraftSchema).max(12).optional(),
+  removeDevelopmentSeedIds: z.array(idSchema).max(12).optional(),
+}).strict()
 const abilityDraftSchema = z.object({
   id: idSchema.optional(),
   name: shortText,
@@ -1213,6 +1449,7 @@ const abilityDraftSchema = z.object({
   techniques: z.array(powerTechniqueDraftSchema).max(48).optional(),
   canonStatus: canonStatusSchema.optional(),
   canonReference: longText.optional(),
+  profile: abilityProfileDraftSchema.optional(),
 }).strict()
 const abilityChangeSchema = z.object({
   abilityId: idSchema,
@@ -1249,6 +1486,8 @@ const abilityChangeSchema = z.object({
   addEvolutionPaths: z.array(evolutionPathDraftSchema).max(24).optional(),
   unlockEvolutionPathIds: z.array(idSchema).max(24).optional(),
   history: z.object({ title: shortText, description: longText }).strict().optional(),
+  profile: abilityProfileDraftSchema.optional(),
+  profileChanges: abilityProfileChangeSchema.optional(),
 }).strict()
 const artifactChangeSchema = z.object({
   itemId: idSchema,
@@ -1294,6 +1533,7 @@ const abilityStateSchema = abilityDraftSchema.extend({
   evolutionPaths: z.array(evolutionPathSchema).max(24).optional(),
   history: z.array(progressHistoryDraftSchema.extend({ id: idSchema, turn: modelNumber(z.number().int().min(0)) }).strict()).max(100).optional(),
   techniques: z.array(powerTechniqueSchema).max(48).optional(),
+  profile: abilityProfileSchema.optional(),
 }).strict()
 const characterArcSchema = z.object({
   id: idSchema,
@@ -1676,6 +1916,7 @@ const turnPatchContract = z.object({
   ]).optional(),
   world: z.object({
     name: shortText.optional(), tagline: shortText.optional(), inspiration: z.string().trim().max(12_000).optional(), genre: shortText.optional(), tone: shortText.optional(), overview: z.string().trim().max(12_000).optional(), era: shortText.optional(),
+    capabilitySystem: worldCapabilitySystemDraftSchema.optional(),
     system: z.object({
       name: shortText.optional(), summary: longText.optional(), progression: longText.optional(), conflictResolution: longText.optional(), consequences: longText.optional(),
       equipmentSlots: z.array(z.object({ key: shortText, label: shortText, accepts: z.array(itemCategorySchema).min(1).max(7) }).strict()).max(12).optional(),
@@ -1792,6 +2033,18 @@ const turnPlanContract = z.object({
   outcome: z.string().trim().min(1).max(2000),
   beats: z.array(z.string().trim().min(1).max(800)).min(1).max(8),
   suggestions: z.array(z.string().trim().min(1).max(300)).min(2).max(4),
+  abilityExecutions: z.array(z.object({
+    ownerKind: z.enum(['player', 'npc']),
+    ownerId: idSchema,
+    abilityId: idSchema,
+    techniqueId: idSchema.optional(),
+    intent: longText,
+    outcome: z.enum(['success', 'partial', 'failed', 'blocked']),
+    costs: z.array(abilityCostSchema).max(8),
+    requirementsUsed: z.array(longText).max(16),
+    effects: z.array(longText).max(24),
+    evidence: longText,
+  }).strict()).max(24).default([]),
   statePatch: turnPatchSchema,
 }).strict()
 
@@ -2122,6 +2375,7 @@ const generatedAbilitySchema = z.object({
   techniques: z.array(generatedPowerTechniqueSchema).max(48).default([]),
   canonStatus: canonStatusSchema,
   canonReference: longText.optional(),
+  profile: abilityProfileDraftSchema.optional(),
 }).strict()
 const generatedArtifactPowerSchema = artifactPowerDraftSchema.extend({
   id: idSchema,
@@ -2273,6 +2527,27 @@ export const worldQualityReviewSchema = z.preprocess((value) => normalizeModelOu
     })
   })
 }))
+
+export const abilityQualityReviewSchema = z.preprocess((value) => normalizeModelOutput(value), z.object({
+  scores: z.object({
+    identity: modelNumber(z.number().min(0).max(100)),
+    mechanics: modelNumber(z.number().min(0).max(100)),
+    worldFit: modelNumber(z.number().min(0).max(100)),
+    ownerExpression: modelNumber(z.number().min(0).max(100)),
+    counterplay: modelNumber(z.number().min(0).max(100)),
+    presentation: modelNumber(z.number().min(0).max(100)),
+  }).strict(),
+  strengths: z.array(longText).max(12),
+  issues: z.array(longText).max(20),
+  verdict: z.enum(['excellent', 'good', 'repair']),
+}).strict())
+
+export const abilityFocusedRepairSchema = z.preprocess((value) => normalizeModelOutput(value), z.object({
+  capabilitySystem: worldCapabilitySystemDraftSchema.optional(),
+  ability: abilityDraftSchema,
+}).strict())
+
+export type AbilityQualityReview = z.infer<typeof abilityQualityReviewSchema>
 const generatedMysteryCaseSchema = z.object({
   title: shortText,
   premise: longText,
@@ -2344,6 +2619,7 @@ const generatedWorldStructuralContract = z.object({
     era: shortText,
     overview: longText,
     rules: z.array(shortText).max(10),
+    capabilitySystem: worldCapabilitySystemDraftSchema.optional(),
     factions: z.array(generatedWorldFactionSchema).max(14),
     locations: z.array(z.object({ name: shortText, description: longText, danger: modelNumber(z.number().min(0).max(100)) })).max(16),
     places: z.array(generatedWorldPlaceSchema).max(36),
@@ -2471,12 +2747,26 @@ const generatedWorldCoreContract = z.object({
     era: true,
     overview: true,
     rules: true,
+    capabilitySystem: true,
     system: true,
     presentation: true,
   }).strict(),
   player: generatedWorldStructuralContract.shape.player,
   inventory: generatedWorldStructuralContract.shape.inventory,
-}).strict()
+}).strict().superRefine((section, context) => {
+  if (!section.world.capabilitySystem) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['world', 'capabilitySystem'],
+    message: 'Every newly generated world requires its own capabilitySystem',
+  })
+  section.player.abilities.forEach((ability, index) => {
+    if (!ability.profile) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['player', 'abilities', index, 'profile'],
+      message: 'Every newly generated player ability requires a complete authored profile',
+    })
+  })
+})
 
 const generatedWorldCivilizationContract = z.object({
   world: generatedWorldStructuralContract.shape.world.pick({
@@ -2496,7 +2786,15 @@ const generatedWorldCharactersContract = generatedWorldStructuralContract.pick({
   antagonistPlans: true,
   worldPressures: true,
   influenceAssets: true,
-}).strict()
+}).strict().superRefine((section, context) => {
+  section.npcs.forEach((npc, npcIndex) => npc.abilities.forEach((ability, abilityIndex) => {
+    if (!ability.profile) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['npcs', npcIndex, 'abilities', abilityIndex, 'profile'],
+      message: 'Every newly generated NPC ability requires a complete authored profile',
+    })
+  }))
+})
 
 const generatedWorldLegendsContract = z.object({
   world: generatedWorldStructuralContract.shape.world.pick({

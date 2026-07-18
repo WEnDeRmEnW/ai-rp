@@ -268,6 +268,73 @@ export type PowerCategory = 'offense' | 'defense' | 'control' | 'mobility' | 'ut
 export type CanonStatus = 'canonical' | 'derived' | 'original'
 export type AbilityKind = 'active' | 'passive' | 'reaction' | 'ritual' | 'transformation' | 'other'
 
+export type CapabilityNatureKind = 'innate' | 'trained' | 'technological' | 'social' | 'authority' | 'access' | 'economic' | 'organizational' | 'contractual' | 'divine' | 'psionic' | 'magical' | 'biological' | 'other'
+export type AbilityProfileSection = 'identity' | 'principle' | 'source' | 'standing' | 'facets' | 'availability' | 'techniques' | 'counterplay' | 'progression' | 'history'
+export type AbilityKnowledgeLevel = 'hidden' | 'hinted' | 'known' | 'understood'
+export type AbilityPresentationLayout = 'discipline' | 'protocol' | 'network' | 'mandate' | 'mutation' | 'constellation' | 'arsenal' | 'minimal'
+export type AbilityAvailabilityState = 'ready' | 'limited' | 'cooldown' | 'blocked' | 'disabled'
+
+export interface CapabilityGroup {
+  id: ID
+  label: string
+  description: string
+  natureKinds: CapabilityNatureKind[]
+  icon: AdaptiveInterfaceIcon
+  accent: string
+  secondary: string
+  reason: string
+}
+
+export interface CapabilityTier {
+  id: ID
+  label: string
+  order: number
+  description: string
+  scope: string
+  evidenceRequirements: string[]
+}
+
+/** World-authored taxonomy. It classifies what a capability is without forcing every world into spell ranks. */
+export interface WorldCapabilitySystem {
+  id: ID
+  title: string
+  summary: string
+  masteryMeaning: string
+  powerMeaning: string
+  availabilityMeaning: string
+  groups: CapabilityGroup[]
+  tiers: CapabilityTier[]
+  comparisonRules: string[]
+  createdTurn: number
+  lastChangedTurn: number
+}
+
+export type CapabilityGroupDraft = Omit<CapabilityGroup, 'id'> & { id?: ID }
+export type CapabilityTierDraft = Omit<CapabilityTier, 'id'> & { id?: ID }
+export type WorldCapabilitySystemDraft = Omit<WorldCapabilitySystem, 'id' | 'groups' | 'tiers' | 'createdTurn' | 'lastChangedTurn'> & {
+  id?: ID
+  groups: CapabilityGroupDraft[]
+  tiers: CapabilityTierDraft[]
+  createdTurn?: number
+  lastChangedTurn?: number
+}
+
+export interface AbilityAvailability {
+  state: AbilityAvailabilityState
+  reasons: string[]
+  nextReady?: {
+    unit: 'turn' | 'scene' | 'day' | 'condition'
+    value?: number
+    condition?: string
+  }
+  charges?: {
+    current: number
+    max: number
+    label: string
+  }
+  lastUsedTurn?: number
+}
+
 /** A distinct named application contained inside a broader power or school. */
 export interface PowerTechnique {
   id: ID
@@ -284,9 +351,20 @@ export interface PowerTechnique {
   requirements: string[]
   limitations: string[]
   unlocked: boolean
+  role?: string
+  signature?: string
+  synergies?: string[]
+  counters?: string[]
+  examples?: string[]
+  availability?: AbilityAvailability
+  progression?: string
+  history?: ProgressHistoryEntry[]
 }
 
-export type PowerTechniqueDraft = Omit<PowerTechnique, 'id'> & { id?: ID }
+export type PowerTechniqueDraft = Omit<PowerTechnique, 'id' | 'history'> & {
+  id?: ID
+  history?: ProgressHistoryDraft[]
+}
 
 export interface PowerTechniqueChangePatch {
   techniqueId: ID
@@ -303,6 +381,203 @@ export interface PowerTechniqueChangePatch {
   requirements?: string[]
   limitations?: string[]
   unlocked?: boolean
+  role?: string
+  signature?: string
+  synergies?: string[]
+  counters?: string[]
+  examples?: string[]
+  availability?: AbilityAvailability
+  progression?: string
+  history?: { title: string; description: string }
+}
+
+export interface AbilityNature {
+  kind: CapabilityNatureKind
+  groupId: ID
+  label: string
+  explanation: string
+}
+
+export interface AbilityCreativeIdentity {
+  coreFantasy: string
+  centralPrinciple: string
+  originPattern: string
+  interactionModel: string
+  signatureExperience: string
+  mechanicVerbs: string[]
+  sensoryMotifs: string[]
+  differentiation: string[]
+  lineageId?: ID
+  resemblanceKind?: 'canon' | 'school' | 'bloodline' | 'technology' | 'organization' | 'evolution'
+  resemblanceReason?: string
+  relatedAbilityIds?: ID[]
+}
+
+export interface AbilityOwnerExpression {
+  summary: string
+  priorities: string[]
+  habits: string[]
+  signatures: string[]
+  avoids: string[]
+}
+
+export interface AbilityStanding {
+  systemId: ID
+  tierId: ID
+  tierLabel: string
+  basis: string
+  ceiling: string
+  scope: string
+  evidence: string[]
+  uncertainties: string[]
+}
+
+export interface AbilityFacet {
+  key: string
+  label: string
+  value: number
+  description: string
+}
+
+export interface AbilityPresentation {
+  layout: AbilityPresentationLayout
+  icon: AdaptiveInterfaceIcon
+  symbol: string
+  motif: string
+  accent: string
+  secondary: string
+  density: 'comfortable' | 'cinematic'
+  sectionOrder: AbilityProfileSection[]
+  summary: string
+}
+
+export interface AbilityDiscoveryEvidence {
+  id: ID
+  section: AbilityProfileSection
+  summary: string
+  source: string
+  reliability: number
+  learnedTurn: number
+}
+
+export interface AbilityDiscovery {
+  awareness: number
+  revealedSections: AbilityProfileSection[]
+  techniqueKnowledge: Record<ID, AbilityKnowledgeLevel>
+  evidence: AbilityDiscoveryEvidence[]
+  updatedTurn: number
+}
+
+export interface AbilityDevelopmentEvidence {
+  id: ID
+  turn: number
+  summary: string
+  outcome: 'success' | 'partial' | 'failure' | 'training'
+}
+
+export interface AbilityDevelopmentSeed {
+  id: ID
+  name: string
+  hypothesis: string
+  distinctMechanic: string
+  requiredConfirmations: number
+  promotionRule: string
+  disqualifiers: string[]
+  evidence: AbilityDevelopmentEvidence[]
+  status: 'forming' | 'ready' | 'promoted' | 'discarded'
+}
+
+export interface AbilityProfile {
+  nature: AbilityNature
+  creativeIdentity: AbilityCreativeIdentity
+  ownerExpression: AbilityOwnerExpression
+  standing: AbilityStanding
+  facets: AbilityFacet[]
+  presentation: AbilityPresentation
+  discovery: AbilityDiscovery
+  availability?: AbilityAvailability
+  developmentSeeds: AbilityDevelopmentSeed[]
+}
+
+export type AbilityDiscoveryDraft = Omit<AbilityDiscovery, 'evidence' | 'updatedTurn'> & {
+  evidence: Array<Omit<AbilityDiscoveryEvidence, 'id' | 'learnedTurn'> & { id?: ID; learnedTurn?: number }>
+  updatedTurn?: number
+}
+
+export type AbilityDevelopmentSeedDraft = Omit<AbilityDevelopmentSeed, 'id' | 'evidence'> & {
+  id?: ID
+  evidence: Array<Omit<AbilityDevelopmentEvidence, 'id' | 'turn'> & { id?: ID; turn?: number }>
+}
+
+export type AbilityProfileDraft = Omit<AbilityProfile, 'discovery' | 'developmentSeeds'> & {
+  discovery: AbilityDiscoveryDraft
+  developmentSeeds: AbilityDevelopmentSeedDraft[]
+}
+
+export interface AbilityDevelopmentSeedChangePatch {
+  seedId: ID
+  name?: string
+  hypothesis?: string
+  distinctMechanic?: string
+  requiredConfirmations?: number
+  promotionRule?: string
+  disqualifiers?: string[]
+  addEvidence?: Array<Omit<AbilityDevelopmentEvidence, 'id' | 'turn'> & { id?: ID; turn?: number }>
+  status?: AbilityDevelopmentSeed['status']
+  promoteTechnique?: PowerTechniqueDraft
+}
+
+export interface AbilityProfileChangePatch {
+  nature?: AbilityNature
+  creativeIdentity?: AbilityCreativeIdentity
+  ownerExpression?: AbilityOwnerExpression
+  standing?: AbilityStanding
+  facets?: AbilityFacet[]
+  presentation?: AbilityPresentation
+  discovery?: AbilityDiscoveryDraft
+  availability?: AbilityAvailability
+  addDevelopmentSeeds?: AbilityDevelopmentSeedDraft[]
+  developmentSeedChanges?: AbilityDevelopmentSeedChangePatch[]
+  removeDevelopmentSeedIds?: ID[]
+}
+
+export interface AbilityFingerprint {
+  coreFantasy: string
+  centralPrinciple: string
+  originPattern: string
+  interactionModel: string
+  signatureExperience: string
+  mechanicVerbs: string[]
+  sensoryMotifs: string[]
+  capabilityPatterns: string[]
+  ownerExpression: string
+  visualSignature: string
+}
+
+export interface AbilityRegistryEntry {
+  abilityId: ID
+  ownerId: ID
+  ownerKind: 'player' | 'npc'
+  name: string
+  status: 'active' | 'lost' | 'removed' | 'transformed'
+  fingerprint: AbilityFingerprint
+  lineageId?: ID
+  canonStatus?: CanonStatus
+  createdTurn: number
+  lastChangedTurn: number
+}
+
+export interface AbilityExecutionReceipt {
+  ownerKind: 'player' | 'npc'
+  ownerId: ID
+  abilityId: ID
+  techniqueId?: ID
+  intent: string
+  outcome: 'blocked' | 'failed' | 'partial' | 'success'
+  costs: AbilityCost[]
+  requirementsUsed: string[]
+  effects: string[]
+  evidence: string
 }
 
 export interface PowerSpecification {
@@ -355,13 +630,15 @@ export interface Ability extends PowerSpecification {
   evolutionPaths?: EvolutionPath[]
   history?: ProgressHistoryEntry[]
   tags?: string[]
+  profile?: AbilityProfile
 }
 
-export type AbilityDraft = Omit<Ability, 'id' | 'history' | 'evolutionPaths' | 'techniques'> & {
+export type AbilityDraft = Omit<Ability, 'id' | 'history' | 'evolutionPaths' | 'techniques' | 'profile'> & {
   id?: ID
   history?: ProgressHistoryDraft[]
   evolutionPaths?: Array<Omit<EvolutionPath, 'id'> & { id?: ID }>
   techniques?: PowerTechniqueDraft[]
+  profile?: AbilityProfileDraft
 }
 
 export interface AbilityChangePatch {
@@ -400,6 +677,8 @@ export interface AbilityChangePatch {
   addEvolutionPaths?: Array<Omit<EvolutionPath, 'id'> & { id?: ID }>
   unlockEvolutionPathIds?: ID[]
   history?: { title: string; description: string }
+  profile?: AbilityProfileDraft
+  profileChanges?: AbilityProfileChangePatch
 }
 
 export interface ArtifactPower extends PowerSpecification {
@@ -1758,6 +2037,7 @@ export interface World {
   metrics?: WorldMetric[]
   system?: WorldSystem
   presentation?: WorldPresentation
+  capabilitySystem?: WorldCapabilitySystem
 }
 
 export interface CampaignSettings {
@@ -1805,6 +2085,7 @@ export interface CampaignSnapshot {
   influenceAssets?: InfluenceAsset[]
   eventDirectorState?: EventDirectorState
   artifactRegistry?: ArtifactRegistryEntry[]
+  abilityRegistry?: AbilityRegistryEntry[]
   messageCount: number
   eventCount: number
 }
@@ -1842,6 +2123,7 @@ export interface Campaign {
   influenceAssets?: InfluenceAsset[]
   eventDirectorState?: EventDirectorState
   artifactRegistry?: ArtifactRegistryEntry[]
+  abilityRegistry?: AbilityRegistryEntry[]
   settings: CampaignSettings
   snapshots: CampaignSnapshot[]
 }
@@ -1910,6 +2192,7 @@ export interface WorldPatch {
   overview?: string
   era?: string
   system?: Partial<WorldSystem>
+  capabilitySystem?: WorldCapabilitySystemDraft
   presentation?: Partial<Omit<WorldPresentation, 'labels' | 'categoryLabels' | 'rarityLabels'>> & {
     labels?: Partial<WorldLabels>
     categoryLabels?: Partial<WorldPresentation['categoryLabels']>

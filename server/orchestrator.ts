@@ -1,22 +1,128 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
+import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
 import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { agencyAuditSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
+import { agencyRevisionPrompt, abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { agencyAuditSchema, abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AbilityQualityReview, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 import { findAgencyViolations, type AgencyViolation } from './agency-guard.js'
 import { findNarrativeRepetitionIssues, narrativeRepetitionScore } from '../shared/narrative-repetition.js'
+import { abilityExecutionIssues, abilityNoveltyIssues, abilityNoveltyScore, abilityProfileIssues, updateAbilityRegistry } from '../shared/abilities.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
 
 function reportProgress(report: ProgressReporter | undefined, percent: number, stage: string, detail: string, completedSteps?: number, totalSteps?: number) {
   report?.({ percent, stage, detail, completedSteps, totalSteps })
+}
+
+function capabilitySystemCandidate(
+  draft: WorldCapabilitySystemDraft | undefined,
+  current: WorldCapabilitySystem | undefined,
+  turn: number,
+): WorldCapabilitySystem | undefined {
+  if (!draft) return current
+  return {
+    ...draft,
+    id: draft.id ?? '__missing-capability-system-id__',
+    groups: draft.groups.map((group, index) => ({ ...group, id: group.id ?? `__missing-group-${index}__` })),
+    tiers: draft.tiers.map((tier, index) => ({ ...tier, id: tier.id ?? `__missing-tier-${index}__` })),
+    createdTurn: current?.createdTurn ?? draft.createdTurn ?? turn,
+    lastChangedTurn: turn,
+  }
+}
+
+function abilityDraftForSystem(draft: AbilityDraft, system: WorldCapabilitySystem | undefined): AbilityDraft {
+  if (!draft.profile || !system) return draft
+  const normalizedGroup = draft.profile.nature.groupId.trim().toLocaleLowerCase('ru-RU')
+  const groupId = system.groups.find((group) => group.id === draft.profile!.nature.groupId || group.label.trim().toLocaleLowerCase('ru-RU') === normalizedGroup)?.id
+    ?? draft.profile.nature.groupId
+  const normalizedTier = draft.profile.standing.tierId.trim().toLocaleLowerCase('ru-RU')
+  const tierId = system.tiers.find((tier) => tier.id === draft.profile!.standing.tierId || tier.label.trim().toLocaleLowerCase('ru-RU') === normalizedTier)?.id
+    ?? draft.profile.standing.tierId
+  return {
+    ...draft,
+    profile: {
+      ...draft.profile,
+      nature: { ...draft.profile.nature, groupId },
+      standing: { ...draft.profile.standing, systemId: system.id, tierId },
+    },
+  }
+}
+
+function abilityStateCandidate(draft: AbilityDraft, turn: number): Ability {
+  const techniques = (draft.techniques ?? []).map((technique, index) => ({
+    ...technique,
+    id: technique.id ?? `candidate-technique-${index}`,
+    history: technique.history?.map((entry, historyIndex) => ({ ...entry, id: entry.id ?? `candidate-technique-history-${historyIndex}`, turn: entry.turn ?? turn })),
+  }))
+  return {
+    ...draft,
+    id: draft.id ?? 'candidate-ability',
+    name: draft.name,
+    description: draft.description,
+    mastery: draft.mastery ?? 0,
+    costs: draft.costs ?? [],
+    effects: draft.effects ?? [],
+    limitations: draft.limitations ?? [],
+    requirements: draft.requirements ?? [],
+    evolutionPaths: (draft.evolutionPaths ?? []).map((path, index) => ({ ...path, id: path.id ?? `candidate-path-${index}` })),
+    history: (draft.history ?? []).map((entry, index) => ({ ...entry, id: entry.id ?? `candidate-history-${index}`, turn: entry.turn ?? turn })),
+    techniques,
+    profile: draft.profile ? {
+      ...draft.profile,
+      discovery: {
+        ...draft.profile.discovery,
+        evidence: draft.profile.discovery.evidence.map((entry, index) => ({ ...entry, id: entry.id ?? `candidate-evidence-${index}`, learnedTurn: entry.learnedTurn ?? turn })),
+        updatedTurn: draft.profile.discovery.updatedTurn ?? turn,
+      },
+      developmentSeeds: draft.profile.developmentSeeds.map((seed, index) => ({
+        ...seed,
+        id: seed.id ?? `candidate-seed-${index}`,
+        evidence: seed.evidence.map((entry, evidenceIndex) => ({ ...entry, id: entry.id ?? `candidate-seed-evidence-${evidenceIndex}`, turn: entry.turn ?? turn })),
+      })),
+    } : undefined,
+  }
+}
+
+function newAbilityQualityIssues(
+  draft: AbilityDraft,
+  systemDraft: WorldCapabilitySystemDraft | undefined,
+  currentSystem: WorldCapabilitySystem | undefined,
+  resources: string[],
+  registry: NonNullable<Campaign['abilityRegistry']>,
+  turn: number,
+): string[] {
+  const issues = hardAbilityQualityIssues(draft, systemDraft, currentSystem, resources, turn)
+  issues.push(...abilityNoveltyIssues(abilityStateCandidate(draft, turn), registry))
+  return [...new Set(issues)]
+}
+
+function hardAbilityQualityIssues(
+  draft: AbilityDraft,
+  systemDraft: WorldCapabilitySystemDraft | undefined,
+  currentSystem: WorldCapabilitySystem | undefined,
+  resources: string[],
+  turn: number,
+): string[] {
+  const issues: string[] = []
+  if (!draft.profile) issues.push(`У новой способности «${draft.name}» отсутствует полный profile.`)
+  if (!currentSystem && !systemDraft) issues.push('Первая новая способность старого мира требует полного world.capabilitySystem.')
+  const system = capabilitySystemCandidate(systemDraft, currentSystem, turn)
+  const ability = abilityStateCandidate(abilityDraftForSystem(draft, system), turn)
+  issues.push(...abilityProfileIssues(ability, system, resources))
+  if (!draft.source?.trim()) issues.push('Новая способность требует конкретный source.')
+  if (!draft.activation?.trim()) issues.push('Новая способность требует точную activation.')
+  if (!draft.scale?.trim()) issues.push('Новая способность требует реальный scale.')
+  if (!(draft.capabilities?.length)) issues.push('capabilities не описывает общий предел возможного.')
+  if (!(draft.effects?.length)) issues.push('effects не содержит наблюдаемых результатов.')
+  if (!(draft.examples?.length)) issues.push('examples не содержит сценического применения.')
+  if (draft.canonStatus === 'canonical' && !draft.canonReference?.trim()) issues.push('Каноническая способность требует canonReference.')
+  return [...new Set(issues)]
 }
 
 function valueAtPath(value: unknown, path: PropertyKey[]): unknown {
@@ -141,7 +247,14 @@ function salvageTurnPlan(candidate: unknown): ReturnType<typeof turnPlanSchema.p
   if (!outcome || beats.length === 0 || suggestions.length < 2) return undefined
   const patch = turnPatchSchema.safeParse(record.statePatch)
   if (!patch.success) return undefined
-  return { outcome, beats, suggestions, statePatch: patch.data }
+  const salvaged = turnPlanSchema.safeParse({
+    outcome,
+    beats,
+    suggestions,
+    abilityExecutions: record.abilityExecutions ?? [],
+    statePatch: patch.data,
+  })
+  return salvaged.success ? salvaged.data : undefined
 }
 
 async function optionalStage<T>(label: string, work: () => Promise<T>, fallback: T): Promise<T> {
@@ -1820,6 +1933,53 @@ function generatedWorldArtifactQuality(world: GeneratedWorld) {
   return { issues: [...new Set(issues)], registry }
 }
 
+function generatedWorldAbilityQuality(world: GeneratedWorld) {
+  const systemDraft = world.world.capabilitySystem
+  const hardIssues: string[] = []
+  const noveltyIssues: string[] = []
+  if (!systemDraft) return { issues: ['Новый мир не создал собственную capabilitySystem.'], hardIssues: ['Новый мир не создал собственную capabilitySystem.'], noveltyIssues, registry: [] as NonNullable<Campaign['abilityRegistry']> }
+  const system = capabilitySystemCandidate(systemDraft, undefined, 0)
+  if (!system) return { issues: ['Не удалось материализовать capabilitySystem нового мира.'], hardIssues: ['Не удалось материализовать capabilitySystem нового мира.'], noveltyIssues, registry: [] as NonNullable<Campaign['abilityRegistry']> }
+  const groupReference = (value: string) => {
+    const normalized = value.trim().toLocaleLowerCase('ru-RU')
+    return system.groups.find((group) => group.id === value || group.label.trim().toLocaleLowerCase('ru-RU') === normalized)?.id ?? value
+  }
+  const tierReference = (value: string) => {
+    const normalized = value.trim().toLocaleLowerCase('ru-RU')
+    return system.tiers.find((tier) => tier.id === value || tier.label.trim().toLocaleLowerCase('ru-RU') === normalized)?.id ?? value
+  }
+  let registry: NonNullable<Campaign['abilityRegistry']> = []
+  const inspect = (ownerId: string, ownerKind: 'player' | 'npc', resources: string[], draft: AbilityDraft) => {
+    const candidateDraft: AbilityDraft = draft.profile ? {
+      ...draft,
+      profile: {
+        ...draft.profile,
+        nature: { ...draft.profile.nature, groupId: groupReference(draft.profile.nature.groupId) },
+        standing: {
+          ...draft.profile.standing,
+          systemId: system.id,
+          tierId: tierReference(draft.profile.standing.tierId),
+        },
+      },
+    } : draft
+    const candidate = abilityStateCandidate(candidateDraft, 0)
+    hardIssues.push(...abilityProfileIssues(candidate, system, resources))
+    noveltyIssues.push(...abilityNoveltyIssues(candidate, registry))
+    if (!draft.profile) hardIssues.push(`Новая способность «${draft.name}» не имеет полного авторского профиля.`)
+    registry = updateAbilityRegistry(registry, candidate, ownerId, ownerKind, 'active', 0)
+  }
+  world.player.abilities.forEach((ability) => inspect('generated-player', 'player', world.player.resources.map((resource) => resource.key), ability as AbilityDraft))
+  world.npcs.forEach((npc, npcIndex) => npc.abilities.forEach((ability) => inspect(
+    `generated-npc-${npcIndex}`,
+    'npc',
+    npc.resources.map((resource) => resource.key),
+    ability as AbilityDraft,
+  )))
+  const uniqueHardIssues = [...new Set(hardIssues)]
+  const uniqueNoveltyIssues = [...new Set(noveltyIssues)]
+  return { issues: [...new Set([...uniqueHardIssues, ...uniqueNoveltyIssues])], hardIssues: uniqueHardIssues, noveltyIssues: uniqueNoveltyIssues, registry }
+}
+
 async function repairGeneratedWorldArtifacts(
   source: GeneratedWorld,
   request: WorldGenerationRequest,
@@ -2064,6 +2224,144 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     return plan
   }
 
+  const enforceAbilityQuality = async (initialPlan: ReturnType<typeof turnPlanSchema.parse>) => {
+    const plan = initialPlan
+    type AbilityRef = {
+      ownerKind: 'player' | 'npc'
+      ownerId: string
+      ownerName: string
+      resources: string[]
+      ability: AbilityDraft
+      replace: (ability: AbilityDraft) => void
+    }
+    const refs: AbilityRef[] = []
+    const playerKnown = request.campaign.player.abilities ?? []
+    ;(plan.statePatch.addAbilities ?? []).forEach((ability, index, collection) => {
+      const existing = playerKnown.some((entry) => entry.id === ability.id || entry.name.trim().toLocaleLowerCase('ru-RU') === ability.name.trim().toLocaleLowerCase('ru-RU'))
+      if (!existing) refs.push({
+        ownerKind: 'player', ownerId: request.campaign.player.id, ownerName: request.campaign.player.name,
+        resources: request.campaign.player.resources.map((resource) => resource.key), ability,
+        replace: (next) => { collection[index] = next },
+      })
+    })
+    ;(plan.statePatch.npcs ?? []).forEach((mutation) => {
+      if (mutation.operation === 'add') {
+        ;(mutation.npc.abilities ?? []).forEach((ability, index, collection) => refs.push({
+          ownerKind: 'npc', ownerId: mutation.npc.id, ownerName: mutation.npc.name,
+          resources: (mutation.npc.resources ?? []).map((resource) => resource.key), ability,
+          replace: (next) => { collection[index] = abilityStateCandidate({ ...next, id: ability.id }, request.campaign.turn) },
+        }))
+        return
+      }
+      const owner = request.campaign.npcs.find((npc) => npc.id === mutation.targetId)
+      if (!owner) return
+      const collections = [mutation.npc.abilities ?? [], mutation.npc.upsertAbilities ?? []]
+      collections.forEach((collection) => collection.forEach((ability, index) => {
+        const existing = (owner.abilities ?? []).some((entry) => entry.id === ability.id || entry.name.trim().toLocaleLowerCase('ru-RU') === ability.name.trim().toLocaleLowerCase('ru-RU'))
+        if (!existing) refs.push({
+          ownerKind: 'npc', ownerId: owner.id, ownerName: owner.name,
+          resources: (owner.resources ?? []).map((resource) => resource.key), ability,
+          replace: (next) => { collection[index] = next },
+        })
+      }))
+    })
+    if (!refs.length) return plan
+
+    let systemDraft = plan.statePatch.world?.capabilitySystem
+    let workingRegistry = [...(request.campaign.abilityRegistry ?? [])]
+    const worldContext = {
+      name: request.campaign.world.name,
+      era: request.campaign.world.era,
+      rules: request.campaign.world.rules,
+      system: request.campaign.world.system,
+      capabilitySystem: request.campaign.world.capabilitySystem ?? systemDraft,
+      canonMode: request.campaign.settings.canonMode,
+    }
+    const fallbackReview = (issues: string[]): AbilityQualityReview => ({
+      scores: { identity: issues.length ? 55 : 90, mechanics: issues.length ? 55 : 90, worldFit: issues.length ? 55 : 90, ownerExpression: issues.length ? 55 : 90, counterplay: issues.length ? 55 : 90, presentation: issues.length ? 55 : 90 },
+      strengths: [], issues: [], verdict: issues.length ? 'repair' : 'good',
+    })
+    const processRef = async (ref: AbilityRef, registry: NonNullable<Campaign['abilityRegistry']>) => {
+      let current = ref.ability
+      let issues = newAbilityQualityIssues(current, systemDraft, request.campaign.world.capabilitySystem, ref.resources, registry, request.campaign.turn)
+      let review = fallbackReview(issues)
+      try {
+        const criticMessages = abilityQualityCriticPrompt({ world: worldContext, owner: { id: ref.ownerId, name: ref.ownerName, resources: ref.resources }, ability: current, registry })
+        const criticRaw = await completeJson(request.provider, criticMessages)
+        const parsedReview = abilityQualityReviewSchema.safeParse(normalizeModelOutput(criticRaw))
+        if (parsedReview.success) review = parsedReview.data
+        else console.warn(`[ability-quality] Invalid compact review: ${compactIssues(parsedReview.error, criticRaw)}`)
+      } catch (error) {
+        console.warn(`[ability-quality] Compact critic skipped: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      let best = current
+      let bestIssues = issues
+      let bestScore = abilityNoveltyScore(abilityStateCandidate(current, request.campaign.turn), registry) - issues.length * 20
+      for (let attempt = 0; attempt < 2 && (issues.length || review.verdict === 'repair'); attempt += 1) {
+        reportProgress(report, 36 + attempt * 2, 'ability-quality', `Уточняем авторскую механику «${current.name}»: вариант ${attempt + 1} из 2`, 5, 11)
+        const repairMessages = abilityFocusedRepairPrompt({
+          world: worldContext,
+          owner: { id: ref.ownerId, name: ref.ownerName, resources: ref.resources },
+          ability: current,
+          registry,
+          issues: [...new Set([...issues, ...review.issues])],
+        })
+        try {
+          const repairRaw = await completeJson(request.provider, repairMessages)
+          const repaired = await parseWithRepair(repairRaw, abilityFocusedRepairSchema, request.provider, repairMessages)
+          if (repaired.capabilitySystem) systemDraft = repaired.capabilitySystem
+          current = { ...repaired.ability, id: ref.ability.id, name: ref.ability.name, source: ref.ability.source ?? repaired.ability.source }
+          issues = newAbilityQualityIssues(current, systemDraft, request.campaign.world.capabilitySystem, ref.resources, registry, request.campaign.turn)
+          const score = abilityNoveltyScore(abilityStateCandidate(current, request.campaign.turn), registry) - issues.length * 20
+          if (score >= bestScore) { best = current; bestIssues = issues; bestScore = score }
+        } catch (error) {
+          console.warn(`[ability-quality] Focused repair failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      if (bestIssues.length) console.warn(`[ability-quality] Best structurally safe variant retained for ${best.name}: ${bestIssues.join(' ')}`)
+      const remainingHardIssues = hardAbilityQualityIssues(best, systemDraft, request.campaign.world.capabilitySystem, ref.resources, request.campaign.turn)
+      if (remainingHardIssues.length) throw new Error(`Новая способность «${best.name}» не прошла обязательную механическую проверку: ${remainingHardIssues.join(' ')}`)
+      return { ref, ability: best }
+    }
+
+    // The first capability in a legacy world establishes the shared taxonomy. Afterwards
+    // independent owners are reviewed in bounded parallel batches without touching normal turns.
+    let start = 0
+    if (!request.campaign.world.capabilitySystem && !systemDraft && refs.length) {
+      const first = await processRef(refs[0], workingRegistry)
+      first.ref.replace(first.ability)
+      workingRegistry = updateAbilityRegistry(workingRegistry, abilityStateCandidate(first.ability, request.campaign.turn), first.ref.ownerId, first.ref.ownerKind, 'active', request.campaign.turn)
+      start = 1
+    }
+    const ownerGroups = [...refs.slice(start).reduce((groups, ref) => {
+      const key = `${ref.ownerKind}:${ref.ownerId}`
+      const current = groups.get(key) ?? []
+      current.push(ref)
+      groups.set(key, current)
+      return groups
+    }, new Map<string, AbilityRef[]>()).values()]
+    for (let index = 0; index < ownerGroups.length; index += 3) {
+      const completedGroups = await Promise.all(ownerGroups.slice(index, index + 3).map(async (ownerRefs) => {
+        let ownerRegistry = [...workingRegistry]
+        const completed: Array<Awaited<ReturnType<typeof processRef>>> = []
+        // Abilities of one owner form a package: each next draft sees the owner's earlier
+        // fingerprints. Only independent owners are allowed to run in parallel.
+        for (const ref of ownerRefs) {
+          const result = await processRef(ref, ownerRegistry)
+          completed.push(result)
+          ownerRegistry = updateAbilityRegistry(ownerRegistry, abilityStateCandidate(result.ability, request.campaign.turn), ref.ownerId, ref.ownerKind, 'active', request.campaign.turn)
+        }
+        return completed
+      }))
+      completedGroups.flat().forEach(({ ref, ability }) => {
+        ref.replace(ability)
+        workingRegistry = updateAbilityRegistry(workingRegistry, abilityStateCandidate(ability, request.campaign.turn), ref.ownerId, ref.ownerKind, 'active', request.campaign.turn)
+      })
+    }
+    if (systemDraft) plan.statePatch.world = { ...(plan.statePatch.world ?? {}), capabilitySystem: systemDraft }
+    return turnPlanSchema.parse(plan)
+  }
+
   validPlan = await enforceArtifactQuality(validPlan)
 
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed') {
@@ -2144,7 +2442,23 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     }
   }
   validPlan = await enforceArtifactQuality(sanitized.plan)
+  validPlan = await enforceAbilityQuality(validPlan)
   sanitized = sanitizePlan(request.campaign, validPlan)
+  const executionIssues = abilityExecutionIssues(request.campaign, sanitized.plan.abilityExecutions, sanitized.plan.statePatch)
+  if (executionIssues.length) {
+    reportProgress(report, 47, 'ability-execution', 'Сверяем применение способностей, условия и фактически оплаченную цену', 5, 11)
+    const repairMessages = abilityExecutionRepairPrompt(director.messages, request.campaign, sanitized.plan, executionIssues)
+    const repairedRaw = await completeJson(request.provider, repairMessages)
+    let repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+    repaired = await enforceArtifactQuality(repaired)
+    repaired = await enforceAbilityQuality(repaired)
+    const repairedSanitized = sanitizePlan(request.campaign, repaired)
+    const remainingExecutionIssues = abilityExecutionIssues(request.campaign, repairedSanitized.plan.abilityExecutions, repairedSanitized.plan.statePatch)
+    if (remainingExecutionIssues.length) {
+      throw new Error(`DeepSeek не смог безопасно согласовать применение способностей с механикой: ${remainingExecutionIssues.join(' ')}`)
+    }
+    sanitized = repairedSanitized
+  }
   reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
   const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
   const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
@@ -2469,6 +2783,101 @@ async function repairCampaignEditorArtifacts(
   return turnPlanSchema.parse({ ...source, statePatch: { ...source.statePatch, inventory } })
 }
 
+async function repairCampaignEditorAbilities(
+  request: CampaignEditRequest,
+  source: ReturnType<typeof turnPlanSchema.parse>,
+  report?: ProgressReporter,
+) {
+  type AbilityRef = {
+    ownerKind: 'player' | 'npc'
+    ownerId: string
+    ownerName: string
+    resources: string[]
+    ability: AbilityDraft
+    replace: (ability: AbilityDraft) => void
+  }
+  const refs: AbilityRef[] = []
+  ;(source.statePatch.addAbilities ?? []).forEach((ability, index, collection) => {
+    const exists = request.campaign.player.abilities.some((current) => current.id === ability.id || normalizedReference(current.name) === normalizedReference(ability.name))
+    if (!exists) refs.push({
+      ownerKind: 'player', ownerId: request.campaign.player.id, ownerName: request.campaign.player.name,
+      resources: request.campaign.player.resources.map((resource) => resource.key), ability,
+      replace: (next) => { collection[index] = next },
+    })
+  })
+  ;(source.statePatch.npcs ?? []).forEach((mutation) => {
+    if (mutation.operation === 'add') {
+      ;(mutation.npc.abilities ?? []).forEach((ability, index, collection) => refs.push({
+        ownerKind: 'npc', ownerId: mutation.npc.id, ownerName: mutation.npc.name,
+        resources: (mutation.npc.resources ?? []).map((resource) => resource.key), ability,
+        replace: (next) => { collection[index] = abilityStateCandidate({ ...next, id: ability.id }, request.campaign.turn) },
+      }))
+      return
+    }
+    const owner = request.campaign.npcs.find((npc) => npc.id === mutation.targetId)
+    if (!owner) return
+    ;[mutation.npc.abilities ?? [], mutation.npc.upsertAbilities ?? []].forEach((collection) => collection.forEach((ability, index) => {
+      const exists = (owner.abilities ?? []).some((current) => current.id === ability.id || normalizedReference(current.name) === normalizedReference(ability.name))
+      if (!exists) refs.push({
+        ownerKind: 'npc', ownerId: owner.id, ownerName: owner.name,
+        resources: (owner.resources ?? []).map((resource) => resource.key), ability,
+        replace: (next) => { collection[index] = next },
+      })
+    }))
+  })
+  if (!refs.length) return source
+
+  let systemDraft = source.statePatch.world?.capabilitySystem
+  let registry = [...(request.campaign.abilityRegistry ?? [])]
+  for (let index = 0; index < refs.length; index += 1) {
+    const ref = refs[index]
+    let current = ref.ability
+    let issues = newAbilityQualityIssues(current, systemDraft, request.campaign.world.capabilitySystem, ref.resources, registry, request.campaign.turn)
+    let criticIssues: string[] = []
+    try {
+      const criticMessages = abilityQualityCriticPrompt({
+        world: request.campaign.world,
+        owner: { id: ref.ownerId, name: ref.ownerName, resources: ref.resources },
+        ability: current,
+        registry,
+      })
+      const raw = await completeJson(request.provider, criticMessages)
+      const critic = abilityQualityReviewSchema.safeParse(normalizeModelOutput(raw))
+      if (critic.success && critic.data.verdict === 'repair') criticIssues = critic.data.issues
+    } catch {
+      // The deterministic checks remain authoritative if the compact critic is unavailable.
+    }
+    let best = current
+    let bestIssues = issues
+    let bestScore = abilityNoveltyScore(abilityStateCandidate(current, request.campaign.turn), registry) - issues.length * 20
+    for (let attempt = 0; attempt < 2 && (issues.length || criticIssues.length); attempt += 1) {
+      reportProgress(report, 72 + attempt * 7, 'ability-quality', `Уточняем новую способность «${current.name}»: вариант ${attempt + 1} из 2`, 3, 4)
+      const repairMessages = abilityFocusedRepairPrompt({
+        world: request.campaign.world,
+        owner: { id: ref.ownerId, name: ref.ownerName, resources: ref.resources },
+        ability: current,
+        registry,
+        issues: [...new Set([...issues, ...criticIssues])],
+      })
+      const raw = await completeJson(request.provider, repairMessages)
+      const repaired = await parseWithRepair(raw, abilityFocusedRepairSchema, request.provider, repairMessages)
+      if (repaired.capabilitySystem) systemDraft = repaired.capabilitySystem
+      current = { ...repaired.ability, id: ref.ability.id, name: ref.ability.name, source: ref.ability.source ?? repaired.ability.source }
+      issues = newAbilityQualityIssues(current, systemDraft, request.campaign.world.capabilitySystem, ref.resources, registry, request.campaign.turn)
+      const score = abilityNoveltyScore(abilityStateCandidate(current, request.campaign.turn), registry) - issues.length * 20
+      if (score >= bestScore) { best = current; bestIssues = issues; bestScore = score }
+      criticIssues = []
+    }
+    const hardIssues = hardAbilityQualityIssues(best, systemDraft, request.campaign.world.capabilitySystem, ref.resources, request.campaign.turn)
+    if (hardIssues.length) throw new Error(`ИИ-корректор не смог создать механически полную способность «${best.name}»: ${hardIssues.join(' ')}`)
+    if (bestIssues.length) console.warn(`[ability-quality] Editor retained the strongest valid version for ${best.name}: ${bestIssues.join(' ')}`)
+    ref.replace(best)
+    registry = updateAbilityRegistry(registry, abilityStateCandidate(abilityDraftForSystem(best, capabilitySystemCandidate(systemDraft, request.campaign.world.capabilitySystem, request.campaign.turn)), request.campaign.turn), ref.ownerId, ref.ownerKind, 'active', request.campaign.turn)
+  }
+  if (systemDraft) source.statePatch.world = { ...(source.statePatch.world ?? {}), capabilitySystem: systemDraft }
+  return turnPlanSchema.parse(source)
+}
+
 export async function editCampaign(request: CampaignEditRequest, report?: ProgressReporter): Promise<CampaignEditResponse> {
   if (request.provider.provider === 'demo') throw new Error('ИИ-корректор требует подключённую модель. Выберите DeepSeek V4 Flash в настройках.')
   reportProgress(report, 8, 'reading-state', 'Изучаем выбранную кампанию и точные идентификаторы', 1, 4)
@@ -2480,7 +2889,8 @@ export async function editCampaign(request: CampaignEditRequest, report?: Progre
   const plan = turnPlanSchema.parse({ outcome: parsed.summary, beats: [parsed.summary], suggestions: ['Продолжить', 'Осмотреть изменения'], statePatch: parsed.statePatch })
   const sanitized = sanitizePlan(request.campaign, plan)
   const repairedPlan = await repairCampaignEditorArtifacts(request, messages, sanitized.plan, report)
-  const finalSanitized = sanitizePlan(request.campaign, repairedPlan)
+  const abilitySafePlan = await repairCampaignEditorAbilities(request, repairedPlan, report)
+  const finalSanitized = sanitizePlan(request.campaign, abilitySafePlan)
   reportProgress(report, 96, 'finalizing-edit', 'Подготавливаем безопасное применение корректировки', 4, 4)
   return {
     ...parsed,
@@ -2718,6 +3128,7 @@ function qualityRepairStages(review: WorldQualityReview): WorldGenerationStage[]
   locations.filter(Boolean).forEach((location) => stages.add(worldStageForIssue(String(location).replaceAll('[', '.').replaceAll(']', '').split('.').filter(Boolean))))
   const text = JSON.stringify(review).toLocaleLowerCase('ru-RU')
   const addWhen = (pattern: RegExp, stage: WorldGenerationStage) => { if (pattern.test(text)) stages.add(stage) }
+  addWhen(/abilit|capabilitysystem/, 'characters')
   addWhen(/player|hero|inventory|artifact|abilit|startingaccess|геро|инвентар|артеф|способност|предмет/, 'core')
   addWhen(/faction|location|place|route|law|mechanic|географ|фракц|локац|маршрут|закон|механик/, 'civilization')
   addWhen(/npc|character|threatprofile|sociallink|worldpressure|персонаж|нпс|угроз|давлен/, 'characters')
@@ -2770,7 +3181,7 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     world = integrity.world
     completeSections = integrity.sections
   }
-  const maxRewrites = concept.recognizedCanon ? 2 : 1
+  const maxRewrites = 2
 
   for (let attempt = 0; attempt <= maxRewrites; attempt += 1) {
     reportProgress(report, 88 + attempt * 3, 'quality', attempt === 0 ? 'Проверяем полноту, канон и глубину мира' : `Перепроверяем точечно улучшенные разделы: проход ${attempt + 1}`, 10, 11)
@@ -2808,17 +3219,19 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
       }))).flat()
     const accessIssues = startingAccessIssues(concept, world)
     const artifactIssues = [...new Set([...artifactQuality.issues, ...artifactCriticIssues])]
-    const mechanicalIssues = [...accessIssues, ...artifactIssues]
+    const abilityQuality = generatedWorldAbilityQuality(world)
+    const abilityIssues = abilityQuality.issues
+    const mechanicalIssues = [...accessIssues, ...artifactIssues, ...abilityIssues]
     const effectiveReview: WorldQualityReview = mechanicalIssues.length ? {
       ...review,
       pass: false,
       issues: [...review.issues, {
         type: 'mechanics',
-        entity: artifactIssues.length ? 'Стартовые артефакты мира' : world.player.name,
+        entity: abilityIssues.length ? 'Система способностей мира' : artifactIssues.length ? 'Стартовые артефакты мира' : world.player.name,
         detail: mechanicalIssues.join(' '),
         severity: 'high',
       }],
-      rewriteInstructions: `${review.rewriteInstructions} Исправь startingAccess и артефакты без изменения пользовательского замысла: ${mechanicalIssues.join(' ')}`.trim(),
+      rewriteInstructions: `${review.rewriteInstructions} Исправь startingAccess, артефакты и способности без изменения пользовательского замысла: ${mechanicalIssues.join(' ')}`.trim(),
     } : review
     const hasBlockingIssue = effectiveReview.issues.some((issue) => issue.severity === 'high' && ['canon', 'completeness', 'mechanics', 'consistency'].includes(issue.type))
       || effectiveReview.coverageAudit.some((entry) => entry.importance !== 'minor' && entry.status !== 'covered')
@@ -2829,6 +3242,9 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
       return world
     }
     if (attempt === maxRewrites) {
+      if (abilityQuality.hardIssues.length) {
+        throw new Error(`DeepSeek не смог механически завершить новые способности после двух точечных пересборок: ${abilityQuality.hardIssues.join(' ')}`)
+      }
       console.warn(`[model:world-quality] Мир возвращён после ${maxRewrites} точечных содержательных переработок; итоговое покрытие ${effectiveReview.coverage}%.`)
       reportProgress(report, 97, 'finalizing', 'Завершаем лучший проверенный вариант мира', 11, 11)
       return world

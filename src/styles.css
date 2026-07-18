@@ -474,11 +474,84 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .ability-card small { color: var(--faint); font-size: 8.5px; }
 .ability-card.is-unavailable { border-style: dashed; background: color-mix(in srgb, var(--surface-1) 88%, var(--surface-3)); }
 .ability-card.is-unavailable .ability-icon { color: var(--faint); filter: saturate(.45); }
+.capability-groups { display: grid; gap: 13px; min-width: 0; }
+.capability-group { display: grid; gap: 7px; min-width: 0; }
+.capability-group > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; padding: 0 2px; }
+.capability-group > header > div { min-width: 0; }
+.capability-group > header strong { color: color-mix(in srgb, var(--group-accent) 76%, var(--text)); font-size: calc(10px * var(--panel-scale)); letter-spacing: .055em; text-transform: uppercase; }
+.capability-group > header p { margin: 3px 0 0; color: var(--faint); font-size: calc(9px * var(--panel-scale)); line-height: 1.4; }
+.capability-group > header > span { display: grid; place-items: center; min-width: 21px; height: 21px; border: 1px solid color-mix(in srgb, var(--group-accent) 25%, var(--border-soft)); border-radius: 7px; color: var(--group-accent); background: color-mix(in srgb, var(--group-accent) 7%, transparent); font-size: 8px; font-weight: 750; }
+.ability-card--authored { --ability-accent: var(--accent); --ability-secondary: var(--lore); position: relative; border-color: color-mix(in srgb, var(--ability-accent) 28%, var(--border-soft)); background: linear-gradient(138deg, color-mix(in srgb, var(--ability-accent) 6%, var(--surface-1)), var(--surface-1) 58%, color-mix(in srgb, var(--ability-secondary) 3%, var(--surface-1))); }
+.ability-card--item-projected { border-color: color-mix(in srgb, var(--ability-accent, var(--accent)) 34%, var(--border)); box-shadow: inset 3px 0 color-mix(in srgb, var(--ability-accent, var(--accent)) 78%, transparent); }
+.ability-card--item-projected .ability-icon { color: var(--ability-accent, var(--accent)); border-color: color-mix(in srgb, var(--ability-accent, var(--accent)) 38%, var(--border)); background: color-mix(in srgb, var(--ability-secondary, var(--accent)) 10%, var(--surface-2)); }
+.ability-source-link { display: inline-flex; align-items: center; gap: 7px; width: auto; min-height: 32px; margin-top: 10px; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--ability-accent, var(--accent)) 36%, var(--border)); border-radius: 8px; color: var(--ability-accent, var(--accent)); background: color-mix(in srgb, var(--ability-accent, var(--accent)) 7%, transparent); }
+.ability-card--authored::after { position: absolute; pointer-events: none; content: ""; inset: 0; background: radial-gradient(180px 70px at 0 0, color-mix(in srgb, var(--ability-accent) 9%, transparent), transparent 72%); }
+.ability-main--authored { position: relative; z-index: 1; align-items: center; min-height: 98px; }
+.ability-icon--symbol { width: 34px; height: 34px; border: 1px solid color-mix(in srgb, var(--ability-accent) 30%, var(--border-soft)); border-radius: 11px; color: var(--ability-accent); background: color-mix(in srgb, var(--ability-accent) 10%, var(--surface-2)); font-size: 15px; box-shadow: 0 0 18px color-mix(in srgb, var(--ability-accent) 8%, transparent); }
+.ability-kicker { display: block; margin-bottom: 3px; color: var(--ability-accent); font-size: calc(8px * var(--panel-scale)); font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+.ability-card--authored .ability-copy > p { margin: 4px 0 7px; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.ability-compact-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.ability-compact-meta i { padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--ability-accent) 18%, var(--border-soft)); border-radius: 999px; color: var(--muted); background: color-mix(in srgb, var(--ability-accent) 4%, transparent); font-size: calc(8px * var(--panel-scale)); font-style: normal; line-height: 1.2; }
+.ability-compact-meta i b { display: inline; color: var(--ability-accent); font-size: inherit; }
+.ability-current-fact { display: -webkit-box; overflow: hidden; margin-top: 7px; color: var(--faint) !important; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
+.ability-open-mark { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; align-self: flex-start; margin-top: 2px; color: var(--ability-accent); font-size: calc(8px * var(--panel-scale)); }
+.ability-open-mark svg { transform: rotate(-90deg); }
 .ability-access { display: inline-flex; width: fit-content; margin-top: 7px; padding: 4px 7px; border: 1px solid var(--border-soft); border-radius: 999px; font-size: 8px; font-style: normal; line-height: 1.25; }
 .ability-access.is-ready { border-color: color-mix(in srgb, var(--accent) 30%, var(--border-soft)); color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .ability-access.is-locked { color: var(--faint); background: var(--surface-2); }
 .item-ability-intro { margin-bottom: 8px; padding: 8px 9px; border-left: 2px solid var(--lore); border-radius: 0 8px 8px 0; color: var(--muted); background: color-mix(in srgb, var(--lore) 5%, transparent); font-size: calc(9.5px * var(--panel-scale)); line-height: 1.5; }
 .ability-details { display: grid; gap: 11px; padding: 1px 12px 13px; }
+.ability-dossier { --ability-accent: var(--accent); --ability-secondary: var(--lore); display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: linear-gradient(145deg, color-mix(in srgb, var(--ability-accent) 4%, transparent), transparent 35%); }
+.ability-dossier-hero { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 14px; align-items: center; flex: 0 0 auto; padding: 18px 24px; border-bottom: 1px solid color-mix(in srgb, var(--ability-accent) 22%, var(--border-soft)); }
+.ability-dossier-hero > span { display: grid; place-items: center; width: 58px; height: 58px; border: 1px solid color-mix(in srgb, var(--ability-accent) 38%, var(--border-soft)); border-radius: 18px; color: var(--ability-accent); background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--ability-secondary) 16%, transparent), color-mix(in srgb, var(--ability-accent) 8%, var(--surface-2))); font-size: 25px; box-shadow: 0 12px 38px color-mix(in srgb, var(--ability-accent) 12%, transparent); }
+.ability-dossier-hero b { display: block; color: var(--ability-accent); font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }
+.ability-dossier-hero p { margin: 6px 0 3px; color: var(--text-soft); font-family: ui-serif, Georgia, serif; font-size: 17px; line-height: 1.35; }
+.ability-dossier-hero small { color: var(--faint); font-size: 9px; }
+.ability-dossier-scroll { display: grid; gap: 12px; min-height: 0; padding: 16px 24px 24px; overflow: auto; overflow-x: hidden; }
+.ability-dossier-mastery { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 9px; }
+.ability-dossier-mastery > div, .ability-dossier-mastery > article, .ability-dossier-section { min-width: 0; padding: 13px; border: 1px solid color-mix(in srgb, var(--ability-accent) 18%, var(--border-soft)); border-radius: 13px; background: color-mix(in srgb, var(--ability-accent) 3%, var(--surface-1)); }
+.ability-dossier-mastery > div { display: grid; grid-template-columns: 1fr auto; gap: 6px 9px; }
+.ability-dossier-mastery span, .ability-dossier-mastery b { font-size: 10px; }
+.ability-dossier-mastery span { color: var(--muted); }
+.ability-dossier-mastery b { color: var(--ability-accent); }
+.ability-dossier-mastery i { grid-column: 1 / -1; height: 5px; overflow: hidden; border-radius: 999px; background: var(--surface-3); }
+.ability-dossier-mastery i em { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--ability-accent), var(--ability-secondary)); }
+.ability-dossier-mastery small { grid-column: 1 / -1; color: var(--faint); font-size: 8.5px; line-height: 1.45; }
+.ability-dossier-mastery article span, .ability-dossier-mastery article strong, .ability-dossier-mastery article small { display: block; }
+.ability-dossier-mastery article strong { margin: 5px 0; color: var(--ability-accent); font-size: 13px; }
+.ability-dossier-mastery article p { margin: 0 0 5px; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+.ability-facets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.ability-facets article { min-width: 0; padding: 10px; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--surface-1); }
+.ability-facets article > div { display: flex; justify-content: space-between; gap: 7px; }
+.ability-facets span, .ability-facets b { font-size: 9px; }
+.ability-facets span { color: var(--muted); }
+.ability-facets b { color: var(--ability-accent); }
+.ability-facets i { display: block; height: 3px; margin-top: 6px; overflow: hidden; border-radius: 999px; background: var(--surface-3); }
+.ability-facets i em { display: block; height: 100%; border-radius: inherit; background: var(--ability-accent); }
+.ability-facets p { margin: 6px 0 0; color: var(--faint); font-size: 8.25px; line-height: 1.4; }
+.ability-dossier-section { display: grid; gap: 8px; }
+.ability-dossier-section h3 { margin: 0; color: var(--text-soft); font-family: ui-serif, Georgia, serif; font-size: 16px; font-weight: 500; }
+.ability-dossier-section > p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; }
+.ability-dossier-section > small { color: var(--faint); font-size: 8.5px; line-height: 1.45; }
+.ability-owner-expression { padding: 10px; border-left: 2px solid var(--ability-accent); border-radius: 0 9px 9px 0; background: color-mix(in srgb, var(--ability-accent) 5%, var(--surface-2)); }
+.ability-owner-expression > b { color: var(--ability-accent); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
+.ability-owner-expression > p { margin: 5px 0 8px; color: var(--muted); font-size: 9.5px; line-height: 1.5; }
+.ability-availability { padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--ability-accent) 25%, var(--border-soft)); border-radius: 10px; background: color-mix(in srgb, var(--ability-accent) 6%, transparent); }
+.ability-availability strong { color: var(--ability-accent); font-size: 10px; }
+.ability-availability p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.ability-availability small { display: block; margin-top: 6px; color: var(--faint); font-size: 8.5px; }
+.ability-availability.state-blocked, .ability-availability.state-disabled { border-color: color-mix(in srgb, var(--danger) 34%, var(--border-soft)); background: var(--danger-soft); }
+.ability-availability.state-blocked strong, .ability-availability.state-disabled strong { color: var(--danger); }
+.ability-unknown-trace { display: flex; align-items: center; gap: 9px; padding: 11px; border: 1px dashed color-mix(in srgb, var(--ability-accent) 28%, var(--border-soft)); border-radius: 11px; color: var(--ability-accent); background: color-mix(in srgb, var(--ability-accent) 3%, transparent); }
+.ability-unknown-trace span, .ability-unknown-trace b, .ability-unknown-trace small { display: block; }
+.ability-unknown-trace b { color: var(--text-soft); font-size: 9.5px; }
+.ability-unknown-trace small { margin-top: 3px; color: var(--faint); font-size: 8.5px; line-height: 1.4; }
+.dossier-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dossier-columns > div { min-width: 0; }
+.ability-seed { padding: 9px; border: 1px solid color-mix(in srgb, var(--ability-secondary) 23%, var(--border-soft)); border-radius: 10px; background: color-mix(in srgb, var(--ability-secondary) 4%, var(--surface-2)); }
+.ability-seed strong { color: var(--text-soft); font-size: 10px; }
+.ability-seed p { margin: 5px 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.ability-seed small { color: var(--faint); font-size: 8px; }
 .ability-details > div > b, .artifact-profile > div > b, .progress-history > b, .evolution-list > b { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
 .ability-details ul, .artifact-profile ul { margin: 4px 0 0; padding-left: 17px; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .power-badges { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -1674,6 +1747,14 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   .modal-panel, .modal-panel--large { width: 100%; max-height: 94dvh; border-right: 0; border-bottom: 0; border-left: 0; border-radius: 22px 22px 0 0; }
   .modal-heading { padding: 18px 18px 14px; }
   .modal-heading h2 { font-size: 21px; }
+  .ability-dossier-hero { grid-template-columns: 46px minmax(0, 1fr); gap: 11px; padding: 14px 18px; }
+  .ability-dossier-hero > span { width: 46px; height: 46px; border-radius: 14px; font-size: 20px; }
+  .ability-dossier-hero p { font-size: 15px; }
+  .ability-dossier-scroll { padding: 12px 14px max(20px, env(safe-area-inset-bottom)); }
+  .ability-dossier-mastery, .ability-facets, .dossier-columns { grid-template-columns: 1fr; }
+  .ability-main--authored { min-height: 92px; padding: 10px; }
+  .ability-open-mark { font-size: 0; }
+  .ability-open-mark svg { width: 16px; height: 16px; }
   .form-stack, .settings-layout { padding-right: 18px; padding-left: 18px; }
   .wizard-progress i { width: 49px; }
   .wizard-step { padding: 20px 18px; }
@@ -3168,6 +3249,47 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   .artifact-symbol { width: 36px; height: 36px; border-radius: 10px; font-size: 16px; }
   .artifact-meters { align-items: stretch; flex-wrap: wrap; }
   .artifact-meters span { flex: 1 1 30%; }
+}
+
+@media (max-width: 800px) {
+  .ability-dossier-hero b,
+  .ability-dossier-hero small { font-size: 11px; line-height: 1.4; }
+  .ability-dossier-mastery span,
+  .ability-dossier-mastery b { font-size: 12px; }
+  .ability-dossier-mastery small { font-size: 11px; line-height: 1.5; }
+  .ability-dossier-mastery article strong { font-size: 15px; }
+  .ability-dossier-mastery article p { font-size: 12px; line-height: 1.55; }
+  .ability-facets span,
+  .ability-facets b { font-size: 11.5px; }
+  .ability-facets p { font-size: 11.5px; line-height: 1.5; }
+  .ability-dossier-section { gap: 10px; padding: 14px; }
+  .ability-dossier-section h3 { font-size: 18px; }
+  .ability-dossier-section > p { font-size: 13px; line-height: 1.6; }
+  .ability-dossier-section > small { font-size: 11.5px; line-height: 1.5; }
+  .ability-owner-expression > b { font-size: 11px; }
+  .ability-owner-expression > p { font-size: 12.5px; line-height: 1.55; }
+  .ability-availability strong { font-size: 12px; }
+  .ability-availability p { font-size: 12px; line-height: 1.5; }
+  .ability-availability small,
+  .ability-unknown-trace small { font-size: 11px; line-height: 1.5; }
+  .ability-unknown-trace b { font-size: 12px; }
+  .ability-dossier .power-detail-list > b,
+  .ability-dossier .power-detail-list li,
+  .ability-dossier .power-detail-list.is-compact li { font-size: 12px !important; line-height: 1.5; }
+  .ability-dossier .technique-collection > header b,
+  .ability-dossier .technique-collection > header small,
+  .ability-dossier .technique-card > summary > span em,
+  .ability-dossier .technique-mastery > span,
+  .ability-dossier .technique-mastery > b,
+  .ability-dossier .technique-facts p b,
+  .ability-dossier .technique-body .power-detail-list > b,
+  .ability-dossier .technique-body .power-detail-list ul { font-size: 11px !important; }
+  .ability-dossier .technique-card > summary > span strong { font-size: 13px; }
+  .ability-dossier .technique-card > summary > span small,
+  .ability-dossier .technique-facts p span { font-size: 12px !important; line-height: 1.5; }
+  .ability-dossier .ability-seed strong { font-size: 12.5px; }
+  .ability-dossier .ability-seed p { font-size: 12px; line-height: 1.5; }
+  .ability-dossier .ability-seed small { font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -100,6 +100,10 @@ describe('campaign IndexedDB storage', () => {
       history: [],
       activeEvents: [],
     })
+    expect(migrated.world.capabilitySystem).toBeUndefined()
+    expect(migrated.player.abilities).toEqual([expect.objectContaining(legacy.player.abilities[0])])
+    expect(migrated.player.abilities[0].profile).toBeUndefined()
+    expect(migrated.abilityRegistry).toEqual([])
   })
 
   it('backfills the uniqueness registry from factual legacy item data without inventing an identity', async () => {

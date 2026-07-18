@@ -3,6 +3,7 @@ import type { NPC, NPCDossierSection, StateChange, TurnPatch } from '../../share
 import { createDemoCampaign } from './demo'
 import { applyPatch, commitTurn, describePatch, rewindLastTurn } from './engine'
 import { diffCampaignState } from './state-changes'
+import { testAbility, testAbilityProfile, testCapabilitySystem } from '../../shared/abilities.test'
 
 function revealNpc(npc: NPC, sections: NPCDossierSection[], statKeys: string[] = [], resourceKeys: string[] = [], abilityIds: string[] = []) {
   npc.dossier = { familiarity: 'familiar', revealedSections: sections, revealedStatKeys: statKeys, revealedResourceKeys: resourceKeys, revealedAbilityIds: abilityIds, evidence: [], updatedTurn: 0 }
@@ -1431,5 +1432,40 @@ describe('state engine', () => {
     const rewound = rewindLastTurn(next)
     expect(rewound.inventory.some((candidate) => candidate.id === item.id)).toBe(true)
     expect(rewound.artifactRegistry).toEqual([])
+  })
+
+  it('promotes an unusual application only after its own confirmed threshold', () => {
+    const campaign = createDemoCampaign()
+    campaign.world.capabilitySystem = structuredClone(testCapabilitySystem)
+    const ability = testAbility()
+    ability.profile = testAbilityProfile({
+      developmentSeeds: [{
+        id: 'seed-polyphony',
+        name: 'Полифоническая сверка',
+        hypothesis: 'Два противоречивых голоса можно удержать одновременно и сравнить без выбора одного из них.',
+        distinctMechanic: 'Одновременное удержание двух несовместимых следов.',
+        requiredConfirmations: 2,
+        promotionRule: 'Два подтверждённых применения на разных предметах.',
+        disqualifiers: ['Оба голоса происходят из одной записи.'],
+        evidence: [],
+        status: 'forming',
+      }],
+    })
+    campaign.player.abilities = [ability]
+    const technique = {
+      id: 'tech-polyphony', name: 'Полифоническая сверка', description: 'Удерживает два несовместимых голоса и отмечает точку расхождения.',
+      kind: 'active' as const, category: 'perception' as const, mastery: 1, activation: 'Коснуться двух связанных предметов.', scale: 'Два предмета',
+      costs: [{ resource: 'focus', amount: 3 }], effects: ['Точка расхождения двух свидетельств становится слышимой.'], requirements: ['Два независимых следа.'], limitations: [], unlocked: true,
+    }
+    const rejected: StateChange[] = []
+    const first = applyPatch(campaign, { abilityChanges: [{ abilityId: ability.id, profileChanges: { developmentSeedChanges: [{ seedId: 'seed-polyphony', addEvidence: [{ summary: 'Сравнены голоса печати и письма.', outcome: 'success' }], promoteTechnique: technique }] } }] }, 2, rejected)
+    expect(first.player.abilities[0].techniques?.some((entry) => entry.id === technique.id)).toBe(false)
+    expect(rejected).toEqual(expect.arrayContaining([expect.objectContaining({ detail: expect.stringContaining('ещё не подтверждена') })]))
+
+    const promoted = applyPatch(first, { abilityChanges: [{ abilityId: ability.id, profileChanges: { developmentSeedChanges: [{ seedId: 'seed-polyphony', addEvidence: [{ summary: 'Сравнены голоса осколка и дверной рамы.', outcome: 'training' }], promoteTechnique: technique }] } }] }, 3)
+    expect(promoted.player.abilities[0].techniques).toEqual(expect.arrayContaining([expect.objectContaining({ id: technique.id, name: technique.name })]))
+    expect(promoted.player.abilities[0].profile?.developmentSeeds[0]).toMatchObject({ status: 'promoted', requiredConfirmations: 2 })
+    expect(promoted.player.abilities[0].mastery).toBe(100)
+    expect(promoted.player.abilities[0].profile?.standing.tierId).toBe('tier-personal')
   })
 })

@@ -1,9 +1,99 @@
-import type { Campaign, WorldGenerationRequest } from '../shared/types.js'
+import type {
+  Ability, AbilityDraft, AbilityProfile, PowerTechnique, PowerTechniqueDraft,
+  WorldCapabilitySystem, WorldCapabilitySystemDraft, Campaign, WorldGenerationRequest,
+} from '../shared/types.js'
+import { updateAbilityRegistry } from '../shared/abilities.js'
 import { defaultEventDirectorState, normalizeEventDirectorSettings } from '../shared/event-director.js'
 import { normalizeItemRarity, normalizeRarityProfile } from '../shared/rarity.js'
 import type { GeneratedWorld } from './schemas.js'
 
 const id = () => crypto.randomUUID()
+
+function materializeCapabilitySystem(draft: WorldCapabilitySystemDraft | undefined, turn: number) {
+  if (!draft) return { system: undefined, groupIds: new Map<string, string>(), tierIds: new Map<string, string>() }
+  const systemId = draft.id ?? id()
+  const groupIds = new Map<string, string>()
+  const groups = draft.groups.map((group) => {
+    const groupId = group.id ?? id()
+    groupIds.set(groupId, groupId)
+    groupIds.set(group.label.toLocaleLowerCase('ru-RU'), groupId)
+    return { ...group, id: groupId }
+  })
+  const tierIds = new Map<string, string>()
+  const tiers = draft.tiers.map((tier) => {
+    const tierId = tier.id ?? id()
+    tierIds.set(tierId, tierId)
+    tierIds.set(tier.label.toLocaleLowerCase('ru-RU'), tierId)
+    return { ...tier, id: tierId }
+  })
+  return {
+    system: { ...draft, id: systemId, groups, tiers, createdTurn: turn, lastChangedTurn: turn } satisfies WorldCapabilitySystem,
+    groupIds,
+    tierIds,
+  }
+}
+
+function materializeTechniques(drafts: PowerTechniqueDraft[], turn: number): PowerTechnique[] {
+  return drafts.map((technique) => ({
+    ...technique,
+    id: technique.id ?? id(),
+    history: technique.history?.map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })),
+  }))
+}
+
+function materializeGeneratedAbility(
+  draft: AbilityDraft,
+  turn: number,
+  system: WorldCapabilitySystem | undefined,
+  groupIds: Map<string, string>,
+  tierIds: Map<string, string>,
+): Ability {
+  const abilityId = draft.id ?? id()
+  const techniques = materializeTechniques(draft.techniques ?? [], turn)
+  const techniqueIds = new Map<string, string>()
+  techniques.forEach((technique) => {
+    techniqueIds.set(technique.id, technique.id)
+    techniqueIds.set(technique.name.toLocaleLowerCase('ru-RU'), technique.id)
+  })
+  const profile: AbilityProfile | undefined = draft.profile ? {
+    ...draft.profile,
+    nature: {
+      ...draft.profile.nature,
+      groupId: groupIds.get(draft.profile.nature.groupId)
+        ?? groupIds.get(draft.profile.nature.groupId.toLocaleLowerCase('ru-RU'))
+        ?? draft.profile.nature.groupId,
+    },
+    standing: {
+      ...draft.profile.standing,
+      systemId: system?.id ?? draft.profile.standing.systemId,
+      tierId: tierIds.get(draft.profile.standing.tierId)
+        ?? tierIds.get(draft.profile.standing.tierId.toLocaleLowerCase('ru-RU'))
+        ?? draft.profile.standing.tierId,
+    },
+    discovery: {
+      ...draft.profile.discovery,
+      techniqueKnowledge: Object.fromEntries(Object.entries(draft.profile.discovery.techniqueKnowledge).map(([key, value]) => [
+        techniqueIds.get(key) ?? techniqueIds.get(key.toLocaleLowerCase('ru-RU')) ?? key,
+        value,
+      ])),
+      evidence: draft.profile.discovery.evidence.map((entry) => ({ ...entry, id: entry.id ?? id(), learnedTurn: entry.learnedTurn ?? turn })),
+      updatedTurn: draft.profile.discovery.updatedTurn ?? turn,
+    },
+    developmentSeeds: draft.profile.developmentSeeds.map((seed) => ({
+      ...seed,
+      id: seed.id ?? id(),
+      evidence: seed.evidence.map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })),
+    })),
+  } : undefined
+  return {
+    ...draft,
+    id: abilityId,
+    techniques,
+    evolutionPaths: (draft.evolutionPaths ?? []).map((path) => ({ ...path, id: path.id ?? id() })),
+    history: (draft.history ?? []).map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })),
+    profile,
+  }
+}
 
 export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerationRequest): Campaign {
   const timestamp = new Date().toISOString()
@@ -15,14 +105,9 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const eventIds = new Map<string, string>(generated.worldEvents.map((event) => [event.title.toLocaleLowerCase('ru-RU'), id()]))
   const threadIds = new Map<string, string>(generated.threads.map((thread) => [thread.title.toLocaleLowerCase('ru-RU'), id()]))
   const causalIds = new Map([...processIds, ...eventIds, ...threadIds])
+  const capability = materializeCapabilitySystem(generated.world.capabilitySystem, 0)
   const npcs = generated.npcs.map((npc) => {
-    const abilities = npc.abilities.map((ability) => ({
-      ...ability,
-      id: id(),
-      techniques: ability.techniques.map((technique) => ({ ...technique, id: id() })),
-      evolutionPaths: ability.evolutionPaths.map((path) => ({ ...path, id: id() })),
-      history: ability.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
-    }))
+    const abilities = npc.abilities.map((ability) => materializeGeneratedAbility(ability, 0, capability.system, capability.groupIds, capability.tierIds))
     const { dossier, ...profile } = npc
     const knownAbilityNames = new Set(dossier?.revealedAbilityNames.map((name) => name.toLocaleLowerCase('ru-RU')) ?? [])
     return {
@@ -90,6 +175,16 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       lastChangedTurn: 0,
     }
   })
+  const playerAbilities = generated.player.abilities.map((ability) => materializeGeneratedAbility(ability, 0, capability.system, capability.groupIds, capability.tierIds))
+  let abilityRegistry = playerAbilities.reduce(
+    (registry, ability) => updateAbilityRegistry(registry, ability, playerId, 'player', 'active', 0),
+    [] as Campaign['abilityRegistry'],
+  )
+  npcs.forEach((npc) => {
+    npc.abilities.forEach((ability) => {
+      abilityRegistry = updateAbilityRegistry(abilityRegistry, ability, npc.id, 'npc', 'active', 0)
+    })
+  })
 
   return {
     id: id(),
@@ -99,6 +194,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
     turn: 0,
     world: {
       ...generated.world,
+      capabilitySystem: capability.system,
       presentation: {
         ...generated.world.presentation,
         rarityLabels: {
@@ -139,13 +235,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       ...generated.player,
       id: playerId,
       level: 1,
-      abilities: generated.player.abilities.map((ability) => ({
-        ...ability,
-        id: id(),
-        techniques: ability.techniques.map((technique) => ({ ...technique, id: id() })),
-        evolutionPaths: ability.evolutionPaths.map((path) => ({ ...path, id: id() })),
-        history: ability.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
-      })),
+      abilities: playerAbilities,
       conditions: [],
       statusEffects: [],
       lifeState: 'active',
@@ -175,7 +265,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
           powers: item.artifact.powers.map((power) => ({
             ...power,
             id: id(),
-            techniques: power.techniques.map((technique) => ({ ...technique, id: id() })),
+            techniques: materializeTechniques(power.techniques, 0),
           })),
           components: item.artifact.components.map((component) => ({ ...component, id: id() })),
           evolutionPaths: item.artifact.evolutionPaths.map((path) => ({ ...path, id: id() })),
@@ -319,6 +409,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       eventDirector: normalizeEventDirectorSettings(),
     },
     eventDirectorState: defaultEventDirectorState(0),
+    abilityRegistry,
     snapshots: [],
   }
 }

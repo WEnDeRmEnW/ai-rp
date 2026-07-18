@@ -277,6 +277,72 @@ function demoAdditionalLegends(): DemoLegend[] {
 }
 
 type DemoNpc = GeneratedWorld['npcs'][number]
+type DemoAbilityProfile = NonNullable<GeneratedWorld['player']['abilities'][number]['profile']>
+
+function demoAbilityProfile(input: {
+  name: string
+  owner: string
+  coreFantasy: string
+  principle: string
+  origin: string
+  interaction: string
+  experience: string
+  groupId: 'group-omens' | 'group-relics' | 'group-strategy'
+  groupLabel: string
+  tierId: 'tier-personal' | 'tier-expert' | 'tier-master'
+  tierLabel: string
+  ceiling: string
+  scope: string
+  hidden?: boolean
+}): DemoAbilityProfile {
+  const revealed = input.hidden ? ['identity', 'standing'] as const : ['identity', 'principle', 'source', 'standing', 'facets', 'availability', 'techniques', 'counterplay', 'progression', 'history'] as const
+  return {
+    nature: { kind: input.groupId === 'group-relics' ? 'trained' : input.groupId === 'group-strategy' ? 'trained' : 'innate', groupId: input.groupId, label: input.groupLabel, explanation: `В Эйдоле «${input.name}» относится к группе «${input.groupLabel}» по фактическому способу действия.` },
+    creativeIdentity: {
+      coreFantasy: input.coreFantasy,
+      centralPrinciple: input.principle,
+      originPattern: input.origin,
+      interactionModel: input.interaction,
+      signatureExperience: input.experience,
+      mechanicVerbs: input.groupId === 'group-strategy' ? ['наблюдать', 'проверять', 'перестраивать'] : input.groupId === 'group-relics' ? ['настраивать', 'спрашивать', 'сопоставлять'] : ['замечать', 'различать', 'предупреждать'],
+      sensoryMotifs: input.groupId === 'group-strategy' ? ['смена ритма', 'развилки маршрута'] : input.groupId === 'group-relics' ? ['тёплая латунь', 'сенсорный отзвук'] : ['натяжение мгновения', 'тихий разлад окружения'],
+      differentiation: input.groupId === 'group-strategy'
+        ? ['Не читает мысли и работает только с доступными наблюдениями.', `Манера применения принадлежит именно владельцу: ${input.owner}.`]
+        : ['Не сообщает готовое правильное решение.', `Проявление связано с личным опытом владельца: ${input.owner}.`],
+    },
+    ownerExpression: {
+      summary: `${input.owner} применяет «${input.name}» через собственные привычки и приоритеты, не копируя чужую манеру.`,
+      priorities: input.groupId === 'group-strategy' ? ['Сначала проверить дешёвую гипотезу', 'Сохранить путь отступления'] : ['Сначала отделить наблюдаемый признак от догадки'],
+      habits: input.groupId === 'group-strategy' ? ['Сравнивает минимум две развилки'] : ['Останавливается на одном ясном сигнале'],
+      signatures: [input.experience],
+      avoids: ['Не объявляет неизвестное установленным фактом'],
+    },
+    standing: {
+      systemId: 'eidol-capability-system', tierId: input.tierId, tierLabel: input.tierLabel,
+      basis: `Класс подтверждён наблюдаемым пределом и установленной историей применения «${input.name}».`, ceiling: input.ceiling, scope: input.scope,
+      evidence: [`Известно хотя бы одно подтверждённое применение владельцем ${input.owner}.`], uncertainties: input.hidden ? ['Полный предел герою пока неизвестен.'] : [],
+    },
+    facets: [
+      { key: 'precision', label: 'Точность', value: input.tierId === 'tier-master' ? 86 : input.tierId === 'tier-expert' ? 72 : 44, description: 'Насколько надёжно владелец выделяет нужное условие.' },
+      { key: 'reach', label: 'Охват', value: input.tierId === 'tier-master' ? 76 : input.tierId === 'tier-expert' ? 58 : 25, description: 'Реальный масштаб воздействия, не зависящий напрямую от mastery.' },
+      { key: 'adaptation', label: 'Адаптация', value: input.groupId === 'group-strategy' ? 75 : 46, description: 'Способность менять применение после новой информации.' },
+    ],
+    presentation: {
+      layout: input.groupId === 'group-strategy' ? 'network' : input.groupId === 'group-relics' ? 'constellation' : 'discipline',
+      icon: input.groupId === 'group-strategy' ? 'network' : input.groupId === 'group-relics' ? 'rune' : 'eye', symbol: input.groupId === 'group-strategy' ? '⌘' : input.groupId === 'group-relics' ? '◐' : '⌁',
+      motif: input.groupId === 'group-strategy' ? 'развилки контрплана' : input.groupId === 'group-relics' ? 'сенсорные следы памяти' : 'граница необратимого решения',
+      accent: input.groupId === 'group-strategy' ? '#e7b96b' : '#71d3b1', secondary: input.groupId === 'group-relics' ? '#d1a45f' : '#b99af7', density: 'comfortable',
+      sectionOrder: ['identity', 'principle', 'standing', 'facets', 'availability', 'techniques', 'counterplay', 'progression', 'history'], summary: input.coreFantasy,
+    },
+    discovery: {
+      awareness: input.hidden ? 15 : 100, revealedSections: [...revealed], techniqueKnowledge: {},
+      evidence: input.hidden ? [] : [{ section: 'identity', summary: `Герой наблюдал проявление «${input.name}».`, source: 'Установленный факт мира', reliability: 100 }],
+    },
+    availability: { state: 'ready', reasons: [] },
+    developmentSeeds: [],
+  }
+}
+
 type DemoStrongNpcSeed = {
   name: string
   role: string
@@ -351,6 +417,17 @@ function demoStrongNpc(seed: DemoStrongNpcSeed): DemoNpc {
         unlocked: true,
       }],
       canonStatus: 'original',
+      profile: demoAbilityProfile({
+        name: seed.abilityName, owner: seed.name, coreFantasy: seed.abilityDescription,
+        principle: seed.doctrine, origin: seed.source,
+        interaction: 'Собрать доступные сведения, выбрать подготовленную позицию и применить сигнатурный метод только после наблюдаемого действия цели.',
+        experience: `Поле будто распадается на несколько маршрутов, после чего ${seed.name} закрывает наиболее выгодный противнику вариант.`,
+        groupId: 'group-strategy', groupLabel: 'Доктрины и влияние',
+        tierId: seed.tier === 'elite' || seed.tier === 'legendary' || seed.tier === 'mythic' ? 'tier-master' : 'tier-expert',
+        tierLabel: seed.tier === 'elite' || seed.tier === 'legendary' || seed.tier === 'mythic' ? 'Мастер контура' : 'Проверенный специалист',
+        ceiling: seed.tier === 'elite' || seed.tier === 'legendary' || seed.tier === 'mythic' ? 'Способен перестраивать крупную операцию в пределах подготовленной инфраструктуры.' : 'Способен изменить ход одной сложной сцены.',
+        scope: seed.tier === 'dangerous' ? 'Одна сложная сцена' : 'Поле боя или крупная операция', hidden: true,
+      }),
     }],
     knowledge: [{ subject: seed.lastSeen, statement: 'Персонаж знает собственный район деятельности, ресурсы и ближайшие риски.', status: 'known', confidence: 90, source: 'Личный опыт', secret: true }],
     relationshipDimensions: { trust: 0, respect: 0, affection: 0, fear: 0, suspicion: 0, dependence: 0 },
@@ -943,6 +1020,25 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
           { key: 'focus', label: 'Фокус', accepts: ['artifact', 'quest'] },
         ],
       },
+      capabilitySystem: {
+        id: 'eidol-capability-system',
+        title: 'Контуры действия Эйдола',
+        summary: 'Единая карта врождённых чувств, реликтовых практик и человеческих доктрин, которые меняют мир разными способами и поэтому не сводятся к рангу заклинаний.',
+        masteryMeaning: 'Освоение показывает точность, устойчивость и разнообразие уже доступного владельцу применения.',
+        powerMeaning: 'Мощность означает реальный предел и охват возможности; высокая освоенность слабой возможности не повышает её класс автоматически.',
+        availabilityMeaning: 'Доступность отражает только существующие сейчас условия, ресурсы, блокировки и подготовку.',
+        groups: [
+          { id: 'group-omens', label: 'Чутьё границ', description: 'Врождённое восприятие необратимых решений и трещин причинности.', natureKinds: ['innate', 'psionic'], icon: 'eye', accent: '#71d3b1', secondary: '#b99af7', reason: 'Эйдол оставляет наблюдаемый след перед необратимым изменением.' },
+          { id: 'group-relics', label: 'Реликтовый резонанс', description: 'Осознанные способы взаимодействия с памятью, печатями и личными реликвиями.', natureKinds: ['trained', 'magical', 'access'], icon: 'rune', accent: '#d1a45f', secondary: '#78c9bc', reason: 'Реликвии действуют по законам памяти и требуют отдельного языка практик.' },
+          { id: 'group-strategy', label: 'Доктрины и влияние', description: 'Мастерство, власть, сеть, подготовка и тактические методы без превращения их в магию.', natureKinds: ['trained', 'social', 'authority', 'organizational'], icon: 'network', accent: '#e7b96b', secondary: '#71d3b1', reason: 'Компетентность и инфраструктура меняют доступные решения, но не являются сверхъестественной энергией.' },
+        ],
+        tiers: [
+          { id: 'tier-personal', label: 'Личный отклик', order: 1, description: 'Надёжно влияет на самого владельца, один объект или одно решение.', scope: 'Один человек, предмет или момент', evidenceRequirements: ['Хотя бы одно подтверждённое личное применение.'] },
+          { id: 'tier-expert', label: 'Проверенный специалист', order: 2, description: 'Способен устойчиво менять ход сложной сцены в своей области.', scope: 'Сцена, группа или локальная операция', evidenceRequirements: ['Несколько практических применений', 'Известные условия и пределы.'] },
+          { id: 'tier-master', label: 'Мастер контура', order: 3, description: 'Перестраивает крупную операцию или устойчивую систему в пределах своей специализации.', scope: 'Поле боя, организация или региональная операция', evidenceRequirements: ['Доказанные крупные результаты', 'Способность адаптировать метод после противодействия.'] },
+        ],
+        comparisonRules: ['Сначала сравнивать фактический предел, затем доступность, универсальность и только после этого mastery.', 'Социальная власть и технология оцениваются по реальным каналам воздействия, а не как заклинания.', 'Общий источник сохраняет законы школы, но манера, техники и доказательства принадлежат конкретному владельцу.'],
+      },
       presentation: {
         accent: '#71d3b1', accentStrong: '#95e6c9', secondary: '#e7b96b', surface: 'minimal', motif: 'след выбора',
         labels: {
@@ -989,6 +1085,14 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
             { name: 'Точка разлома', description: 'Чувствовать угрозу миру.', requirement: 'Стать свидетелем изменения закона мира.', unlocked: false },
           ],
           history: [{ title: 'Первое предчувствие', description: 'Дар впервые проявился у знака на мокром камне.' }], tags: ['восприятие', 'судьба'],
+          profile: demoAbilityProfile({
+            name: 'Чутьё перемен', owner: input.characterName,
+            coreFantasy: 'Узнавать момент, после которого прежний ход событий уже нельзя вернуть, по конкретным разладам сцены.',
+            principle: 'Необратимое решение заранее нарушает согласованность ближайших причин и оставляет воспринимаемый след.', origin: 'Внутренний дар героя, впервые проявившийся у запрещённого знака.',
+            interaction: 'Сопоставить несколько наблюдаемых разладов, не превращая ощущение в готовый ответ.', experience: 'Звук на мгновение запаздывает, а одна деталь сцены кажется уже утраченной.',
+            groupId: 'group-omens', groupLabel: 'Чутьё границ', tierId: 'tier-personal', tierLabel: 'Личный отклик',
+            ceiling: 'Предупреждает об одной близкой точке необратимости, но не раскрывает правильный выбор.', scope: 'Личная сцена и ближайшее решение.',
+          }),
         },
         {
           name: 'Настройка реликвии', description: 'Герой устанавливает краткий контакт с личной реликвией и считывает её эмоциональный отклик.', rank: 'I', source: 'Связь с реликвией',
@@ -1006,6 +1110,14 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
             { name: 'Согласованный импульс', description: 'Совместно направить силу реликвии.', requirement: 'Пробудить реликвию.', unlocked: false },
           ],
           history: [{ title: 'Немой отклик', description: 'Реликвия впервые потеплела рядом со знаком.' }], tags: ['артефакт', 'ритуал'],
+          profile: demoAbilityProfile({
+            name: 'Настройка реликвии', owner: input.characterName,
+            coreFantasy: 'Разговаривать с собственной реликвией через проверяемые чувственные следы вместо готовых воспоминаний.',
+            principle: 'Связанный предмет отдаёт только тот сенсорный фрагмент, который удерживается его настоящей памятью.', origin: 'Практика взаимодействия героя с личным медальоном.',
+            interaction: 'Взять реликвию, выбрать один вопрос и сопоставить пришедший образ с физическим свидетельством.', experience: 'Латунь теплеет, после чего один запах, звук или холодная поверхность вытесняют окружающую сцену.',
+            groupId: 'group-relics', groupLabel: 'Реликтовый резонанс', tierId: 'tier-personal', tierLabel: 'Личный отклик',
+            ceiling: 'Один сенсорный или эмоциональный фрагмент доступной памяти реликвии.', scope: 'Одна реликвия и один связанный след.',
+          }),
         },
       ],
       currency: { Монеты: 20 },
@@ -1094,6 +1206,14 @@ export function demoWorld(input: WorldGenerationRequest): GeneratedWorld {
           { name: 'Чтение шаблона', description: 'Выделяет повторяющийся выбор цели только из лично замеченных действий.', kind: 'passive', category: 'perception', mastery: 72, activation: 'Наблюдать минимум два сопоставимых действия.', scale: 'Одна наблюдаемая цель', costs: [], effects: ['Фиксирует один подтверждённый поведенческий шаблон'], requirements: ['Два доступных наблюдения'], limitations: ['Сознательная смена поведения обесценивает прогноз'], unlocked: true },
           { name: 'Контрсценарий', description: 'Готовит практический ответ на наиболее вероятное следующее действие цели.', kind: 'reaction', category: 'control', mastery: 64, activation: 'Выбрать подтверждённый шаблон и подготовить позицию или ресурс.', scale: 'Один следующий обмен действий', costs: [{ resource: 'composure', amount: 1 }], effects: ['Даёт заранее подготовленную реакцию при совпадении прогноза'], requirements: ['Известный шаблон и время на подготовку'], limitations: ['Не срабатывает против нового или намеренно изменённого действия'], unlocked: true },
         ],
+        profile: demoAbilityProfile({
+          name: 'Тактическое чтение', owner: 'Рин Астэр',
+          coreFantasy: 'Превращать реальные привычки противника и геометрию выхода в проверяемый контрплан, не прибегая к всеведению.',
+          principle: 'Повторяемое действие становится предсказуемым только после наблюдения, а каждое новое действие требует новой проверки.', origin: 'Подготовка полевого связного и годы эвакуационных операций.',
+          interaction: 'Проверить шаблон малой провокацией, сохранить две развилки и подготовить ответ лишь на подтверждённую версию.', experience: 'Рин отмечает взглядом выходы, сбивает собственный ритм и оказывается там, где повторившийся манёвр цели теряет смысл.',
+          groupId: 'group-strategy', groupLabel: 'Доктрины и влияние', tierId: 'tier-expert', tierLabel: 'Проверенный специалист',
+          ceiling: 'Надёжный контрсценарий против одной наблюдаемой цели в подготовленной сцене.', scope: 'Одна цель, несколько выходов и ближайший обмен действий.', hidden: true,
+        }),
       }],
       knowledge: [{ subject: input.characterName, statement: 'Имя героя было указано в запечатанном поручении.', status: 'known', confidence: 100, source: 'Личное поручение', secret: true }],
       relationshipDimensions: { trust: 5, respect: 10, affection: 0, fear: 5, suspicion: 20, dependence: 0 },

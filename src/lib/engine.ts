@@ -14,6 +14,8 @@ import type {
   ArtifactProfile,
   Ability,
   AbilityDraft,
+  AbilityProfile,
+  AbilityProfileDraft,
   AbilityChangePatch,
   ActiveConflict,
   NPCStrategy,
@@ -34,10 +36,13 @@ import type {
   LegendaryFigure,
   LegendStage,
   WorldPatch,
+  WorldCapabilitySystem,
+  WorldCapabilitySystemDraft,
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
 import { normalizeItemRarity } from '../../shared/rarity'
 import { normalizeArtifactDiscovery, updateArtifactRegistry } from '../../shared/artifacts'
+import { normalizeAbilityDiscovery, updateAbilityRegistry } from '../../shared/abilities'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { diffCampaignState, summarizeStateChanges } from './state-changes'
 
@@ -262,6 +267,13 @@ function normalizePowerTechnique(draft: PowerTechniqueDraft, existing?: PowerTec
     effects: draft.effects.slice(0, 12),
     requirements: draft.requirements.slice(0, 12),
     limitations: draft.limitations.slice(0, 12),
+    synergies: draft.synergies?.slice(0, 16),
+    counters: draft.counters?.slice(0, 16),
+    examples: draft.examples?.slice(0, 12),
+    history: [
+      ...(existing?.history ?? []),
+      ...(draft.history ?? []).map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? 0 })),
+    ].filter((entry, index, all) => all.findIndex((candidate) => candidate.id === entry.id) === index).slice(-80),
   }
 }
 
@@ -286,6 +298,7 @@ function applyPowerTechniqueChanges(
   changes: PowerTechniqueChangePatch[] | undefined,
   diagnostics: StateChange[] | undefined,
   path: string,
+  turn: number,
 ) {
   changes?.slice(0, 48).forEach((change, index) => {
     const technique = techniques.find((candidate) => candidate.id === change.techniqueId)
@@ -306,6 +319,14 @@ function applyPowerTechniqueChanges(
     if (change.requirements) technique.requirements = change.requirements.slice(0, 12)
     if (change.limitations) technique.limitations = change.limitations.slice(0, 12)
     if (change.unlocked !== undefined) technique.unlocked = change.unlocked
+    if (change.role?.trim()) technique.role = change.role.trim()
+    if (change.signature?.trim()) technique.signature = change.signature.trim()
+    if (change.synergies) technique.synergies = uniqueStrings(change.synergies, 16)
+    if (change.counters) technique.counters = uniqueStrings(change.counters, 16)
+    if (change.examples) technique.examples = uniqueStrings(change.examples, 12)
+    if (change.availability) technique.availability = structuredClone(change.availability)
+    if (change.progression?.trim()) technique.progression = change.progression.trim()
+    if (change.history) technique.history = [...(technique.history ?? []), { ...change.history, id: id(), turn }].slice(-80)
   })
 }
 
@@ -373,7 +394,79 @@ function mergeTextDetails(current: string[] | undefined, incoming: string[] | un
     .slice(-limit)
 }
 
-function materializeAbility(draft: AbilityDraft, turn: number, existing?: Ability): Ability {
+function materializeCapabilitySystem(
+  draft: WorldCapabilitySystemDraft,
+  turn: number,
+  existing?: WorldCapabilitySystem,
+): WorldCapabilitySystem {
+  const findGroupId = (candidate: WorldCapabilitySystemDraft['groups'][number]) => existing?.groups.find((entry) => (
+    candidate.id === entry.id || normalizedName(candidate.label) === normalizedName(entry.label)
+  ))?.id ?? candidate.id ?? id()
+  const findTierId = (candidate: WorldCapabilitySystemDraft['tiers'][number]) => existing?.tiers.find((entry) => (
+    candidate.id === entry.id || normalizedName(candidate.label) === normalizedName(entry.label)
+  ))?.id ?? candidate.id ?? id()
+  return {
+    ...draft,
+    id: existing?.id ?? draft.id ?? id(),
+    groups: draft.groups.map((entry) => ({ ...entry, id: findGroupId(entry) })),
+    tiers: draft.tiers.map((entry) => ({ ...entry, id: findTierId(entry) })),
+    createdTurn: existing?.createdTurn ?? draft.createdTurn ?? turn,
+    lastChangedTurn: turn,
+  }
+}
+
+function materializeAbilityProfile(
+  draft: AbilityProfileDraft,
+  techniques: PowerTechnique[],
+  turn: number,
+  existing?: AbilityProfile,
+  system?: WorldCapabilitySystem,
+): AbilityProfile {
+  const techniqueIds = new Map<string, string>()
+  techniques.forEach((technique) => {
+    techniqueIds.set(technique.id, technique.id)
+    techniqueIds.set(normalizedName(technique.name), technique.id)
+  })
+  const groupId = system?.groups.find((group) => group.id === draft.nature.groupId || normalizedName(group.label) === normalizedName(draft.nature.groupId))?.id
+    ?? draft.nature.groupId
+  const tier = system?.tiers.find((candidate) => candidate.id === draft.standing.tierId || normalizedName(candidate.label) === normalizedName(draft.standing.tierId))
+  const profile: AbilityProfile = {
+    ...existing,
+    ...draft,
+    nature: { ...draft.nature, groupId },
+    standing: {
+      ...draft.standing,
+      systemId: system?.id ?? draft.standing.systemId,
+      tierId: tier?.id ?? draft.standing.tierId,
+      tierLabel: tier?.label ?? draft.standing.tierLabel,
+    },
+    facets: draft.facets.slice(0, 6),
+    presentation: { ...draft.presentation, sectionOrder: [...new Set(draft.presentation.sectionOrder)].slice(0, 10) },
+    discovery: {
+      ...draft.discovery,
+      techniqueKnowledge: Object.fromEntries(Object.entries(draft.discovery.techniqueKnowledge).map(([key, level]) => [
+        techniqueIds.get(key) ?? techniqueIds.get(normalizedName(key)) ?? key,
+        level,
+      ])),
+      evidence: draft.discovery.evidence.map((entry) => ({ ...entry, id: entry.id ?? id(), learnedTurn: entry.learnedTurn ?? turn })),
+      updatedTurn: draft.discovery.updatedTurn ?? turn,
+    },
+    developmentSeeds: draft.developmentSeeds.map((seed) => {
+      const current = existing?.developmentSeeds.find((entry) => entry.id === seed.id || normalizedName(entry.name) === normalizedName(seed.name))
+      return {
+        ...current,
+        ...seed,
+        id: current?.id ?? seed.id ?? id(),
+        requiredConfirmations: clamp(seed.requiredConfirmations, 2, 5),
+        evidence: seed.evidence.map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })).slice(-20),
+      }
+    }).slice(-12),
+  }
+  profile.discovery = normalizeAbilityDiscovery(profile.discovery, { techniques }, turn)
+  return profile
+}
+
+function materializeAbility(draft: AbilityDraft, turn: number, existing?: Ability, system?: WorldCapabilitySystem): Ability {
   const paths = draft.evolutionPaths === undefined
     ? [...(existing?.evolutionPaths ?? [])]
     : draft.evolutionPaths.map((path) => {
@@ -384,6 +477,10 @@ function materializeAbility(draft: AbilityDraft, turn: number, existing?: Abilit
     ...(existing?.history ?? []),
     ...(draft.history ?? []).map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })),
   ].filter((entry, index, all) => all.findIndex((candidate) => candidate.id === entry.id) === index).slice(-100)
+  const techniques = materializePowerTechniques(existing?.techniques, draft.techniques, true)
+  const profile = draft.profile
+    ? materializeAbilityProfile(draft.profile, techniques, turn, existing?.profile, system)
+    : existing?.profile
   return {
     ...existing,
     ...draft,
@@ -405,7 +502,8 @@ function materializeAbility(draft: AbilityDraft, turn: number, existing?: Abilit
     synergies: draft.synergies === undefined ? existing?.synergies ?? [] : mergeTextDetails([], draft.synergies, 32),
     counters: draft.counters === undefined ? existing?.counters ?? [] : mergeTextDetails([], draft.counters, 32),
     examples: draft.examples === undefined ? existing?.examples ?? [] : mergeTextDetails([], draft.examples, 24),
-    techniques: materializePowerTechniques(existing?.techniques, draft.techniques, true),
+    techniques,
+    profile,
   }
 }
 
@@ -428,6 +526,7 @@ function applyAbilityChange(
   turn: number,
   diagnostics: StateChange[] | undefined,
   path: string,
+  system?: WorldCapabilitySystem,
 ) {
   const ability = abilities.find((candidate) => candidate.id === change.abilityId)
   if (!ability) {
@@ -462,8 +561,73 @@ function applyAbilityChange(
   ability.effects = mergeTextDetails(ability.effects, change.addEffects, 48)
   ability.limitations = mergeTextDetails(ability.limitations, change.addLimitations, 48)
   ability.techniques = materializePowerTechniques(ability.techniques, change.addTechniques)
-  applyPowerTechniqueChanges(ability.techniques, change.techniqueChanges, diagnostics, path)
+  applyPowerTechniqueChanges(ability.techniques, change.techniqueChanges, diagnostics, path, turn)
   ability.techniques = removePowerTechniques(ability.techniques, change.removeTechniqueIds, diagnostics, path)
+  if (change.profile) ability.profile = materializeAbilityProfile(change.profile, ability.techniques, turn, ability.profile, system)
+  if (change.profileChanges) {
+    if (!ability.profile) {
+      rejectedReference(diagnostics, `${path}.profileChanges`, ability.id, 'частичный профиль нельзя применить к старой способности без полного profile')
+    } else {
+      const profileChange = change.profileChanges
+      if (profileChange.nature) ability.profile.nature = structuredClone(profileChange.nature)
+      if (profileChange.creativeIdentity) ability.profile.creativeIdentity = structuredClone(profileChange.creativeIdentity)
+      if (profileChange.ownerExpression) ability.profile.ownerExpression = structuredClone(profileChange.ownerExpression)
+      if (profileChange.standing) ability.profile.standing = structuredClone(profileChange.standing)
+      if (profileChange.facets) ability.profile.facets = structuredClone(profileChange.facets.slice(0, 6))
+      if (profileChange.presentation) ability.profile.presentation = {
+        ...structuredClone(profileChange.presentation),
+        sectionOrder: [...new Set(profileChange.presentation.sectionOrder)].slice(0, 10),
+      }
+      if (profileChange.availability) ability.profile.availability = structuredClone(profileChange.availability)
+      if (profileChange.discovery) {
+        ability.profile.discovery = normalizeAbilityDiscovery(materializeAbilityProfile({
+          ...ability.profile,
+          discovery: profileChange.discovery,
+        }, ability.techniques, turn, ability.profile, system).discovery, ability, turn)
+      }
+      profileChange.addDevelopmentSeeds?.forEach((seed) => {
+        if (ability.profile?.developmentSeeds.some((candidate) => candidate.id === seed.id || normalizedName(candidate.name) === normalizedName(seed.name))) return
+        ability.profile?.developmentSeeds.push({
+          ...seed,
+          id: seed.id ?? id(),
+          requiredConfirmations: clamp(seed.requiredConfirmations, 2, 5),
+          evidence: seed.evidence.map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })).slice(-20),
+        })
+      })
+      const removedSeeds = new Set(profileChange.removeDevelopmentSeedIds ?? [])
+      ability.profile.developmentSeeds = ability.profile.developmentSeeds.filter((seed) => !removedSeeds.has(seed.id)).slice(-12)
+      profileChange.developmentSeedChanges?.forEach((seedChange, seedIndex) => {
+        const seed = ability.profile?.developmentSeeds.find((candidate) => candidate.id === seedChange.seedId)
+        if (!seed) {
+          rejectedReference(diagnostics, `${path}.profileChanges.developmentSeedChanges[${seedIndex}].seedId`, seedChange.seedId, 'заготовка техники не найдена')
+          return
+        }
+        if (seedChange.name?.trim()) seed.name = seedChange.name.trim()
+        if (seedChange.hypothesis?.trim()) seed.hypothesis = seedChange.hypothesis.trim()
+        if (seedChange.distinctMechanic?.trim()) seed.distinctMechanic = seedChange.distinctMechanic.trim()
+        if (Number.isFinite(seedChange.requiredConfirmations)) seed.requiredConfirmations = clamp(seedChange.requiredConfirmations ?? 2, 2, 5)
+        if (seedChange.promotionRule?.trim()) seed.promotionRule = seedChange.promotionRule.trim()
+        if (seedChange.disqualifiers) seed.disqualifiers = uniqueStrings(seedChange.disqualifiers, 12)
+        seedChange.addEvidence?.forEach((entry) => seed.evidence.push({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn }))
+        seed.evidence = seed.evidence.slice(-20)
+        const confirmations = seed.evidence.filter((entry) => entry.outcome === 'success' || entry.outcome === 'training').length
+        if (confirmations >= seed.requiredConfirmations && seed.status === 'forming') seed.status = 'ready'
+        if (seedChange.status === 'ready' && confirmations < seed.requiredConfirmations) {
+          rejectedReference(diagnostics, `${path}.profileChanges.developmentSeedChanges[${seedIndex}].status`, seed.id, `нужно подтверждений: ${seed.requiredConfirmations}, получено: ${confirmations}`)
+        } else if (seedChange.status) seed.status = seedChange.status
+        if (seedChange.promoteTechnique) {
+          if (confirmations < seed.requiredConfirmations || seed.status === 'discarded') {
+            rejectedReference(diagnostics, `${path}.profileChanges.developmentSeedChanges[${seedIndex}].promoteTechnique`, seed.id, 'техника ещё не подтверждена')
+          } else {
+            const promoted = normalizePowerTechnique(seedChange.promoteTechnique)
+            ability.techniques ??= []
+            if (!ability.techniques.some((technique) => technique.id === promoted.id || normalizedName(technique.name) === normalizedName(promoted.name))) ability.techniques.push(promoted)
+            seed.status = 'promoted'
+          }
+        }
+      })
+    }
+  }
   ability.evolutionPaths ??= []
   change.addEvolutionPaths?.forEach((evolution) => {
     if (!ability.evolutionPaths?.some((candidate) => candidate.id === evolution.id || normalizedName(candidate.name) === normalizedName(evolution.name))) {
@@ -754,6 +918,7 @@ function createSnapshot(campaign: Campaign): CampaignSnapshot {
     influenceAssets: structuredClone(campaign.influenceAssets ?? []),
     eventDirectorState: structuredClone(campaign.eventDirectorState),
     artifactRegistry: structuredClone(campaign.artifactRegistry ?? []),
+    abilityRegistry: structuredClone(campaign.abilityRegistry ?? []),
     messageCount: campaign.messages.length,
     eventCount: campaign.timeline.length,
   }
@@ -848,6 +1013,9 @@ export function applyPatch(
   campaign.player.resources ??= []
   campaign.player.abilities ??= []
   campaign.player.conditions ??= []
+  if (patch.world?.capabilitySystem) {
+    campaign.world.capabilitySystem = materializeCapabilitySystem(patch.world.capabilitySystem, turn, campaign.world.capabilitySystem)
+  }
   if (options.advanceStatusClock !== false) {
     applyRecurringStatusEffects(campaign.player.resources, campaign.player.statusEffects ?? [], diagnostics, 'player', turn)
     campaign.player.statusEffects = tickStatusEffects(campaign.player.statusEffects ?? [], turn, sceneChanges, dayChanges)
@@ -877,6 +1045,7 @@ export function applyPatch(
   campaign.worldPressures ??= []
   campaign.influenceAssets ??= []
   campaign.artifactRegistry ??= []
+  campaign.abilityRegistry ??= []
   if (patch.eventDirectorState) campaign.eventDirectorState = structuredClone(patch.eventDirectorState)
   campaign.world.places ??= []
   campaign.world.processes ??= []
@@ -1085,8 +1254,8 @@ export function applyPatch(
 
   patch.addAbilities?.slice(0, 40).forEach((ability) => {
     const existing = campaign.player.abilities.find((current) => current.id === ability.id || normalizedName(current.name) === normalizedName(ability.name))
-    if (existing) Object.assign(existing, materializeAbility(ability, turn, existing))
-    else campaign.player.abilities.push(materializeAbility(ability, turn))
+    if (existing) Object.assign(existing, materializeAbility(ability, turn, existing, campaign.world.capabilitySystem))
+    else campaign.player.abilities.push(materializeAbility(ability, turn, undefined, campaign.world.capabilitySystem))
   })
   if (patch.removeAbilityIds?.length) {
     patch.removeAbilityIds.forEach((abilityId, index) => {
@@ -1101,6 +1270,7 @@ export function applyPatch(
     turn,
     diagnostics,
     `statePatch.abilityChanges[${changeIndex}]`,
+    campaign.world.capabilitySystem,
   ))
 
   patch.artifactChanges?.slice(0, 24).forEach((change, changeIndex) => {
@@ -1196,7 +1366,7 @@ export function applyPatch(
       power.examples = mergeTextDetails(power.examples, powerChange.addExamples, 24)
       power.limitations = mergeTextDetails(power.limitations, powerChange.addLimitations, 48)
       power.techniques = materializePowerTechniques(power.techniques, powerChange.addTechniques)
-      applyPowerTechniqueChanges(power.techniques, powerChange.techniqueChanges, diagnostics, `statePatch.artifactChanges[${changeIndex}].powerChanges[${powerChangeIndex}]`)
+      applyPowerTechniqueChanges(power.techniques, powerChange.techniqueChanges, diagnostics, `statePatch.artifactChanges[${changeIndex}].powerChanges[${powerChangeIndex}]`, turn)
       power.techniques = removePowerTechniques(power.techniques, powerChange.removeTechniqueIds, diagnostics, `statePatch.artifactChanges[${changeIndex}].powerChanges[${powerChangeIndex}]`)
     })
     Object.entries(change.powerMasteryDeltas ?? {}).forEach(([powerId, delta]) => {
@@ -1325,7 +1495,7 @@ export function applyPatch(
           stats: mutation.npc.stats?.slice(0, 24).map((stat) => ({ ...stat, aliases: stat.aliases?.slice(0, 16) })) ?? [],
           resources: mutation.npc.resources?.slice(0, 24).map((resource) => ({ ...resource, aliases: resource.aliases?.slice(0, 16) })) ?? [],
           statusEffects: mutation.npc.statusEffects?.slice(0, 48).map((effect) => normalizeStatusEffect(effect, turn)) ?? [],
-          abilities: mutation.npc.abilities?.slice(0, 40).map((ability) => materializeAbility(ability, turn)) ?? [],
+          abilities: mutation.npc.abilities?.slice(0, 40).map((ability) => materializeAbility(ability, turn, undefined, campaign.world.capabilitySystem)) ?? [],
           strategy: mutation.npc.strategy ? normalizeNpcStrategy(mutation.npc.strategy, turn) : undefined,
           threatProfile: mutation.npc.threatProfile ? normalizeThreatProfile(mutation.npc.threatProfile) : undefined,
           recruitment: mutation.npc.recruitment ? {
@@ -1396,7 +1566,7 @@ export function applyPatch(
     })
     ;[...(abilities ?? []), ...(upsertAbilities ?? [])].slice(0, 40).forEach((incoming) => {
       const existing = npc.abilities?.find((ability) => (incoming.id && ability.id === incoming.id) || normalizedName(ability.name) === normalizedName(incoming.name))
-      const normalized = materializeAbility(incoming, turn, existing)
+      const normalized = materializeAbility(incoming, turn, existing, campaign.world.capabilitySystem)
       if (existing) Object.assign(existing, normalized, { id: existing.id })
       else npc.abilities?.push(normalized)
     })
@@ -1411,6 +1581,7 @@ export function applyPatch(
       turn,
       diagnostics,
       `statePatch.npcs[${mutationIndex}].npc.abilityChanges[${changeIndex}]`,
+      campaign.world.capabilitySystem,
     ))
     if (knowledge || removeKnowledgeIds) {
       const removed = new Set(removeKnowledgeIds ?? [])
@@ -2441,6 +2612,21 @@ export function applyPatch(
       ...[...base.snapshots].reverse().map((snapshot) => snapshot.npcs.find((candidate) => candidate.id === npc.id)?.abilities ?? []),
     ], turn)
   })
+  const activeAbilityKeys = new Set<string>()
+  campaign.player.abilities.forEach((ability) => {
+    activeAbilityKeys.add(`player:${campaign.player.id}:${ability.id}`)
+    campaign.abilityRegistry = updateAbilityRegistry(campaign.abilityRegistry, ability, campaign.player.id, 'player', 'active', turn)
+  })
+  campaign.npcs.forEach((npc) => npc.abilities?.forEach((ability) => {
+    activeAbilityKeys.add(`npc:${npc.id}:${ability.id}`)
+    campaign.abilityRegistry = updateAbilityRegistry(campaign.abilityRegistry, ability, npc.id, 'npc', 'active', turn)
+  }))
+  campaign.abilityRegistry = (campaign.abilityRegistry ?? []).map((entry) => {
+    const key = `${entry.ownerKind}:${entry.ownerId}:${entry.abilityId}`
+    return entry.status === 'active' && !activeAbilityKeys.has(key)
+      ? { ...entry, status: 'removed' as const, lastChangedTurn: turn }
+      : entry
+  }).slice(-5_000)
   return campaign
 }
 
@@ -2545,6 +2731,7 @@ export function rewindLastTurn(campaign: Campaign): Campaign {
     influenceAssets: structuredClone(snapshot.influenceAssets ?? campaign.influenceAssets ?? []),
     eventDirectorState: structuredClone(snapshot.eventDirectorState ?? campaign.eventDirectorState),
     artifactRegistry: structuredClone(snapshot.artifactRegistry ?? campaign.artifactRegistry ?? []),
+    abilityRegistry: structuredClone(snapshot.abilityRegistry ?? campaign.abilityRegistry ?? []),
     messages: campaign.messages.slice(0, snapshot.messageCount),
     timeline: campaign.timeline.slice(0, snapshot.eventCount),
     snapshots: campaign.snapshots.slice(0, -1),

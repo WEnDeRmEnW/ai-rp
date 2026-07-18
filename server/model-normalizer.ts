@@ -42,6 +42,9 @@ const ARRAY_KEYS = new Set([
   'relatedNpcNames', 'successorNpcNames', 'factionNames', 'witnesses', 'believers', 'holderNpcIds', 'holderNpcNames',
   'accessConditions', 'encounterConditions', 'qualifyingSigns', 'disqualifiers', 'anchorFacts', 'forbiddenContradictions', 'divergenceNotes',
   'conceptualDomains', 'mechanicVerbs', 'motifs', 'differentiation', 'relatedArtifactIds', 'sectionOrder',
+  'groups', 'tiers', 'natureKinds', 'comparisonRules', 'evidenceRequirements', 'sensoryMotifs',
+  'priorities', 'habits', 'signatures', 'developmentSeeds', 'addDevelopmentSeeds',
+  'developmentSeedChanges', 'removeDevelopmentSeedIds', 'abilityExecutions', 'requirementsUsed',
 ])
 
 const ARRAY_LIMITS: Record<string, number> = {
@@ -86,6 +89,9 @@ const ARRAY_LIMITS: Record<string, number> = {
   relatedNpcNames: 24, successorNpcNames: 24, factionNames: 20, witnesses: 20, believers: 20, holderNpcIds: 20, holderNpcNames: 20,
   accessConditions: 16, encounterConditions: 16, qualifyingSigns: 16, disqualifiers: 16, anchorFacts: 24, forbiddenContradictions: 24, divergenceNotes: 24,
   conceptualDomains: 12, mechanicVerbs: 16, motifs: 16, differentiation: 12, relatedArtifactIds: 24, sectionOrder: 12,
+  groups: 16, tiers: 12, natureKinds: 14, comparisonRules: 16, evidenceRequirements: 12, sensoryMotifs: 10,
+  priorities: 10, habits: 10, signatures: 10, developmentSeeds: 12, addDevelopmentSeeds: 12,
+  developmentSeedChanges: 12, removeDevelopmentSeedIds: 12, abilityExecutions: 24, requirementsUsed: 16,
 }
 
 const BOOLEAN_KEYS = new Set([
@@ -106,11 +112,13 @@ const NUMBER_KEYS = new Set([
   'criticalBelow', 'charges', 'maxCharges', 'stacks', 'remaining', 'expiresTurn', 'appliedTurn',
   'masteryDelta', 'attunementDelta', 'bondDelta', 'powerMasteryDelta', 'power', 'lastChangedTurn', 'min', 'intensity',
   'minRenown', 'renown', 'influence', 'renownImpact', 'reliability', 'awareness', 'encounterReadiness', 'lastEvaluatedTurn',
+  'order', 'requiredConfirmations', 'updatedTurn', 'lastUsedTurn',
 ])
 
 const ID_KEYS = new Set([
   'id', 'targetId', 'npcId', 'characterId', 'fromNpcId', 'toNpcId', 'abilityId', 'itemId', 'powerId', 'componentId', 'ownerId',
   'culpritId', 'holderId', 'ownerNpcId', 'entityId', 'techniqueId', 'sourceNpcId', 'moduleId',
+  'groupId', 'tierId', 'systemId', 'seedId', 'lineageId',
 ])
 const ID_ARRAY_KEYS = new Set([
   'presentNpcIds', 'participantIds', 'involvedIds', 'entityIds', 'removeAbilityIds',
@@ -120,6 +128,7 @@ const ID_ARRAY_KEYS = new Set([
   'removeElementIds', 'removeMetricIds', 'links', 'targetIds', 'scopeIds', 'causeIds', 'npcIds', 'questIds', 'revealedAbilityIds',
   'removeLegendIds', 'relatedNpcIds', 'successorNpcIds', 'holderNpcIds',
   'relatedArtifactIds',
+  'relatedAbilityIds', 'removeDevelopmentSeedIds',
 ])
 
 const ARRAY_IDENTITY: Record<string, string> = {
@@ -137,6 +146,8 @@ const ARRAY_IDENTITY: Record<string, string> = {
   techniques: 'name', addTechniques: 'name', techniqueChanges: 'techniqueId',
   worldPressures: 'id', upsertWorldPressures: 'id', measures: 'id',
   npcAbilityChanges: 'npcId',
+  groups: 'label', tiers: 'label', developmentSeeds: 'name', addDevelopmentSeeds: 'name', developmentSeedChanges: 'seedId',
+  abilityExecutions: 'abilityId',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

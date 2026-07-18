@@ -3,6 +3,7 @@ import type { Campaign, InventoryItem, PowerTechnique, Resource, ResourceKind, S
 import { normalizeEventDirectorSettings, normalizeEventDirectorState } from '../../shared/event-director'
 import { normalizeItemRarity, normalizeRarityProfile } from '../../shared/rarity'
 import { normalizeArtifactDiscovery, updateArtifactRegistry } from '../../shared/artifacts'
+import { updateAbilityRegistry } from '../../shared/abilities'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { ensureCampaignIdentity } from './campaign-identity'
 
@@ -194,6 +195,15 @@ export function migrateCampaign(campaign: Campaign): Campaign {
     if (!item.artifact) continue
     artifactRegistry = updateArtifactRegistry(artifactRegistry, item, 'active', campaign.turn)
   }
+  let abilityRegistry = structuredClone(campaign.abilityRegistry ?? [])
+  for (const ability of campaign.player.abilities) {
+    abilityRegistry = updateAbilityRegistry(abilityRegistry, ability, campaign.player.id, 'player', 'active', campaign.turn)
+  }
+  for (const npc of campaign.npcs) {
+    for (const ability of npc.abilities ?? []) {
+      abilityRegistry = updateAbilityRegistry(abilityRegistry, ability, npc.id, 'npc', 'active', campaign.turn)
+    }
+  }
   return {
     ...campaign,
     world: {
@@ -257,6 +267,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
     },
     inventory,
     artifactRegistry,
+    abilityRegistry,
     npcs: campaign.npcs.map((npc) => ({
       ...npc,
       name: recoverNpcName(campaign, npc.id, npc.name),
@@ -379,6 +390,18 @@ export function migrateCampaign(campaign: Campaign): Campaign {
       worldDynamics: campaign.settings.worldDynamics ?? 'living',
       eventDirector: normalizeEventDirectorSettings(campaign.settings.eventDirector),
     },
+    snapshots: (campaign.snapshots ?? []).map((snapshot) => {
+      let snapshotRegistry = structuredClone(snapshot.abilityRegistry ?? [])
+      for (const ability of snapshot.player.abilities) {
+        snapshotRegistry = updateAbilityRegistry(snapshotRegistry, ability, snapshot.player.id, 'player', 'active', snapshot.turn)
+      }
+      for (const npc of snapshot.npcs) {
+        for (const ability of npc.abilities ?? []) {
+          snapshotRegistry = updateAbilityRegistry(snapshotRegistry, ability, npc.id, 'npc', 'active', snapshot.turn)
+        }
+      }
+      return { ...snapshot, abilityRegistry: snapshotRegistry }
+    }),
   }
 }
 
