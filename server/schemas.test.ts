@@ -777,6 +777,28 @@ describe('lossless DeepSeek turn-patch compatibility', () => {
     expect(parsed.npcs?.[1]).toEqual({ operation: 'update', targetId: 'npc-2', npc: { abilityChanges: [] } })
   })
 
+  it('joins DeepSeek ability execution evidence arrays into the required authored string', () => {
+    const parsed = turnPlanSchema.parse({
+      outcome: 'Генерал Валерий удержал строй.',
+      beats: ['Солдаты видели приказ и перестроение.'],
+      suggestions: ['Оценить строй', 'Сменить позицию'],
+      abilityExecutions: [{
+        ownerKind: 'npc',
+        ownerId: 'npc-valery',
+        abilityId: 'ability-command',
+        intent: 'Скоординировать оставшихся солдат.',
+        outcome: 'success',
+        costs: [],
+        requirementsUsed: ['Видит бойцов и поле боя.'],
+        effects: ['Солдаты удержали линию.'],
+        evidence: ['Наблюдение генерала Валерия', '9 оставшихся солдат'],
+      }],
+      statePatch: {},
+    })
+
+    expect(parsed.abilityExecutions[0].evidence).toBe('Наблюдение генерала Валерия; 9 оставшихся солдат')
+  })
+
   it('canonicalizes flat mutations, explicit id updates and array-shaped deltas', () => {
     const parsed = turnPatchSchema.parse({
       resourceDeltas: [{ key: 'health', delta: -3 }, { resource: 'focus', amount: -2 }],

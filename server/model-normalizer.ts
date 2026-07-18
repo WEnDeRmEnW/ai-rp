@@ -960,6 +960,12 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
   if (key === 'currency') return normalizeCurrency(value)
   if (key === 'duration') value = normalizeDuration(value)
   if (key === 'party') value = normalizeParty(value)
+  if (key === 'evidence' && path.includes('abilityExecutions') && Array.isArray(value)) {
+    value = value
+      .filter((entry) => entry !== undefined && entry !== null && String(entry).trim())
+      .map((entry) => String(entry).trim())
+      .join('; ')
+  }
 
   if (key === 'abilityChanges') value = normalizeProgressionChanges(value, 'ability')
   if (key === 'artifactChanges') value = normalizeProgressionChanges(value, 'artifact')
@@ -968,7 +974,8 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
   const isSingularProgressionHistory = key === 'history' && (path.includes('abilityChanges') || path.includes('artifactChanges'))
   const isSingularSystemConsequences = key === 'consequences' && path.includes('system')
   const isSingularAuditEvidence = key === 'evidence' && (path.includes('omissions') || path.includes('narrativeIssues'))
-  if (key && ARRAY_KEYS.has(key) && !isPresentationLabel && !isSingularProgressionHistory && !isSingularSystemConsequences && !isSingularAuditEvidence && !Array.isArray(value)) {
+  const isSingularAbilityExecutionEvidence = key === 'evidence' && path.includes('abilityExecutions')
+  if (key && ARRAY_KEYS.has(key) && !isPresentationLabel && !isSingularProgressionHistory && !isSingularSystemConsequences && !isSingularAuditEvidence && !isSingularAbilityExecutionEvidence && !Array.isArray(value)) {
     if (isRecord(value)) {
       const groupedMutations = path.includes('statePatch') ? normalizeGroupedMutationCollection(key, value) : undefined
       value = groupedMutations ?? normalizeRecordAsArray(key, value)
