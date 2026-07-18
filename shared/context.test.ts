@@ -88,6 +88,24 @@ describe('context retrieval', () => {
     ]))
   })
 
+  it('adds repeated middle paragraphs and phrases to the negative-reference fingerprint', () => {
+    const location = 'За панорамным окном — тёмные провалы Машинного Пояса, редкие огни аварийных генераторов и силуэты заброшенных кранов.'
+    const messages = Array.from({ length: 4 }, (_, index) => ({
+      id: `scene-${index}`,
+      role: 'assistant' as const,
+      turn: 50 + index,
+      createdAt: new Date().toISOString(),
+      content: `Сцена начинается по-разному и сообщает новый факт ${index}.\n\n${location}\n\nПерсонаж завершает своё действие ${index}.`,
+    }))
+
+    const fingerprint = buildNarrativeFingerprint(messages)
+
+    expect(fingerprint.repeatedPhrases.some(({ phrase }) => phrase.includes('темные провалы машинного пояса'))).toBe(true)
+    expect(fingerprint.repeatedParagraphs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ turns: expect.arrayContaining([50, 51]) }),
+    ]))
+  })
+
   it('builds an explicit review queue without claiming that overdue state auto-resolves', () => {
     const campaign = createDemoCampaign()
     campaign.turn = 12

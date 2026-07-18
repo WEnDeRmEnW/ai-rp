@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
 import { applyPatch } from '../src/lib/engine'
+import { findNarrativeRepetitionIssues } from '../shared/narrative-repetition'
 import { runTurn } from './orchestrator'
 
 const consequenceDomains = [
@@ -463,5 +464,64 @@ describe('runTurn consequence reconciliation', () => {
 
     expect(auditCalls).toBe(2)
     expect(result.statePatch.quests ?? []).toEqual([])
+  })
+
+  it('rewrites a repeated real campaign paragraph even when the model critic accepts it', async () => {
+    const campaign = createDemoCampaign()
+    campaign.settings.qualityMode = 'balanced'
+    campaign.turn = 58
+    const repeatedNarrative = 'В пентхаусе тихо. Только гул систем жизнеобеспечения — вентиляция, фильтры, терморегуляция — и ровный свет голографических панелей на стенах. За панорамным окном — тёмные провалы Машинного Пояса, редкие огни аварийных генераторов, силуэты заброшенных кранов на фоне тусклого зарева Центрального Купола.'
+    const repairedNarrative = 'Эллира снимает со стены аварийный терминал и выводит на стол схему девятого дока. Красная метка на ней показывает новый факт: грузовой шлюз откроется через шесть минут, а одноразовый код уже передан на её ключ-карту.'
+    campaign.messages = [{
+      id: 'assistant-57',
+      role: 'assistant',
+      content: repeatedNarrative,
+      createdAt: new Date().toISOString(),
+      turn: 57,
+    }]
+    let repetitionRevisionCalls = 0
+    let criticBody: CompletionBody | undefined
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = systemPrompt(body)
+      if (system.includes('скрытый симулятор живого мира')) return providerResponse(JSON.stringify({ signals: [], statePatch: {} }))
+      if (system.includes('режиссёр и строгий распорядитель состояния')) return providerResponse(JSON.stringify({
+        outcome: 'Эллира передаёт герою сведения о доступе в девятый док.',
+        beats: ['Появляется точный срок открытия шлюза.', 'Ключ-карта получает одноразовый код.'],
+        suggestions: ['Проверить маршрут к доку', 'Спросить об охране шлюза'],
+        statePatch: {},
+      }))
+      if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse(repeatedNarrative)
+      if (system.includes('строгий редактор непротиворечивости')) {
+        criticBody = body
+        return providerResponse(JSON.stringify({ chosen: 'a', pass: true, issues: [], rewriteInstructions: '' }))
+      }
+      if (system.includes('точный редактор против самоповторов')) {
+        repetitionRevisionCalls += 1
+        return providerResponse(repairedNarrative)
+      }
+      if (system.includes('последний обязательный аудитор причин и последствий')) return providerResponse(JSON.stringify({
+        pass: true,
+        narrativePass: true,
+        narrativeIssues: [],
+        verifiedDomains: consequenceDomains,
+        omissions: [],
+        statePatch: {},
+      }))
+      if (system.includes('архивариус очень долгой ролевой кампании')) return providerResponse(JSON.stringify({ memories: [], archives: [] }))
+      return new Response(`Unexpected completion stage: ${system.slice(0, 120)}`, { status: 418 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runTurn({ campaign, input: 'Продолжить сцену.', actionType: 'continue', provider })
+
+    expect(repetitionRevisionCalls).toBe(1)
+    expect(result.narrative).toBe(repairedNarrative)
+    expect(findNarrativeRepetitionIssues(result.narrative, campaign.messages)).toEqual([])
+    const criticUser = criticBody?.messages.find((message) => message.role === 'user')?.content ?? ''
+    expect(criticUser).toContain('ПРОГРАММНАЯ ПРОВЕРКА ПОВТОРОВ A:')
+    expect(criticUser).toContain('recent-paragraph')
+    expect(criticUser).toContain('В пентхаусе тихо')
   })
 })

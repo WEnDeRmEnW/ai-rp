@@ -4,13 +4,14 @@ import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEve
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { agencyRevisionPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
 import { agencyAuditSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 import { findAgencyViolations, type AgencyViolation } from './agency-guard.js'
+import { findNarrativeRepetitionIssues, narrativeRepetitionScore } from '../shared/narrative-repetition.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
 
@@ -2152,16 +2153,29 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
   const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
   const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
+  const repetitionA = findNarrativeRepetitionIssues(draftA, request.campaign.messages)
+  const repetitionB = findNarrativeRepetitionIssues(draftB, request.campaign.messages)
   reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 11)
-  const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB)
+  const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB, repetitionA, repetitionB)
   const review = await optionalStage('critic', async () => {
     const rawReview = await completeJson(request.provider, criticMessages)
     return parseWithRepair(rawReview, continuityReviewSchema, request.provider, criticMessages, () => ({ chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }))
   }, { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' })
-  const chosenDraft = review.chosen === 'a' ? draftA : draftB
-  let narrative = review.pass ? chosenDraft : await optionalStage(
+  const reviewerChoice = review.chosen
+  const reviewerIssues = reviewerChoice === 'a' ? repetitionA : repetitionB
+  const alternateIssues = reviewerChoice === 'a' ? repetitionB : repetitionA
+  const chosen = narrativeRepetitionScore(alternateIssues) < narrativeRepetitionScore(reviewerIssues)
+    ? (reviewerChoice === 'a' ? 'b' : 'a')
+    : reviewerChoice
+  const chosenDraft = chosen === 'a' ? draftA : draftB
+  const chosenRepetitionIssues = chosen === 'a' ? repetitionA : repetitionB
+  const repetitionInstructions = chosenRepetitionIssues.map((issue) => issue.instruction).join('\n')
+  const rewriteInstructions = [review.pass ? '' : review.rewriteInstructions, repetitionInstructions].filter(Boolean).join('\n')
+  let narrative = review.pass && chosenRepetitionIssues.length === 0 ? chosenDraft : await optionalStage(
     'revision',
-    () => completeText(request.provider, revisionPrompt(request.campaign, request.input, sanitized.plan, chosenDraft, review.rewriteInstructions)),
+    () => chosenRepetitionIssues.length
+      ? completeText(request.provider, narrativeRepetitionRevisionPrompt(request.campaign, request.input, sanitized.plan, chosenDraft, chosenRepetitionIssues, review.pass ? '' : review.rewriteInstructions))
+      : completeText(request.provider, revisionPrompt(request.campaign, request.input, sanitized.plan, chosenDraft, rewriteInstructions)),
     chosenDraft,
   )
 
@@ -2262,14 +2276,57 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     if (blockingNotes.length > 0) {
       throw new Error(`DeepSeek не смог безопасно привязать обязательное последствие к текущему состоянию: ${blockingNotes.join(' ')}`)
     }
-    if (consequenceAudit.narrativePass) break
+    const repetitionIssues = findNarrativeRepetitionIssues(narrative, request.campaign.messages)
+    narrativeAuditNotes.push(...repetitionIssues.map((issue) => `Повтор ${issue.severity}: ${issue.candidateExcerpt}`))
+    if (consequenceAudit.narrativePass && repetitionIssues.length === 0) break
     if (narrativeAttempt === 2) {
+      if (repetitionIssues.length) {
+        throw new Error(`DeepSeek трижды повторил уже использованное описание: ${repetitionIssues.map((issue) => issue.candidateExcerpt).join(' | ')}`)
+      }
       throw new Error(`DeepSeek трижды не выполнил обязательные факты ввода: ${consequenceAudit.narrativeIssues.map((issue) => issue.requirement).join(' ')}`)
     }
-    const rewriteInstructions = consequenceAudit.narrativeIssues.map((issue) => issue.instruction).join('\n')
-    narrative = await completeText(request.provider, revisionPrompt(request.campaign, request.input, reconciled.plan, narrative, rewriteInstructions))
+    if (repetitionIssues.length) {
+      reportProgress(report, 86 + narrativeAttempt * 2, 'style-audit', `Убираем повторяющиеся абзацы: попытка ${narrativeAttempt + 1}`, 9, 11)
+      const otherInstructions = consequenceAudit.narrativePass ? '' : consequenceAudit.narrativeIssues.map((issue) => issue.instruction).join('\n')
+      narrative = await completeText(request.provider, narrativeRepetitionRevisionPrompt(request.campaign, request.input, reconciled.plan, narrative, repetitionIssues, otherInstructions))
+      const postRevisionAgencyIssues = findAgencyViolations({
+        playerName: request.campaign.player.name,
+        input: request.input,
+        actionType: request.actionType,
+        narrative,
+        agencyMode: request.campaign.settings.playerAgency,
+      })
+      if (postRevisionAgencyIssues.length) {
+        narrative = await completeText(request.provider, agencyRevisionPrompt(
+          request.campaign,
+          request.input,
+          request.actionType,
+          reconciled.plan,
+          narrative,
+          postRevisionAgencyIssues,
+        ))
+      }
+      continue
+    }
+    const consequenceRewriteInstructions = consequenceAudit.narrativeIssues.map((issue) => issue.instruction).join('\n')
+    narrative = await completeText(request.provider, revisionPrompt(request.campaign, request.input, reconciled.plan, narrative, consequenceRewriteInstructions))
   }
   if (!consequenceAudit) throw new Error('Не удалось выполнить обязательную сверку последствий.')
+
+  const finalRepetitionIssues = findNarrativeRepetitionIssues(narrative, request.campaign.messages)
+  if (finalRepetitionIssues.length) {
+    throw new Error(`Финальная проверка остановила повтор уже использованной прозы: ${finalRepetitionIssues.map((issue) => issue.candidateExcerpt).join(' | ')}`)
+  }
+  const finalAgencyIssues = findAgencyViolations({
+    playerName: request.campaign.player.name,
+    input: request.input,
+    actionType: request.actionType,
+    narrative,
+    agencyMode: request.campaign.settings.playerAgency,
+  })
+  if (finalAgencyIssues.length) {
+    throw new Error(`Финальная редактура нарушила свободу героя: ${finalAgencyIssues.map((issue) => issue.evidence).join(' | ')}`)
+  }
 
   reportProgress(report, 93, 'memory', 'Закрепляем факты и долгую память истории', 10, 11)
   const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, narrative, reconciled.plan)

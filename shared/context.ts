@@ -1,5 +1,6 @@
 import type { Campaign, CampaignSettings, CanonDocument, LoreEntry, MemoryEntry, StoryArchive, StoryMessage, WorldChronicleEntry } from './types.js'
 import { assessLegendEcology, assessStrongCharacterEcology, type LegendEcologyAssessment, type StrongCharacterEcologyAssessment } from './legend-ecology.js'
+import { findRepeatedNarrativePhrases, summarizeRepeatedNarrativeParagraphs, type RepeatedNarrativeParagraph, type RepeatedNarrativePhrase } from './narrative-repetition.js'
 
 export interface ContextProfile {
   budgetChars: number
@@ -14,6 +15,8 @@ export interface NarrativeFingerprint {
   recentOpenings: string[]
   recentClosings: string[]
   repeatedMotifs: string[]
+  repeatedPhrases: RepeatedNarrativePhrase[]
+  repeatedParagraphs: RepeatedNarrativeParagraph[]
   recentWordCounts: number[]
 }
 
@@ -218,6 +221,8 @@ export function buildNarrativeFingerprint(messages: StoryMessage[]): NarrativeFi
     recentOpenings: recent.map((message) => paragraphExcerpt(message.content, 'start')).filter(Boolean),
     recentClosings: recent.map((message) => paragraphExcerpt(message.content, 'end')).filter(Boolean),
     repeatedMotifs: motifs.filter(([, pattern]) => motifCount(recent, pattern) >= 2).map(([label]) => label),
+    repeatedPhrases: findRepeatedNarrativePhrases(messages),
+    repeatedParagraphs: summarizeRepeatedNarrativeParagraphs(messages),
     recentWordCounts: recent.map((message) => message.content.trim().split(/\s+/u).filter(Boolean).length),
   }
 }
