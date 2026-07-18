@@ -2,11 +2,12 @@ import {
   Activity, Backpack, BookMarked, Check, ChevronDown, CircleGauge, Coins, Globe2, HeartHandshake, History, LayoutDashboard, MapPin,
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import type { Ability, ArtifactPower, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import type { Ability, ArtifactPower, ArtifactSection, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { assessItemRarity } from '../../shared/rarity'
 import { grantedItemAbilities, type GrantedItemAbility } from '../../shared/effective-abilities'
+import { artifactComponentKnowledge, artifactPowerKnowledge, artifactSectionKnown } from '../../shared/artifacts'
 import { readCanonDocument } from '../lib/canon'
 import { localizeTechnicalText, resourceUiLabel, uiLabel } from '../lib/ui-labels'
 import { getWorldInterfaceBlueprint, getWorldPresentation, getWorldSystem } from '../lib/world-customization'
@@ -367,6 +368,81 @@ function ItemRarityCard({ item, label }: { item: InventoryItem; label: string })
   </div>
 }
 
+const artifactSectionDefaults: ArtifactSection[] = [
+  'identity', 'origin', 'principle', 'requirements', 'passives', 'components', 'powers',
+  'combined', 'drawbacks', 'failureModes', 'evolution', 'history',
+]
+
+const safeArtifactHex = (value: string | undefined, fallback: string) => /^#[0-9a-f]{6}$/iu.test(value ?? '') ? value! : fallback
+
+function UnknownArtifactTrace({ label, hinted = false }: { label: string; hinted?: boolean }) {
+  return <div className={`artifact-unknown ${hinted ? 'is-hinted' : ''}`}><Search size={13} /><span><strong>{label}</strong><small>{hinted ? 'Есть наблюдаемый след, но его природа ещё не подтверждена.' : 'Эта грань предмета пока не изучена.'}</small></span></div>
+}
+
+export function ArtifactProfileCard({ item, campaign }: { item: InventoryItem; campaign: Campaign }) {
+  const artifact = item.artifact
+  if (!artifact) return null
+  const presentation = artifact.presentation
+  const layout = ['reliquary', 'schematic', 'grimoire', 'constellation', 'monolith', 'organic', 'arsenal', 'minimal'].includes(presentation?.layout ?? '')
+    ? presentation!.layout
+    : 'minimal'
+  const surface = ['metal', 'stone', 'paper', 'glass', 'energy', 'organic', 'void', 'fabric', 'wood', 'composite'].includes(presentation?.surface ?? '')
+    ? presentation!.surface
+    : 'composite'
+  const glow = ['none', 'soft', 'pulse', 'halo', 'veins', 'embers', 'glitch'].includes(presentation?.glow ?? '')
+    ? presentation!.glow
+    : 'none'
+  const style = {
+    '--artifact-accent': safeArtifactHex(presentation?.accent, '#a985ff'),
+    '--artifact-secondary': safeArtifactHex(presentation?.secondary, '#61d5c7'),
+  } as CSSProperties
+  const order = [...new Set([...(presentation?.sectionOrder ?? []), ...artifactSectionDefaults])]
+  const sectionKnown = (section: Parameters<typeof artifactSectionKnown>[1]) => artifactSectionKnown(item, section)
+  const knownPowers = artifact.powers.filter((power) => ['known', 'understood'].includes(artifactPowerKnowledge(item, power.id)))
+  const hintedPowers = artifact.powers.some((power) => artifactPowerKnowledge(item, power.id) === 'hinted')
+  const concealedPowers = artifact.powers.some((power) => ['hidden', 'hinted'].includes(artifactPowerKnowledge(item, power.id)))
+  const knownComponents = artifact.components.filter((component) => ['known', 'understood'].includes(artifactComponentKnowledge(item, component.id)))
+  const hintedComponents = artifact.components.some((component) => artifactComponentKnowledge(item, component.id) === 'hinted')
+  const concealedComponents = artifact.components.some((component) => ['hidden', 'hinted'].includes(artifactComponentKnowledge(item, component.id)))
+  const section = (key: ArtifactSection): React.ReactNode => {
+    if (key === 'identity' && !sectionKnown('identity')) return <UnknownArtifactTrace key={key} label="Природа предмета ещё не установлена" />
+    if (key === 'identity') return <div className="artifact-identity" key={key}>
+      <div className="artifact-symbol" aria-hidden="true">{(presentation?.symbol || '◈').slice(0, 3)}</div>
+      <div><small>{presentation?.motif || (artifact.sentient ? 'Разумная реликвия' : 'Особый предмет')}</small><strong>{presentation?.summary || item.name}</strong>{artifact.discovery && <span>Изучено: {Math.round(artifact.discovery.awareness)}%</span>}</div>
+    </div>
+    if (key === 'origin') {
+      const hasContent = Boolean(item.origin || artifact.powerSource || artifact.canonReference)
+      if (!hasContent) return null
+      if (!sectionKnown('origin')) return <UnknownArtifactTrace key={key} label="Происхождение не установлено" />
+      return <div className="artifact-fact-grid" key={key}>{item.origin && <p><b>Происхождение</b><span>{item.origin}</span></p>}{artifact.powerSource && <p><b>Источник силы</b><span>{artifact.powerSource}</span></p>}{artifact.canonReference && <p><b>Каноническая основа</b><span>{artifact.canonReference}</span></p>}</div>
+    }
+    if (key === 'principle') {
+      if (!artifact.operatingPrinciple) return null
+      return sectionKnown('principle') ? <div className="artifact-principle" key={key}><b>Принцип действия</b><p>{artifact.operatingPrinciple}</p></div> : <UnknownArtifactTrace key={key} label="Принцип действия неизвестен" />
+    }
+    if (key === 'requirements') return artifact.requirements.length ? (sectionKnown('requirements') ? <DetailList key={key} title="Требования" values={artifact.requirements} /> : <UnknownArtifactTrace key={key} label="Условия использования не изучены" />) : null
+    if (key === 'passives') return artifact.passiveEffects.length ? (sectionKnown('passives') ? <DetailList key={key} title="Пассивные свойства" values={artifact.passiveEffects} /> : <UnknownArtifactTrace key={key} label="Постоянные свойства не изучены" />) : null
+    if (key === 'components') return artifact.components.length ? <div className="artifact-components" key={key}><b>Состав и компоненты</b>{knownComponents.map((component) => <div className="artifact-component" key={component.id}><header><strong>{component.name}</strong><span>{uiLabel(component.status)}{component.required ? ' · необходим' : ''}</span></header><p>{component.description}</p><em>{component.role}</em><DetailList title="Возможности компонента" values={component.capabilities} /></div>)}{concealedComponents && <UnknownArtifactTrace label="Обнаружена неизученная часть" hinted={hintedComponents} />}</div> : null
+    if (key === 'powers') return artifact.powers.length ? <div className="artifact-powers" key={key}><b>{knownPowers.length ? 'Известные силы' : 'Силы предмета'}</b>{knownPowers.map((power) => <details key={power.id}><summary><span><strong>{power.name}</strong><small>{uiLabel(power.category, 'Сила')} · {power.mastery}%{visibleTechniqueCount(power) ? ` · ${techniqueCountLabel(visibleTechniqueCount(power))}` : ''}{canonLabel(power.canonStatus) ? ` · ${canonLabel(power.canonStatus)}` : ''}</small></span><ChevronDown size={13} /></summary><div className="artifact-power-body"><p>{power.description}</p>{power.scale && <p><b>Масштаб:</b> {power.scale}</p>}{power.activation && <p><b>Активация:</b> {power.activation}</p>}{power.trigger && <p><b>Триггер:</b> {power.trigger}</p>}{!!power.costs.length && <p><b>Цена:</b> {power.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, campaign.player.resources)}`).join(', ')}</p>}<TechniqueCollection source={power} resources={campaign.player.resources} /><DetailList title={power.techniques?.length ? 'Общие возможности' : 'Конкретные возможности'} values={power.techniques?.length ? power.capabilities : visibleTechniqueCount(power) ? undefined : power.capabilities} compact /><DetailList title="Синергии" values={power.synergies} /><DetailList title="Контрмеры" values={power.counters} /><DetailList title="Ограничения" values={power.limitations} /><DetailList title="Примеры" values={power.examples} /></div></details>)}{concealedPowers && <UnknownArtifactTrace label="В предмете скрыта неизученная возможность" hinted={hintedPowers} />}</div> : null
+    if (key === 'combined') return artifact.combinedEffects.length ? (sectionKnown('combined') ? <DetailList key={key} title="Сочетания сил" values={artifact.combinedEffects} /> : <UnknownArtifactTrace key={key} label="Связи между силами не изучены" />) : null
+    if (key === 'drawbacks') return artifact.drawbacks.length ? (sectionKnown('drawbacks') ? <DetailList key={key} title="Цена и недостатки" values={artifact.drawbacks} /> : <UnknownArtifactTrace key={key} label="Цена использования неизвестна" />) : null
+    if (key === 'failureModes') return artifact.failureModes.length ? (sectionKnown('failureModes') ? <DetailList key={key} title="Уязвимости и отказы" values={artifact.failureModes} /> : <UnknownArtifactTrace key={key} label="Уязвимости не изучены" />) : null
+    if (key === 'evolution') return artifact.evolutionPaths.length ? (sectionKnown('evolution') ? <div className="evolution-list" key={key}><b>{artifact.sentient ? 'Пробуждения' : 'Развитие'}</b>{artifact.evolutionPaths.map((path) => <div className={path.unlocked ? 'is-unlocked' : ''} key={path.id}><strong>{path.name}</strong><span>{path.description}</span><small>{path.unlocked ? 'Открыто' : path.requirement}</small></div>)}</div> : <UnknownArtifactTrace key={key} label="Потенциал развития неизвестен" />) : null
+    if (key === 'history') return item.history?.length ? (sectionKnown('history') ? <div className="progress-history" key={key}><b>История предмета</b>{[...item.history].reverse().slice(0, 8).map((entry) => <div key={entry.id}><strong>{entry.title} · ход {entry.turn}</strong><span>{entry.description}</span></div>)}</div> : <UnknownArtifactTrace key={key} label="История предмета не восстановлена" />) : null
+    return null
+  }
+  const knownSentience = sectionKnown('sentience')
+  return <div className={`artifact-profile artifact-layout-${layout} artifact-surface-${surface} artifact-glow-${glow}`} style={style}>
+    <div className="artifact-heading"><strong>{artifact.sentient && knownSentience ? 'Разумный артефакт' : 'Артефакт'}</strong><span>{artifact.sentient && knownSentience ? (artifact.awakened ? 'Пробуждён' : 'Спит') : (artifact.awakened ? 'Активирован' : 'Неактивен')}</span></div>
+    <div className="artifact-meters">{artifact.mastery !== undefined && <span>Освоение <b>{Math.round(artifact.mastery)}%</b></span>}<span>Настройка <b>{Math.round(artifact.attunement)}%</b></span><span>{artifact.sentient && knownSentience ? 'Связь' : 'Резонанс'} <b>{artifact.bond > 0 ? '+' : ''}{Math.round(artifact.bond)}</b></span></div>
+    <div className="power-badges">{sectionKnown('identity') && artifact.classification && <span>{artifact.classification}</span>}{sectionKnown('identity') && canonLabel(artifact.canonStatus) && <span>{canonLabel(artifact.canonStatus)}</span>}{(sectionKnown('principle') || sectionKnown('powers')) && artifact.scale && <span>{artifact.scale}</span>}</div>
+    {artifact.sentient && knownSentience && <div className="artifact-sentience">{artifact.personality && <p><b>Характер:</b> {artifact.personality}</p>}{artifact.mood && <p><b>Настроение:</b> {artifact.mood}</p>}{artifact.desire && <p><b>Желание:</b> {artifact.desire}</p>}{artifact.taboo && <p><b>Табу:</b> {artifact.taboo}</p>}{artifact.voice && <p><b>Голос:</b> {artifact.voice}</p>}</div>}
+    {artifact.sentient && !knownSentience && <UnknownArtifactTrace label="Природа отклика неизвестна" hinted />}
+    <div className="artifact-section-flow">{order.map(section)}</div>
+    {!!artifact.discovery?.evidence.length && <details className="artifact-evidence"><summary>Как это удалось узнать · {artifact.discovery.evidence.length}</summary><div>{artifact.discovery.evidence.slice(-6).reverse().map((entry) => <p key={entry.id}><span>{entry.summary}</span><small>{entry.source} · надёжность {entry.reliability}%</small></p>)}</div></details>}
+  </div>
+}
+
 function LoreEditor({ open, onClose, onSave }: { open: boolean; onClose: () => void; onSave: (entry: LoreEntry) => void }) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -647,30 +723,10 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                   </div>}
                   <p>{item.description}</p>
                   <ItemRarityCard item={item} label={presentation.rarityLabels[item.rarity]} />
-                  {!!item.effects.length && <ul>{item.effects.map((effect) => <li key={effect}>{effect}</li>)}</ul>}
-                  {item.origin && <small>Источник: {item.origin}</small>}
-                  {item.artifact && <div className="artifact-profile">
-                    <div className="artifact-heading"><strong>{item.artifact.sentient ? 'Разумный артефакт' : 'Особый предмет'}</strong><span>{item.artifact.sentient ? (item.artifact.awakened ? 'Пробуждён' : 'Спит') : (item.artifact.awakened ? 'Активирован' : 'Неактивен')}</span></div>
-                    <div className="artifact-meters">{item.artifact.mastery !== undefined && <span>Освоение <b>{Math.round(item.artifact.mastery)}%</b></span>}<span>Настройка <b>{Math.round(item.artifact.attunement)}%</b></span><span>{item.artifact.sentient ? 'Связь' : 'Резонанс'} <b>{item.artifact.bond > 0 ? '+' : ''}{Math.round(item.artifact.bond)}</b></span></div>
-                    <div className="power-badges">{item.artifact.classification && <span>{item.artifact.classification}</span>}{canonLabel(item.artifact.canonStatus) && <span>{canonLabel(item.artifact.canonStatus)}</span>}{item.artifact.scale && <span>{item.artifact.scale}</span>}</div>
-                    {item.artifact.powerSource && <p><b>Источник силы:</b> {item.artifact.powerSource}</p>}
-                    {item.artifact.operatingPrinciple && <p><b>Принцип действия:</b> {item.artifact.operatingPrinciple}</p>}
-                    {item.artifact.canonReference && <p className="canon-note"><b>Каноническая основа:</b> {item.artifact.canonReference}</p>}
-                    {item.artifact.sentient && item.artifact.personality && <p><b>Характер:</b> {item.artifact.personality}</p>}
-                    {item.artifact.sentient && item.artifact.mood && <p><b>Настроение:</b> {item.artifact.mood}</p>}
-                    {item.artifact.sentient && item.artifact.desire && <p><b>Желание:</b> {item.artifact.desire}</p>}
-                    {item.artifact.sentient && item.artifact.taboo && <p><b>Табу:</b> {item.artifact.taboo}</p>}
-                    {item.artifact.sentient && item.artifact.voice && <p><b>Голос:</b> {item.artifact.voice}</p>}
-                    <DetailList title="Требования" values={item.artifact.requirements} />
-                    <DetailList title="Пассивные эффекты" values={item.artifact.passiveEffects} />
-                    {!!item.artifact.components.length && <div className="artifact-components"><b>Состав и компоненты</b>{item.artifact.components.map((component) => <div className="artifact-component" key={component.id}><header><strong>{component.name}</strong><span>{uiLabel(component.status)}{component.required ? ' · необходим' : ''}</span></header><p>{component.description}</p><em>{component.role}</em><DetailList title="Возможности компонента" values={component.capabilities} /></div>)}</div>}
-                    {!!item.artifact.powers.length && <div className="artifact-powers"><b>Полный набор сил · {item.artifact.powers.length}</b>{item.artifact.powers.map((power) => <details key={power.id}><summary><span><strong>{power.name}</strong><small>{uiLabel(power.category, 'Сила')} · {power.mastery}%{visibleTechniqueCount(power) ? ` · ${techniqueCountLabel(visibleTechniqueCount(power))}` : ''}{canonLabel(power.canonStatus) ? ` · ${canonLabel(power.canonStatus)}` : ''}</small></span><ChevronDown size={13} /></summary><div className="artifact-power-body"><p>{power.description}</p>{power.scale && <p><b>Масштаб:</b> {power.scale}</p>}{power.activation && <p><b>Активация:</b> {power.activation}</p>}{power.trigger && <p><b>Триггер:</b> {power.trigger}</p>}{!!power.costs.length && <p><b>Цена:</b> {power.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, campaign.player.resources)}`).join(', ')}</p>}<TechniqueCollection source={power} resources={campaign.player.resources} /><DetailList title={power.techniques?.length ? 'Общие возможности' : 'Конкретные возможности'} values={power.techniques?.length ? power.capabilities : visibleTechniqueCount(power) ? undefined : power.capabilities} compact /><DetailList title="Синергии" values={power.synergies} /><DetailList title="Контрмеры" values={power.counters} /><DetailList title="Ограничения" values={power.limitations} /><DetailList title="Примеры" values={power.examples} />{power.canonReference && <p className="canon-note"><b>Основа:</b> {power.canonReference}</p>}</div></details>)}</div>}
-                    <DetailList title="Комбинированные эффекты" values={item.artifact.combinedEffects} />
-                    {!!item.artifact.drawbacks.length && <div><b>Цена и недостатки</b><ul>{item.artifact.drawbacks.map((drawback) => <li key={drawback}>{drawback}</li>)}</ul></div>}
-                    <DetailList title="Условия отказа и уязвимости" values={item.artifact.failureModes} />
-                    {!!item.artifact.evolutionPaths.length && <div className="evolution-list"><b>{item.artifact.sentient ? 'Пробуждения' : 'Развитие'}</b>{item.artifact.evolutionPaths.map((path) => <div className={path.unlocked ? 'is-unlocked' : ''} key={path.id}><strong>{path.name}</strong><span>{path.description}</span><small>{path.unlocked ? 'Открыто' : path.requirement}</small></div>)}</div>}
-                  </div>}
-                  {!!item.history?.length && <div className="progress-history"><b>История предмета</b>{[...item.history].reverse().slice(0, 8).map((entry) => <div key={entry.id}><strong>{entry.title} · ход {entry.turn}</strong><span>{entry.description}</span></div>)}</div>}
+                  {!!item.effects.length && (!item.artifact || artifactSectionKnown(item, 'passives') || artifactSectionKnown(item, 'powers')) && <ul>{item.effects.map((effect) => <li key={effect}>{effect}</li>)}</ul>}
+                  {item.origin && (!item.artifact || artifactSectionKnown(item, 'origin')) && <small>Источник: {item.origin}</small>}
+                  {item.artifact && <ArtifactProfileCard item={item} campaign={campaign} />}
+                  {!item.artifact && !!item.history?.length && <div className="progress-history"><b>История предмета</b>{[...item.history].reverse().slice(0, 8).map((entry) => <div key={entry.id}><strong>{entry.title} · ход {entry.turn}</strong><span>{entry.description}</span></div>)}</div>}
                   <div className="item-actions">
                     {['weapon', 'armor', 'artifact'].includes(item.category) && <button onClick={() => mutate((next) => {
                       const target = next.inventory.find((candidate) => candidate.id === item.id)

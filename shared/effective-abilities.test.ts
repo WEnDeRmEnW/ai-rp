@@ -38,4 +38,22 @@ describe('item-granted abilities', () => {
     expect(granted[0].blockers).toContain('Предмет сломан')
     expect(activeItemAbilities(campaign(artifactItem({ equipped: true, state: 'broken' })))).toHaveLength(0)
   })
+
+  it('does not expose or activate artifact powers before they are discovered', () => {
+    const item = artifactItem({ equipped: true })
+    item.artifact!.discovery = {
+      awareness: 10,
+      revealedSections: ['identity'],
+      powerKnowledge: { 'power-1': 'hidden' },
+      componentKnowledge: {},
+      evidence: [],
+      updatedTurn: 3,
+    }
+    expect(grantedItemAbilities(campaign(item))).toEqual([])
+    expect(activeItemAbilities(campaign(item))).toEqual([])
+
+    item.artifact!.discovery.powerKnowledge['power-1'] = 'known'
+    item.artifact!.discovery.revealedSections.push('powers')
+    expect(grantedItemAbilities(campaign(item)).map((entry) => entry.ability.name)).toEqual(['Разрыв границы'])
+  })
 })

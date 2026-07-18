@@ -1,12 +1,13 @@
-import type { Campaign, CampaignEditRequest, CampaignEditResponse, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
+import type { Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
 import { applyNarrativeEventProposal, narrativeEventComplianceIssues, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, artifactFocusedRepairPrompt, artifactQualityRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { agencyAuditSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
+import { agencyRevisionPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { agencyAuditSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
+import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 import { findAgencyViolations, type AgencyViolation } from './agency-guard.js'
@@ -1666,7 +1667,40 @@ export function requestedArtifactRarity(input: string) {
 type PlannedInventoryMutation = NonNullable<ReturnType<typeof turnPlanSchema.parse>['statePatch']['inventory']>[number]
 type PlannedArtifactItem = Extract<PlannedInventoryMutation, { operation: 'add' }>['item']
 
-function artifactItemQualityIssues(item: PlannedArtifactItem, requested?: typeof rarityOrder[number]): string[] {
+function plannedArtifactId(item: PlannedArtifactItem): string | undefined {
+  return 'id' in item && typeof item.id === 'string' && item.id.trim() ? item.id : undefined
+}
+
+function artifactCandidate(item: PlannedArtifactItem, turn = 0): InventoryItem {
+  return {
+    ...item,
+    id: plannedArtifactId(item) ?? `artifact-candidate-${item.name.normalize('NFKC').toLocaleLowerCase('ru-RU').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/gu, '').slice(0, 64) || 'unnamed'}`,
+    discoveredTurn: item.discoveredTurn ?? turn,
+    history: (item.history ?? []).map((entry, index) => ({
+      id: `candidate-history-${index}`,
+      turn,
+      title: entry.title,
+      description: entry.description,
+    })),
+  } as InventoryItem
+}
+
+const artifactTierDetail = [
+  { applications: 2, powers: 1, singlePowerTechniques: 0 },
+  { applications: 3, powers: 1, singlePowerTechniques: 0 },
+  { applications: 4, powers: 1, singlePowerTechniques: 1 },
+  { applications: 5, powers: 1, singlePowerTechniques: 2 },
+  { applications: 7, powers: 2, singlePowerTechniques: 3 },
+  { applications: 9, powers: 2, singlePowerTechniques: 4 },
+  { applications: 12, powers: 2, singlePowerTechniques: 5 },
+  { applications: 15, powers: 3, singlePowerTechniques: 6 },
+] as const
+
+function artifactItemQualityIssues(
+  item: PlannedArtifactItem,
+  requested?: typeof rarityOrder[number],
+  registry: Campaign['artifactRegistry'] = [],
+): string[] {
   const issues: string[] = []
   const assessment = assessItemRarity({
     category: item.category,
@@ -1694,11 +1728,36 @@ function artifactItemQualityIssues(item: PlannedArtifactItem, requested?: typeof
     issues.push(`Особый предмет «${item.name}» не имеет полного artifact-профиля и его силы не попадут во вкладку героя.`)
     return issues
   }
-  const highTier = requiredRank >= rarityOrder.indexOf('mythic')
-  if (!highTier) return issues
+  const artifact = item.artifact
+  const canonical = artifact.canonStatus === 'canonical'
+  if (!item.origin?.trim()) issues.push(`У «${item.name}» не установлено конкретное происхождение в мире.`)
+  if (item.description.trim().length < 80) issues.push(`Описание «${item.name}» слишком краткое для полноценного досье.`)
+  if (!artifact.classification?.trim()) issues.push(`У «${item.name}» не указана точная природа/classification.`)
   if (!item.artifact.operatingPrinciple?.trim()) issues.push(`У «${item.name}» не описан уникальный operatingPrinciple, связывающий все силы предмета.`)
   if (!item.artifact.powerSource?.trim()) issues.push(`У «${item.name}» не установлен конкретный powerSource из этого мира.`)
   if (!item.artifact.scale?.trim()) issues.push(`У «${item.name}» не указан реальный масштаб действия.`)
+  if (!artifact.creativeIdentity) {
+    issues.push(`У «${item.name}» отсутствует полный creativeIdentity.`)
+  } else {
+    if (artifact.creativeIdentity.differentiation.length < 2) issues.push(`У «${item.name}» должно быть минимум два проверяемых отличия от других предметов.`)
+    if (canonical && artifact.creativeIdentity.resemblanceKind !== 'canon') issues.push(`Канонический «${item.name}» должен явно фиксировать resemblanceKind=canon, а не искусственно отличаться от оригинала.`)
+    if (artifact.creativeIdentity.resemblanceKind && !artifact.creativeIdentity.resemblanceReason?.trim()) issues.push(`Причинное сходство «${item.name}» не объяснено через resemblanceReason.`)
+  }
+  if (!artifact.presentation) issues.push(`У «${item.name}» отсутствует безопасный индивидуальный presentation-профиль.`)
+  if (!artifact.discovery) {
+    issues.push(`У «${item.name}» отсутствует причинный discovery-профиль знаний героя.`)
+  } else {
+    artifact.powers.forEach((power) => {
+      if (!Object.hasOwn(artifact.discovery!.powerKnowledge, power.id)) issues.push(`discovery «${item.name}» не определяет уровень знания силы ${power.id}.`)
+    })
+    artifact.components.forEach((component) => {
+      if (!Object.hasOwn(artifact.discovery!.componentKnowledge, component.id)) issues.push(`discovery «${item.name}» не определяет уровень знания компонента ${component.id}.`)
+    })
+  }
+  if (!artifact.sentient && [artifact.personality, artifact.desire, artifact.taboo, artifact.mood, artifact.voice].some((value) => value?.trim())) {
+    issues.push(`Неразумный «${item.name}» получил психологические поля, которые ему не принадлежат.`)
+  }
+  if (canonical && !artifact.canonReference?.trim()) issues.push(`Для канонического «${item.name}» отсутствует конкретный canonReference.`)
   const powers = item.artifact.powers ?? []
   const concreteApplications = powers.reduce((sum, power) => sum
     + (power.capabilities?.length ?? 0)
@@ -1706,32 +1765,129 @@ function artifactItemQualityIssues(item: PlannedArtifactItem, requested?: typeof
     + (power.examples?.length ?? 0), 0)
     + (item.artifact.passiveEffects?.length ?? 0)
     + (item.artifact.combinedEffects?.length ?? 0)
-  const transcendent = requiredRank >= rarityOrder.indexOf('transcendent')
-  const requiredTechniquesForSinglePower = transcendent ? 5 : 3
-  const requiredPowerCount = transcendent ? 3 : 2
-  if (powers.length < requiredPowerCount && !(powers.length === 1 && (powers[0].techniques?.length ?? 0) >= requiredTechniquesForSinglePower)) {
-    issues.push(`«${item.name}» уровня ${requiredRarity} должен иметь минимум ${requiredPowerCount} различимые силы либо одну фундаментальную силу минимум с ${requiredTechniquesForSinglePower} полноценными приёмами.`)
+  const tier = artifactTierDetail[Math.max(0, requiredRank)] ?? artifactTierDetail[0]
+  const passiveOnlyLowTier = requiredRank <= rarityOrder.indexOf('uncommon') && powers.length === 0 && artifact.passiveEffects.length > 0
+  if (!passiveOnlyLowTier && powers.length < tier.powers && !(powers.length === 1 && (powers[0].techniques?.length ?? 0) >= tier.singlePowerTechniques)) {
+    issues.push(`«${item.name}» уровня ${requiredRarity} должен иметь минимум ${tier.powers} различимые силы либо одну центральную силу минимум с ${tier.singlePowerTechniques} полноценными приёмами.`)
   }
-  const requiredApplications = transcendent ? 12 : 8
-  if (concreteApplications < requiredApplications) issues.push(`«${item.name}» описан слишком поверхностно: нужно минимум ${requiredApplications} конкретных возможностей, приёмов, примеров, пассивных и совместных эффектов без повторов.`)
+  if (concreteApplications < tier.applications) issues.push(`«${item.name}» описан слишком поверхностно: нужно минимум ${tier.applications} конкретных возможностей, приёмов, примеров, пассивных и совместных эффектов без повторов.`)
   powers.forEach((power) => {
     if (!power.activation?.trim()) issues.push(`У силы «${item.name} / ${power.name}» не описана настоящая активация.`)
     if (!power.capabilities?.length) issues.push(`У силы «${item.name} / ${power.name}» нет конкретных возможностей.`)
     if (!power.counters?.length) issues.push(`У силы «${item.name} / ${power.name}» не описано причинное противодействие.`)
     if (!power.examples?.length) issues.push(`У силы «${item.name} / ${power.name}» нет понятного примера применения.`)
+    if (!power.category) issues.push(`У силы «${item.name} / ${power.name}» не указана категория.`)
+    if (!power.scale?.trim()) issues.push(`У силы «${item.name} / ${power.name}» не указан масштаб.`)
+    if (!power.canonStatus) issues.push(`У силы «${item.name} / ${power.name}» не указан canonStatus.`)
   })
-  if (transcendent && !(item.artifact.combinedEffects?.length)) {
+  if (requiredRank >= rarityOrder.indexOf('transcendent') && !(item.artifact.combinedEffects?.length)) {
     issues.push(`Трансцендентный «${item.name}» должен описывать хотя бы один настоящий combinedEffect своей фундаментальной власти.`)
   }
+  if (!canonical) issues.push(...artifactNoveltyIssues(artifactCandidate(item), registry ?? []))
   return [...new Set(issues)]
 }
 
-export function artifactPlanQualityIssues(input: string, plan: ReturnType<typeof turnPlanSchema.parse>): string[] {
+export function artifactPlanQualityIssues(
+  input: string,
+  plan: ReturnType<typeof turnPlanSchema.parse>,
+  registry: Campaign['artifactRegistry'] = [],
+): string[] {
   const requested = requestedArtifactRarity(input)
   const additions = (plan.statePatch.inventory ?? []).flatMap((mutation) => (
     mutation.operation === 'add' && mutation.item?.category === 'artifact' ? [mutation.item] : []
   ))
-  return [...new Set(additions.flatMap((item) => artifactItemQualityIssues(item, requested)))]
+  const issues: string[] = []
+  let workingRegistry = [...(registry ?? [])]
+  additions.forEach((item) => {
+    const candidate = artifactCandidate(item)
+    const comparisonRegistry = workingRegistry.filter((entry) => entry.artifactId !== candidate.id)
+    issues.push(...artifactItemQualityIssues(item, requested, comparisonRegistry))
+    workingRegistry = updateArtifactRegistry(workingRegistry, candidate, 'active', 0)
+  })
+  return [...new Set(issues)]
+}
+
+function generatedWorldArtifactQuality(world: GeneratedWorld) {
+  let registry: NonNullable<Campaign['artifactRegistry']> = []
+  const issues: string[] = []
+  for (const item of world.inventory) {
+    if (item.category !== 'artifact' || !item.artifact) continue
+    const planned = item as PlannedArtifactItem
+    issues.push(...artifactItemQualityIssues(planned, undefined, registry))
+    registry = updateArtifactRegistry(registry, artifactCandidate(planned), 'active', 0)
+  }
+  return { issues: [...new Set(issues)], registry }
+}
+
+async function repairGeneratedWorldArtifacts(
+  source: GeneratedWorld,
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
+  report?: ProgressReporter,
+): Promise<GeneratedWorld> {
+  const inventory = [...source.inventory]
+  let registry = generatedWorldArtifactQuality(source).registry
+  const worldContext = {
+    title: source.title,
+    world: source.world,
+    player: source.player,
+    inventory: source.inventory.map((item) => ({ id: plannedArtifactId(item as PlannedArtifactItem), name: item.name, rarity: item.rarity, origin: item.origin })),
+  }
+
+  for (let index = 0; index < inventory.length; index += 1) {
+    const initial = inventory[index]
+    if (initial.category !== 'artifact' || !initial.artifact) continue
+    let current = initial as PlannedArtifactItem
+    const identity = { id: plannedArtifactId(current), name: current.name, origin: current.origin }
+    const candidateRegistry = registry.filter((entry) => entry.artifactId !== artifactCandidate(current).id)
+    let issues = artifactItemQualityIssues(current, undefined, candidateRegistry)
+    let best = current
+    let bestIssues = issues
+    let bestScore = artifactNoveltyScore(artifactCandidate(current), candidateRegistry) - issues.length * 12
+
+    for (let attempt = 0; attempt < 3 && issues.length; attempt += 1) {
+      reportProgress(report, 83 + attempt, 'artifact-design', `Проверяем авторский замысел «${current.name}»: вариант ${attempt + 1} из 3`, 9, 11)
+      const repairMessages = artifactFocusedRepairPrompt(worldContext, { source: 'world-generation' }, current, current.rarity, issues)
+      try {
+        const raw = await completeJson(request.provider, repairMessages)
+        const repaired = await parseWithRepair(raw, artifactRewardRepairSchema, request.provider, repairMessages)
+        current = {
+          ...repaired.item,
+          ...(identity.id ? { id: identity.id } : {}),
+          name: identity.name,
+          ...(identity.origin ? { origin: identity.origin } : {}),
+        }
+        issues = artifactItemQualityIssues(current, undefined, candidateRegistry)
+        const reviewMessages = artifactQualityCriticPrompt(current, candidateRegistry, { world: source.world, concept, canonMode: request.canonMode })
+        let criticPenalty = 0
+        try {
+          const reviewRaw = await completeJson(request.provider, reviewMessages)
+          const review = artifactQualityReviewSchema.safeParse(normalizeModelOutput(reviewRaw))
+          if (review.success) {
+            criticPenalty = review.data.issues.length * 5 + (review.data.verdict === 'rebuild' ? 20 : 0)
+            if (review.data.verdict === 'rebuild') issues = [...new Set([...issues, ...review.data.issues])]
+          }
+        } catch {
+          // The deterministic six-axis check remains authoritative if the optional critic times out.
+        }
+        const score = artifactNoveltyScore(artifactCandidate(current), candidateRegistry) - issues.length * 12 - criticPenalty
+        if (score > bestScore) {
+          best = current
+          bestIssues = issues
+          bestScore = score
+        }
+      } catch (error) {
+        console.warn(`[artifact-quality] World artifact variant failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    const assessment = assessItemRarity(best)
+    const honestBest = assessment.rarity === best.rarity ? best : { ...best, rarity: assessment.rarity }
+    inventory[index] = honestBest as typeof initial
+    registry = updateArtifactRegistry(registry, artifactCandidate(honestBest), 'active', 0)
+    if (bestIssues.length) console.warn(`[artifact-quality] Best world artifact candidate retained for ${best.name}: ${bestIssues.join(' ')}`)
+  }
+  return { ...source, inventory }
 }
 
 export async function runTurn(request: TurnRequest, report?: ProgressReporter): Promise<TurnResponse> {
@@ -1791,75 +1947,119 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
   let validPlan = await createPlan()
 
-  const enforceArtifactQuality = async (
-    initialPlan: ReturnType<typeof turnPlanSchema.parse>,
-    allowWholePlanRepair = true,
-  ) => {
+  const enforceArtifactQuality = async (initialPlan: ReturnType<typeof turnPlanSchema.parse>) => {
     let plan = initialPlan
-    let artifactIssues = artifactPlanQualityIssues(request.input, plan)
-    if (allowWholePlanRepair) {
-      for (let artifactAttempt = 0; artifactIssues.length > 0 && artifactAttempt < 2; artifactAttempt += 1) {
-        reportProgress(report, 31 + artifactAttempt * 2, 'artifact-quality', artifactAttempt === 0
-          ? 'Сверяем класс, оригинальность и полный набор сил нового предмета'
-          : 'Пересобираем неполный особый предмет', 5, 11)
-        const repairMessages = artifactQualityRepairPrompt(director.messages, plan, artifactIssues)
+    const requested = requestedArtifactRarity(request.input)
+    if (!plan.statePatch.inventory?.some((mutation) => mutation.operation === 'add' && mutation.item.category === 'artifact')) return plan
+    let workingRegistry = [...(request.campaign.artifactRegistry ?? [])]
+    const inventory = [...plan.statePatch.inventory]
+    const worldContext = {
+      name: request.campaign.world.name,
+      inspiration: request.campaign.world.inspiration,
+      era: request.campaign.world.era,
+      rules: request.campaign.world.rules,
+      system: request.campaign.world.system,
+      canonMode: request.campaign.settings.canonMode,
+    }
+
+    const fallbackReview = (item: PlannedArtifactItem, issues: string[], registry: NonNullable<Campaign['artifactRegistry']>): ArtifactQualityReview => {
+      const novelty = artifactNoveltyScore(artifactCandidate(item, request.campaign.turn), registry)
+      const base = Math.max(0, 90 - issues.length * 7)
+      return {
+        scores: {
+          idea: novelty,
+          form: novelty,
+          mechanics: base,
+          origin: base,
+          interaction: base,
+          development: base,
+          presentation: item.artifact?.presentation ? base : 0,
+          canonAccuracy: item.artifact?.canonStatus === 'canonical' ? base : 100,
+        },
+        strengths: [],
+        issues: [],
+        verdict: issues.length > 2 ? 'rebuild' : issues.length ? 'good' : 'excellent',
+      }
+    }
+
+    const reviewCandidate = async (item: PlannedArtifactItem, deterministicIssues: string[], registry: NonNullable<Campaign['artifactRegistry']>) => {
+      try {
+        const messages = artifactQualityCriticPrompt(item, registry, worldContext)
+        const raw = await completeJson(request.provider, messages)
+        const parsed = artifactQualityReviewSchema.safeParse(normalizeModelOutput(raw))
+        if (parsed.success) return parsed.data
+        console.warn(`[artifact-quality] Compact critic returned an invalid review: ${compactIssues(parsed.error, raw)}`)
+      } catch (error) {
+        console.warn(`[artifact-quality] Compact critic was skipped: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      return fallbackReview(item, deterministicIssues, registry)
+    }
+
+    const candidateScore = (item: PlannedArtifactItem, issues: string[], review: ArtifactQualityReview, registry: NonNullable<Campaign['artifactRegistry']>) => {
+      const assessment = assessItemRarity(item)
+      const assessedRank = Math.max(0, rarityOrder.indexOf(assessment.rarity))
+      const requestedRank = requested ? Math.max(0, rarityOrder.indexOf(requested)) : assessedRank
+      const rarityFulfilment = Math.min(1, assessedRank / Math.max(1, requestedRank)) * 160
+      const reviewAverage = Object.values(review.scores).reduce((sum, value) => sum + value, 0) / Object.values(review.scores).length
+      return assessedRank * 35 + rarityFulfilment + reviewAverage + artifactNoveltyScore(artifactCandidate(item, request.campaign.turn), registry) - issues.length * 12 - review.issues.length * 5
+    }
+
+    for (let index = 0; index < inventory.length; index += 1) {
+      const mutation = inventory[index]
+      if (mutation?.operation !== 'add' || mutation.item.category !== 'artifact') continue
+      let current = mutation.item
+      const identity = { id: plannedArtifactId(current), name: current.name, origin: current.origin }
+      const currentCandidateId = artifactCandidate(current, request.campaign.turn).id
+      const registry = workingRegistry.filter((entry) => entry.artifactId !== currentCandidateId)
+      const claimedRank = rarityOrder.indexOf(current.rarity)
+      const requestedRank = requested ? rarityOrder.indexOf(requested) : -1
+      const requiredRarity = rarityOrder[Math.max(claimedRank, requestedRank)] ?? current.rarity
+      let currentIssues = artifactItemQualityIssues(current, requested, registry)
+      let currentReview = await reviewCandidate(current, currentIssues, registry)
+      let best = current
+      let bestIssues = currentIssues
+      let bestReview = currentReview
+      let bestScore = candidateScore(current, currentIssues, currentReview, registry)
+
+      for (let focusedAttempt = 0; focusedAttempt < 3; focusedAttempt += 1) {
+        const criticIssues = currentReview.verdict === 'rebuild' ? currentReview.issues : []
+        const repairIssues = [...new Set([...currentIssues, ...criticIssues])]
+        if (!repairIssues.length && currentReview.verdict !== 'rebuild') break
+        reportProgress(report, 33 + focusedAttempt * 2, 'artifact-quality', `Создаём уникальный артефакт класса ${requiredRarity}: вариант ${focusedAttempt + 1} из 3`, 5, 11)
+        const repairMessages = artifactFocusedRepairPrompt({ world: worldContext, input: request.input }, plan, current, requiredRarity, repairIssues)
         try {
           const repairedRaw = await completeJson(request.provider, repairMessages)
-          plan = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
-          artifactIssues = artifactPlanQualityIssues(request.input, plan)
-        } catch (error) {
-          console.warn(`[artifact-quality] Whole-plan repair was skipped: ${error instanceof Error ? error.message : String(error)}`)
-          break
-        }
-      }
-    }
-
-    const requested = requestedArtifactRarity(request.input)
-    if (artifactIssues.length && plan.statePatch.inventory?.length) {
-      const inventory = [...plan.statePatch.inventory]
-      for (let index = 0; index < inventory.length; index += 1) {
-        const mutation = inventory[index]
-        if (mutation?.operation !== 'add' || mutation.item.category !== 'artifact') continue
-        let item = mutation.item
-        let itemIssues = artifactItemQualityIssues(item, requested)
-        if (!itemIssues.length) continue
-        const claimedRank = rarityOrder.indexOf(item.rarity)
-        const requestedRank = requested ? rarityOrder.indexOf(requested) : -1
-        const requiredRarity = rarityOrder[Math.max(claimedRank, requestedRank)] ?? item.rarity
-        const identity = { id: item.id, name: item.name, origin: item.origin }
-
-        for (let focusedAttempt = 0; itemIssues.length > 0 && focusedAttempt < 3; focusedAttempt += 1) {
-          reportProgress(report, 35 + focusedAttempt, 'artifact-quality', `Проектируем настоящий артефакт класса ${requiredRarity}: попытка ${focusedAttempt + 1}`, 5, 11)
-          const repairMessages = artifactFocusedRepairPrompt(director.messages, plan, item, requiredRarity, itemIssues)
-          try {
-            const repairedRaw = await completeJson(request.provider, repairMessages)
-            const repaired = await parseWithRepair(repairedRaw, artifactRewardRepairSchema, request.provider, repairMessages)
-            item = {
-              ...repaired.item,
-              ...(identity.id ? { id: identity.id } : {}),
-              name: identity.name,
-              ...(identity.origin ? { origin: identity.origin } : {}),
-            }
-            itemIssues = artifactItemQualityIssues(item, requested)
-          } catch (error) {
-            console.warn(`[artifact-quality] Focused repair failed: ${error instanceof Error ? error.message : String(error)}`)
+          const repaired = await parseWithRepair(repairedRaw, artifactRewardRepairSchema, request.provider, repairMessages)
+          current = {
+            ...repaired.item,
+            ...(identity.id ? { id: identity.id } : {}),
+            name: identity.name,
+            ...(identity.origin ? { origin: identity.origin } : {}),
           }
+          currentIssues = artifactItemQualityIssues(current, requested, registry)
+          currentReview = await reviewCandidate(current, currentIssues, registry)
+          const score = candidateScore(current, currentIssues, currentReview, registry)
+          if (score > bestScore) {
+            best = current
+            bestIssues = currentIssues
+            bestReview = currentReview
+            bestScore = score
+          }
+        } catch (error) {
+          console.warn(`[artifact-quality] Focused variant failed: ${error instanceof Error ? error.message : String(error)}`)
         }
-        inventory[index] = { operation: 'add', item }
       }
-      plan = turnPlanSchema.parse({ ...plan, statePatch: { ...plan.statePatch, inventory } })
-      artifactIssues = artifactPlanQualityIssues(request.input, plan)
+
+      const assessment = assessItemRarity(best)
+      if (assessment.rarity !== best.rarity) best = { ...best, rarity: assessment.rarity }
+      if (bestIssues.length || bestReview.verdict === 'rebuild') {
+        console.warn(`[artifact-quality] Applied the strongest honest candidate for ${best.name}; remaining issues: ${[...bestIssues, ...bestReview.issues].join(' ')}`)
+      }
+      inventory[index] = { operation: 'add', item: best }
+      workingRegistry = updateArtifactRegistry(workingRegistry, artifactCandidate(best, request.campaign.turn), 'active', request.campaign.turn)
     }
 
-    if (artifactIssues.length) {
-      const requestedRewardStillPresent = Boolean(requested && plan.statePatch.inventory?.some((mutation) => (
-        mutation.operation === 'add' && mutation.item.category === 'artifact'
-      )))
-      if (requestedRewardStillPresent) {
-        throw new Error(`DeepSeek не смог спроектировать настоящий артефакт класса ${requested}. Более слабая подмена не применена: ${artifactIssues.join(' ')}`)
-      }
-      console.warn(`[artifact-quality] High-tier claim was normalized to its factual class: ${artifactIssues.join(' ')}`)
-    }
+    plan = turnPlanSchema.parse({ ...plan, statePatch: { ...plan.statePatch, inventory } })
     return plan
   }
 
@@ -1942,7 +2142,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       sanitized = sanitizePlan(request.campaign, validPlan)
     }
   }
-  validPlan = await enforceArtifactQuality(sanitized.plan, false)
+  validPlan = await enforceArtifactQuality(sanitized.plan)
   sanitized = sanitizePlan(request.campaign, validPlan)
   reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
   const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
@@ -2142,6 +2342,76 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
 }
 
+async function repairCampaignEditorArtifacts(
+  request: CampaignEditRequest,
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  source: ReturnType<typeof turnPlanSchema.parse>,
+  report?: ProgressReporter,
+) {
+  if (!source.statePatch.inventory?.length) return source
+  const inventory = [...source.statePatch.inventory]
+  const requested = requestedArtifactRarity(request.instruction)
+  let workingRegistry = [...(request.campaign.artifactRegistry ?? [])]
+  for (let index = 0; index < inventory.length; index += 1) {
+    const mutation = inventory[index]
+    const existing = mutation.operation === 'update'
+      ? request.campaign.inventory.find((item) => item.id === mutation.targetId)
+      : undefined
+    const merged = mutation.operation === 'add'
+      ? mutation.item
+      : mutation.operation === 'update' && existing && mutation.item.artifact
+        ? { ...existing, ...mutation.item, artifact: mutation.item.artifact }
+        : undefined
+    if (!merged || merged.category !== 'artifact' || !merged.artifact) continue
+    let current = merged as PlannedArtifactItem
+    const identity = { id: plannedArtifactId(current), name: current.name, origin: current.origin }
+    const candidateRegistry = workingRegistry.filter((entry) => entry.artifactId !== artifactCandidate(current).id)
+    let issues = artifactItemQualityIssues(current, requested, candidateRegistry)
+    let best = current
+    let bestScore = artifactNoveltyScore(artifactCandidate(current, request.campaign.turn), candidateRegistry) - issues.length * 12
+    const requiredRank = Math.max(rarityOrder.indexOf(current.rarity), requested ? rarityOrder.indexOf(requested) : -1)
+    const requiredRarity = rarityOrder[requiredRank] ?? current.rarity
+
+    for (let attempt = 0; attempt < 3 && issues.length; attempt += 1) {
+      reportProgress(report, 72 + attempt * 5, 'artifact-quality', `Перепроверяем артефакт «${current.name}»: вариант ${attempt + 1} из 3`, 3, 4)
+      const repairMessages = artifactFocusedRepairPrompt({ world: request.campaign.world, instruction: request.instruction }, source, current, requiredRarity, issues)
+      try {
+        const raw = await completeJson(request.provider, repairMessages)
+        const repaired = await parseWithRepair(raw, artifactRewardRepairSchema, request.provider, repairMessages)
+        current = {
+          ...repaired.item,
+          ...(identity.id ? { id: identity.id } : {}),
+          name: identity.name,
+          ...(identity.origin ? { origin: identity.origin } : {}),
+        }
+        issues = artifactItemQualityIssues(current, requested, candidateRegistry)
+        try {
+          const criticMessages = artifactQualityCriticPrompt(current, candidateRegistry, request.campaign.world)
+          const criticRaw = await completeJson(request.provider, criticMessages)
+          const critic = artifactQualityReviewSchema.safeParse(normalizeModelOutput(criticRaw))
+          if (critic.success && critic.data.verdict === 'rebuild') issues = [...new Set([...issues, ...critic.data.issues])]
+        } catch {
+          // Deterministic validation is sufficient when the optional critic is unavailable.
+        }
+        const score = artifactNoveltyScore(artifactCandidate(current, request.campaign.turn), candidateRegistry) - issues.length * 12
+        if (score > bestScore) {
+          best = current
+          bestScore = score
+        }
+      } catch (error) {
+        console.warn(`[artifact-quality] Editor artifact variant failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    const assessment = assessItemRarity(best)
+    const honestBest = assessment.rarity === best.rarity ? best : { ...best, rarity: assessment.rarity }
+    inventory[index] = mutation.operation === 'update'
+      ? { operation: 'update', targetId: mutation.targetId, item: honestBest }
+      : { operation: 'add', item: honestBest }
+    workingRegistry = updateArtifactRegistry(workingRegistry, artifactCandidate(honestBest, request.campaign.turn), 'active', request.campaign.turn)
+  }
+  return turnPlanSchema.parse({ ...source, statePatch: { ...source.statePatch, inventory } })
+}
+
 export async function editCampaign(request: CampaignEditRequest, report?: ProgressReporter): Promise<CampaignEditResponse> {
   if (request.provider.provider === 'demo') throw new Error('ИИ-корректор требует подключённую модель. Выберите DeepSeek V4 Flash в настройках.')
   reportProgress(report, 8, 'reading-state', 'Изучаем выбранную кампанию и точные идентификаторы', 1, 4)
@@ -2152,11 +2422,13 @@ export async function editCampaign(request: CampaignEditRequest, report?: Progre
   const parsed = await parseWithRepair<CampaignEditResponse>(raw, campaignEditResponseSchema, request.provider, messages)
   const plan = turnPlanSchema.parse({ outcome: parsed.summary, beats: [parsed.summary], suggestions: ['Продолжить', 'Осмотреть изменения'], statePatch: parsed.statePatch })
   const sanitized = sanitizePlan(request.campaign, plan)
+  const repairedPlan = await repairCampaignEditorArtifacts(request, messages, sanitized.plan, report)
+  const finalSanitized = sanitizePlan(request.campaign, repairedPlan)
   reportProgress(report, 96, 'finalizing-edit', 'Подготавливаем безопасное применение корректировки', 4, 4)
   return {
     ...parsed,
-    summary: sanitized.notes.length ? `${parsed.summary} Часть небезопасных ссылок отклонена: ${sanitized.notes.join(' ')}` : parsed.summary,
-    statePatch: sanitized.plan.statePatch,
+    summary: [...sanitized.notes, ...finalSanitized.notes].length ? `${parsed.summary} Часть небезопасных ссылок отклонена: ${[...sanitized.notes, ...finalSanitized.notes].join(' ')}` : parsed.summary,
+    statePatch: finalSanitized.plan.statePatch,
   }
 }
 
@@ -2434,6 +2706,13 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
   let integrity = await ensureGeneratedWorldIntegrity(sections as GeneratedWorldSections, request, concept, report)
   let world = integrity.world
   let completeSections = integrity.sections
+  if (world.inventory.some((item) => item.category === 'artifact' && item.artifact)) {
+    world = await repairGeneratedWorldArtifacts(world, request, concept, report)
+    completeSections = splitGeneratedWorldSections(world)
+    integrity = await ensureGeneratedWorldIntegrity(completeSections, request, concept, report)
+    world = integrity.world
+    completeSections = integrity.sections
+  }
   const maxRewrites = concept.recognizedCanon ? 2 : 1
 
   for (let attempt = 0; attempt <= maxRewrites; attempt += 1) {
@@ -2452,17 +2731,37 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
       const rawReview = await completeJson(request.provider, reviewMessages)
       return parseWithRepair<WorldQualityReview>(rawReview, worldQualityReviewSchema, request.provider, reviewMessages)
     }, fallbackReview)
+    const artifactQuality = generatedWorldArtifactQuality(world)
+    const artifactCriticIssues = (await Promise.all(world.inventory
+      .filter((item) => item.category === 'artifact' && item.artifact)
+      .map(async (item) => {
+        try {
+          const messages = artifactQualityCriticPrompt(
+            item,
+            artifactQuality.registry.filter((entry) => entry.artifactId !== artifactCandidate(item as PlannedArtifactItem).id),
+            { world: world.world, concept, canonMode: request.canonMode },
+          )
+          const raw = await completeJson(request.provider, messages)
+          const parsed = artifactQualityReviewSchema.safeParse(normalizeModelOutput(raw))
+          if (!parsed.success) return []
+          return parsed.data.verdict === 'rebuild' ? parsed.data.issues : []
+        } catch {
+          return []
+        }
+      }))).flat()
     const accessIssues = startingAccessIssues(concept, world)
-    const effectiveReview: WorldQualityReview = accessIssues.length ? {
+    const artifactIssues = [...new Set([...artifactQuality.issues, ...artifactCriticIssues])]
+    const mechanicalIssues = [...accessIssues, ...artifactIssues]
+    const effectiveReview: WorldQualityReview = mechanicalIssues.length ? {
       ...review,
       pass: false,
       issues: [...review.issues, {
         type: 'mechanics',
-        entity: world.player.name,
-        detail: accessIssues.join(' '),
+        entity: artifactIssues.length ? 'Стартовые артефакты мира' : world.player.name,
+        detail: mechanicalIssues.join(' '),
         severity: 'high',
       }],
-      rewriteInstructions: `${review.rewriteInstructions} Исправь startingAccess без изменения пользовательского замысла: ${accessIssues.join(' ')}`.trim(),
+      rewriteInstructions: `${review.rewriteInstructions} Исправь startingAccess и артефакты без изменения пользовательского замысла: ${mechanicalIssues.join(' ')}`.trim(),
     } : review
     const hasBlockingIssue = effectiveReview.issues.some((issue) => issue.severity === 'high' && ['canon', 'completeness', 'mechanics', 'consistency'].includes(issue.type))
       || effectiveReview.coverageAudit.some((entry) => entry.importance !== 'minor' && entry.status !== 'covered')

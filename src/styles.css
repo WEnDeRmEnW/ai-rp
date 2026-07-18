@@ -630,9 +630,49 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .item-condition-grid > div > i > b { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .item-condition-grid .state-damaged strong, .item-condition-grid .state-sealed strong { color: var(--gold); }
 .item-condition-grid .state-broken strong, .item-condition-grid .state-depleted strong { color: var(--danger); }
-.artifact-profile { position: relative; display: grid; gap: 12px; margin-top: 13px; padding: 14px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--lore) 32%, var(--border-soft)); border-radius: 13px; background: radial-gradient(320px 140px at 100% 0, color-mix(in srgb, var(--lore) 11%, transparent), transparent 72%), color-mix(in srgb, var(--lore) 5%, var(--surface-2)); }
+.artifact-profile { --artifact-accent: var(--lore); --artifact-secondary: var(--accent); position: relative; display: grid; gap: 12px; margin-top: 13px; padding: 14px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--artifact-accent) 36%, var(--border-soft)); border-radius: 13px; background: radial-gradient(340px 160px at 100% 0, color-mix(in srgb, var(--artifact-accent) 13%, transparent), transparent 72%), linear-gradient(145deg, color-mix(in srgb, var(--artifact-secondary) 4%, var(--surface-2)), var(--surface-2)); box-shadow: inset 0 1px color-mix(in srgb, var(--artifact-accent) 10%, transparent); }
+.artifact-profile::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .2; background-image: linear-gradient(115deg, transparent 0 48%, color-mix(in srgb, var(--artifact-accent) 25%, transparent) 49% 50%, transparent 51% 100%); background-size: 34px 34px; mask-image: linear-gradient(to bottom, #000, transparent 72%); }
+.artifact-profile > * { position: relative; z-index: 1; }
+.artifact-layout-schematic::before { background-image: linear-gradient(color-mix(in srgb, var(--artifact-accent) 20%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--artifact-accent) 20%, transparent) 1px, transparent 1px); background-size: 22px 22px; }
+.artifact-layout-grimoire::before { background-image: repeating-linear-gradient(0deg, transparent 0 14px, color-mix(in srgb, var(--artifact-accent) 17%, transparent) 15px); }
+.artifact-layout-constellation::before { background-image: radial-gradient(circle, color-mix(in srgb, var(--artifact-accent) 70%, transparent) 1px, transparent 1.5px); background-size: 23px 31px; }
+.artifact-layout-monolith { border-radius: 5px 16px 5px 16px; }
+.artifact-layout-organic::before { background-image: repeating-radial-gradient(ellipse at 100% 0, transparent 0 14px, color-mix(in srgb, var(--artifact-accent) 18%, transparent) 15px, transparent 16px 29px); }
+.artifact-layout-arsenal::before { background-image: repeating-linear-gradient(135deg, transparent 0 18px, color-mix(in srgb, var(--artifact-accent) 17%, transparent) 19px 20px); }
+.artifact-layout-reliquary { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--artifact-accent) 4%, transparent), inset 0 1px color-mix(in srgb, var(--artifact-accent) 17%, transparent); }
+.artifact-glow-soft { box-shadow: 0 10px 34px color-mix(in srgb, var(--artifact-accent) 8%, transparent), inset 0 1px color-mix(in srgb, var(--artifact-accent) 15%, transparent); }
+.artifact-glow-halo { box-shadow: 0 0 22px color-mix(in srgb, var(--artifact-accent) 14%, transparent), inset 0 0 26px color-mix(in srgb, var(--artifact-secondary) 5%, transparent); }
+.artifact-glow-embers::after, .artifact-glow-veins::after, .artifact-glow-glitch::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-top: 1px solid color-mix(in srgb, var(--artifact-secondary) 50%, transparent); opacity: .45; }
+.artifact-glow-pulse .artifact-symbol { animation: artifact-pulse 2.8s ease-in-out infinite; }
+@keyframes artifact-pulse { 0%, 100% { box-shadow: 0 0 0 color-mix(in srgb, var(--artifact-accent) 0%, transparent); } 50% { box-shadow: 0 0 18px color-mix(in srgb, var(--artifact-accent) 30%, transparent); } }
+.artifact-identity { display: grid; grid-template-columns: 42px 1fr; gap: 10px; align-items: center; padding: 10px; border: 1px solid color-mix(in srgb, var(--artifact-accent) 22%, var(--border-soft)); border-radius: 11px; background: color-mix(in srgb, var(--artifact-accent) 5%, var(--surface-1)); }
+.artifact-symbol { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid color-mix(in srgb, var(--artifact-accent) 42%, var(--border-soft)); border-radius: 12px; background: color-mix(in srgb, var(--artifact-accent) 9%, var(--surface-2)); color: var(--artifact-accent); font-family: var(--display-font); font-size: 18px; }
+.artifact-identity small, .artifact-identity strong, .artifact-identity span { display: block; }
+.artifact-identity small { color: var(--artifact-secondary); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+.artifact-identity strong { margin-top: 3px; color: var(--text); font-family: var(--display-font); font-size: 12px; line-height: 1.3; }
+.artifact-identity span { margin-top: 4px; color: var(--faint); font-size: 8px; }
+.artifact-section-flow { display: grid; gap: 10px; }
+.artifact-fact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.artifact-fact-grid p { display: grid; gap: 3px; padding: 8px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--surface-1) 90%, transparent); }
+.artifact-fact-grid p b { color: var(--artifact-secondary); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.artifact-fact-grid p span { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.artifact-principle { padding: 10px; border-left: 2px solid var(--artifact-accent); border-radius: 3px 9px 9px 3px; background: color-mix(in srgb, var(--artifact-accent) 5%, var(--surface-1)); }
+.artifact-principle > b { display: block; margin-bottom: 5px; color: var(--artifact-accent); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+.artifact-unknown { display: flex; gap: 8px; align-items: flex-start; padding: 9px; border: 1px dashed color-mix(in srgb, var(--artifact-accent) 28%, var(--border-soft)); border-radius: 9px; background: color-mix(in srgb, var(--artifact-accent) 3%, var(--surface-1)); color: var(--faint); }
+.artifact-unknown.is-hinted { border-style: solid; color: var(--artifact-secondary); }
+.artifact-unknown svg { flex: 0 0 auto; margin-top: 1px; }
+.artifact-unknown span, .artifact-unknown strong, .artifact-unknown small { display: block; }
+.artifact-unknown strong { color: var(--text-soft); font-size: 9px; }
+.artifact-unknown small { margin-top: 3px; color: var(--faint); font-size: 8px; line-height: 1.4; }
+.artifact-sentience { display: grid; gap: 6px; padding: 9px; border: 1px solid color-mix(in srgb, var(--artifact-secondary) 22%, var(--border-soft)); border-radius: 9px; background: color-mix(in srgb, var(--artifact-secondary) 4%, var(--surface-1)); }
+.artifact-evidence { overflow: hidden; border-top: 1px solid color-mix(in srgb, var(--artifact-accent) 20%, var(--border-soft)); }
+.artifact-evidence > summary { padding: 9px 0 2px; color: var(--artifact-secondary); font-size: 8.5px; cursor: pointer; }
+.artifact-evidence > div { display: grid; gap: 5px; padding-top: 7px; }
+.artifact-evidence p { display: grid; gap: 2px; padding-left: 8px; border-left: 1px solid var(--artifact-accent); }
+.artifact-evidence p span, .artifact-evidence p small { font-size: 8px; line-height: 1.4; }
+.artifact-evidence p small { color: var(--faint); }
 .artifact-heading, .artifact-meters { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.artifact-heading strong { color: var(--lore); font-size: 11px; }
+.artifact-heading strong { color: var(--artifact-accent); font-size: 11px; }
 .artifact-heading span, .artifact-meters span { color: var(--faint); font-size: 8.5px; }
 .artifact-meters { justify-content: flex-start; }
 .artifact-meters span { padding: 4px 6px; border: 1px solid var(--border-soft); border-radius: 6px; }
@@ -646,7 +686,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .artifact-components { display: grid; gap: 6px; }
 .artifact-component { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--surface-1) 88%, transparent); }
 .artifact-component header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.artifact-component header span { color: var(--accent); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.artifact-component header span { color: var(--artifact-secondary); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
 .artifact-component p { margin: 0; color: var(--muted); font-size: 8.5px; line-height: 1.45; }
 .artifact-powers details { overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-1); }
 .artifact-powers summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; cursor: pointer; list-style: none; }
@@ -660,7 +700,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .artifact-power-body > p { margin: 7px 0 0; color: var(--muted); font-size: 8.5px; line-height: 1.5; }
 .evolution-list { display: grid; gap: 5px; }
 .evolution-list > div { display: grid; gap: 2px; padding: 7px; border-left: 2px solid var(--border); border-radius: 2px 7px 7px 2px; background: var(--surface-2); }
-.evolution-list > div.is-unlocked { border-left-color: var(--accent); }
+.artifact-profile .evolution-list > div.is-unlocked { border-left-color: var(--artifact-accent); }
 .evolution-list > div strong, .evolution-list > div span, .evolution-list > div small { display: block; font-size: 8.5px; }
 .evolution-list > div span { color: var(--muted); line-height: 1.4; }
 .evolution-list > div small { color: var(--faint); }
@@ -3120,4 +3160,16 @@ button:disabled { cursor: not-allowed; opacity: .42; }
   .profile-hero h2 { font-size: 19px; }
   .stats-grid { grid-template-columns: 1fr; }
   .rarity-metrics, .rarity-editor-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 460px) {
+  .artifact-profile { padding: 12px; }
+  .artifact-fact-grid { grid-template-columns: 1fr; }
+  .artifact-identity { grid-template-columns: 36px 1fr; padding: 8px; }
+  .artifact-symbol { width: 36px; height: 36px; border-radius: 10px; font-size: 16px; }
+  .artifact-meters { align-items: stretch; flex-wrap: wrap; }
+  .artifact-meters span { flex: 1 1 30%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artifact-glow-pulse .artifact-symbol { animation: none; }
 }

@@ -2,6 +2,7 @@ import { openDB, type DBSchema } from 'idb'
 import type { Campaign, InventoryItem, PowerTechnique, Resource, ResourceKind, StatusEffect } from '../../shared/types'
 import { normalizeEventDirectorSettings, normalizeEventDirectorState } from '../../shared/event-director'
 import { normalizeItemRarity, normalizeRarityProfile } from '../../shared/rarity'
+import { normalizeArtifactDiscovery, updateArtifactRegistry } from '../../shared/artifacts'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { ensureCampaignIdentity } from './campaign-identity'
 
@@ -66,7 +67,7 @@ function migratePowerTechniques(techniques: PowerTechnique[] | undefined): Power
   }))
 }
 
-function migrateItem(item: InventoryItem): InventoryItem {
+function migrateItem(item: InventoryItem, turn: number): InventoryItem {
   const maxDurability = Number.isFinite(item.maxDurability) ? Math.max(0, item.maxDurability ?? 0) : undefined
   const durability = Number.isFinite(item.durability) ? clamp(item.durability ?? 0, 0, maxDurability ?? 1_000_000) : undefined
   const maxCharges = Number.isFinite(item.maxCharges) ? Math.max(0, item.maxCharges ?? 0) : undefined
@@ -83,7 +84,47 @@ function migrateItem(item: InventoryItem): InventoryItem {
     rarityProfile: item.rarityProfile ? normalizeRarityProfile(item.rarityProfile) : undefined,
     maxDurability, durability, maxCharges, charges, state,
   })
-  return normalized
+  if (!normalized.artifact) return normalized
+  const artifact = normalized.artifact
+  const migrated: InventoryItem = {
+    ...normalized,
+    history: normalized.history ?? [],
+    artifact: {
+      ...artifact,
+      creativeIdentity: artifact.creativeIdentity ? {
+        ...artifact.creativeIdentity,
+        conceptualDomains: artifact.creativeIdentity.conceptualDomains ?? [],
+        mechanicVerbs: artifact.creativeIdentity.mechanicVerbs ?? [],
+        motifs: artifact.creativeIdentity.motifs ?? [],
+        differentiation: artifact.creativeIdentity.differentiation ?? [],
+        relatedArtifactIds: artifact.creativeIdentity.relatedArtifactIds ?? [],
+      } : undefined,
+      presentation: artifact.presentation ? {
+        ...artifact.presentation,
+        sectionOrder: artifact.presentation.sectionOrder ?? [],
+      } : undefined,
+      requirements: artifact.requirements ?? [],
+      passiveEffects: artifact.passiveEffects ?? [],
+      combinedEffects: artifact.combinedEffects ?? [],
+      failureModes: artifact.failureModes ?? [],
+      components: artifact.components ?? [],
+      powers: (artifact.powers ?? []).map((power) => ({
+        ...power,
+        capabilities: power.capabilities ?? [],
+        synergies: power.synergies ?? [],
+        counters: power.counters ?? [],
+        examples: power.examples ?? [],
+        techniques: migratePowerTechniques(power.techniques),
+      })),
+      drawbacks: artifact.drawbacks ?? [],
+      evolutionPaths: artifact.evolutionPaths ?? [],
+      secrets: artifact.secrets ?? [],
+    },
+  }
+  if (migrated.artifact) {
+    migrated.artifact.discovery = normalizeArtifactDiscovery(migrated.artifact.discovery, migrated, turn)
+  }
+  return migrated
 }
 
 interface LetopisDB extends DBSchema {
@@ -147,6 +188,12 @@ export async function getCampaigns(): Promise<Campaign[]> {
 }
 
 export function migrateCampaign(campaign: Campaign): Campaign {
+  const inventory = campaign.inventory.map((rawItem) => migrateItem(rawItem, campaign.turn))
+  let artifactRegistry = structuredClone(campaign.artifactRegistry ?? [])
+  for (const item of inventory) {
+    if (!item.artifact) continue
+    artifactRegistry = updateArtifactRegistry(artifactRegistry, item, 'active', campaign.turn)
+  }
   return {
     ...campaign,
     world: {
@@ -208,31 +255,8 @@ export function migrateCampaign(campaign: Campaign): Campaign {
         techniques: migratePowerTechniques(ability.techniques),
       })),
     },
-    inventory: campaign.inventory.map((rawItem) => {
-      const item = migrateItem(rawItem)
-      return {
-      ...item,
-      history: item.history ?? [],
-      artifact: item.artifact ? {
-        ...item.artifact,
-        requirements: item.artifact.requirements ?? [],
-        passiveEffects: item.artifact.passiveEffects ?? [],
-        combinedEffects: item.artifact.combinedEffects ?? [],
-        failureModes: item.artifact.failureModes ?? [],
-        components: item.artifact.components ?? [],
-        powers: (item.artifact.powers ?? []).map((power) => ({
-          ...power,
-          capabilities: power.capabilities ?? [],
-          synergies: power.synergies ?? [],
-          counters: power.counters ?? [],
-          examples: power.examples ?? [],
-          techniques: migratePowerTechniques(power.techniques),
-        })),
-        drawbacks: item.artifact.drawbacks ?? [],
-        evolutionPaths: item.artifact.evolutionPaths ?? [],
-        secrets: item.artifact.secrets ?? [],
-      } : undefined,
-    }}),
+    inventory,
+    artifactRegistry,
     npcs: campaign.npcs.map((npc) => ({
       ...npc,
       name: recoverNpcName(campaign, npc.id, npc.name),

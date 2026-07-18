@@ -1085,6 +1085,68 @@ const artifactComponentChangeSchema = z.object({
   capabilities: z.array(longText).max(64).optional(),
   addCapabilities: z.array(longText).max(64).optional(),
 }).strict()
+const artifactSectionSchema = z.enum(['identity', 'origin', 'principle', 'requirements', 'passives', 'components', 'powers', 'combined', 'drawbacks', 'failureModes', 'evolution', 'history'])
+const artifactDiscoverySectionSchema = z.enum(['identity', 'origin', 'principle', 'requirements', 'passives', 'components', 'powers', 'combined', 'drawbacks', 'failureModes', 'evolution', 'history', 'sentience', 'secrets'])
+const artifactKnowledgeLevelSchema = z.preprocess(alias({ скрыто: 'hidden', намек: 'hinted', намёк: 'hinted', известно: 'known', изучено: 'understood' }), z.enum(['hidden', 'hinted', 'known', 'understood']))
+const artifactCreativeIdentitySchema = z.object({
+  coreFantasy: longText,
+  centralConcept: longText,
+  physicalForm: longText,
+  originPattern: longText,
+  interactionModel: longText,
+  signatureExperience: longText,
+  conceptualDomains: z.array(shortText).min(1).max(12),
+  mechanicVerbs: z.array(shortText).min(1).max(16),
+  motifs: z.array(shortText).min(1).max(16),
+  differentiation: z.array(longText).min(2).max(12),
+  lineageId: idSchema.optional(),
+  resemblanceKind: z.enum(['canon', 'set', 'culture', 'creator', 'evolution']).optional(),
+  resemblanceReason: longText.optional(),
+  relatedArtifactIds: z.array(idSchema).max(24).optional(),
+}).strict().superRefine((identity, context) => {
+  if (identity.resemblanceKind && !identity.resemblanceReason?.trim()) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['resemblanceReason'],
+    message: 'A reused motif requires a concrete causal resemblanceReason',
+  })
+})
+const artifactPresentationSchema = z.object({
+  layout: z.enum(['reliquary', 'schematic', 'grimoire', 'constellation', 'monolith', 'organic', 'arsenal', 'minimal']),
+  motif: shortText,
+  symbol: shortText,
+  accent: colorSchema,
+  secondary: colorSchema,
+  surface: z.enum(['metal', 'stone', 'paper', 'glass', 'energy', 'organic', 'void', 'fabric', 'wood', 'composite']),
+  glow: z.enum(['none', 'soft', 'pulse', 'halo', 'veins', 'embers', 'glitch']),
+  headerStyle: z.enum(['inscribed', 'technical', 'ceremonial', 'minimal', 'living']),
+  density: z.enum(['comfortable', 'cinematic']),
+  sectionOrder: z.array(artifactSectionSchema).min(4).max(12),
+  summary: longText,
+}).strict().superRefine((presentation, context) => {
+  if (new Set(presentation.sectionOrder).size !== presentation.sectionOrder.length) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['sectionOrder'],
+    message: 'Artifact presentation sections must be unique',
+  })
+})
+const artifactDiscoverySchema = z.object({
+  awareness: modelNumber(z.number().min(0).max(100)),
+  revealedSections: z.array(artifactDiscoverySectionSchema).max(14),
+  powerKnowledge: z.record(idSchema, artifactKnowledgeLevelSchema),
+  componentKnowledge: z.record(idSchema, artifactKnowledgeLevelSchema),
+  evidence: z.array(z.object({
+    id: idSchema,
+    section: artifactDiscoverySectionSchema,
+    summary: longText,
+    source: longText,
+    reliability: modelNumber(z.number().min(0).max(100)),
+    learnedTurn: modelNumber(z.number().int().min(0)),
+  }).strict()).max(64),
+  updatedTurn: modelNumber(z.number().int().min(0)),
+}).strict()
+const artifactDiscoveryPatchSchema = artifactDiscoverySchema.extend({
+  updatedTurn: optionalModelNumber(z.number().int().min(0)),
+}).strict()
 const artifactProfileSchema = z.object({
   sentient: modelBoolean,
   awakened: modelBoolean,
@@ -1102,6 +1164,9 @@ const artifactProfileSchema = z.object({
   scale: longText.optional(),
   canonStatus: canonStatusSchema.optional(),
   canonReference: longText.optional(),
+  creativeIdentity: artifactCreativeIdentitySchema.optional(),
+  presentation: artifactPresentationSchema.optional(),
+  discovery: artifactDiscoverySchema.optional(),
   requirements: z.array(longText).max(48),
   passiveEffects: z.array(longText).max(48),
   combinedEffects: z.array(longText).max(48),
@@ -1203,6 +1268,9 @@ const artifactChangeSchema = z.object({
   scale: longText.optional(),
   canonStatus: canonStatusSchema.optional(),
   canonReference: longText.optional(),
+  creativeIdentity: artifactCreativeIdentitySchema.optional(),
+  presentation: artifactPresentationSchema.optional(),
+  discovery: artifactDiscoveryPatchSchema.optional(),
   requirements: z.array(longText).max(48).optional(),
   passiveEffects: z.array(longText).max(48).optional(),
   combinedEffects: z.array(longText).max(48).optional(),
@@ -1397,11 +1465,33 @@ const artifactRewardRepairContract = z.object({
   item: inventoryItemAddSchema.extend({
     category: z.literal('artifact'),
     rarityProfile: rarityProfileSchema,
-    artifact: artifactProfileSchema,
+    artifact: artifactProfileSchema.and(z.object({
+      creativeIdentity: artifactCreativeIdentitySchema,
+      presentation: artifactPresentationSchema,
+      discovery: artifactDiscoverySchema,
+    })),
   }).strict(),
 }).strict()
 
 export const artifactRewardRepairSchema = z.preprocess((value) => normalizeModelOutput(value), artifactRewardRepairContract)
+
+export const artifactQualityReviewSchema = z.preprocess((value) => normalizeModelOutput(value), z.object({
+  scores: z.object({
+    idea: modelNumber(z.number().min(0).max(100)),
+    form: modelNumber(z.number().min(0).max(100)),
+    mechanics: modelNumber(z.number().min(0).max(100)),
+    origin: modelNumber(z.number().min(0).max(100)),
+    interaction: modelNumber(z.number().min(0).max(100)),
+    development: modelNumber(z.number().min(0).max(100)),
+    presentation: modelNumber(z.number().min(0).max(100)),
+    canonAccuracy: modelNumber(z.number().min(0).max(100)),
+  }).strict(),
+  strengths: z.array(longText).max(12),
+  issues: z.array(longText).max(16),
+  verdict: z.enum(['excellent', 'good', 'rebuild']),
+}).strict())
+
+export type ArtifactQualityReview = z.infer<typeof artifactQualityReviewSchema>
 
 const questDraftSchema = z.object({
   id: idSchema.optional(),
@@ -2033,7 +2123,8 @@ const generatedAbilitySchema = z.object({
   canonStatus: canonStatusSchema,
   canonReference: longText.optional(),
 }).strict()
-const generatedArtifactPowerSchema = artifactPowerDraftSchema.omit({ id: true }).extend({
+const generatedArtifactPowerSchema = artifactPowerDraftSchema.extend({
+  id: idSchema,
   category: powerCategorySchema,
   scale: longText,
   activation: longText,
@@ -2045,7 +2136,7 @@ const generatedArtifactPowerSchema = artifactPowerDraftSchema.omit({ id: true })
   canonStatus: canonStatusSchema,
   canonReference: longText.optional(),
 }).strict()
-const generatedArtifactComponentSchema = artifactComponentSchema.omit({ id: true })
+const generatedArtifactComponentSchema = artifactComponentSchema
 const generatedArtifactProfileSchema = z.object({
   sentient: modelBoolean,
   awakened: modelBoolean,
@@ -2063,6 +2154,9 @@ const generatedArtifactProfileSchema = z.object({
   scale: longText,
   canonStatus: canonStatusSchema,
   canonReference: longText.optional(),
+  creativeIdentity: artifactCreativeIdentitySchema,
+  presentation: artifactPresentationSchema,
+  discovery: artifactDiscoverySchema,
   requirements: z.array(longText).max(48),
   passiveEffects: z.array(longText).max(48),
   combinedEffects: z.array(longText).max(48),

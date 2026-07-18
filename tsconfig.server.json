@@ -17,6 +17,7 @@
     "server/**/*.test.ts",
     "server/live-turn-smoke.ts",
     "server/live-upgrade-smoke.ts",
+    "server/live-artifact-smoke.ts",
     "shared/**/*.test.ts"
   ]
 }

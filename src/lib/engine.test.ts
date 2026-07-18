@@ -1408,4 +1408,28 @@ describe('state engine', () => {
     expect(next.socialLinks?.map((link) => link.id)).toEqual(['link-kept'])
     expect(describePatch({ removeSocialLinkIds: ['link-ended'] })).toContain('Связь NPC прекратилась')
   })
+
+  it('keeps a removed artifact fingerprint in campaign memory', () => {
+    const campaign = createDemoCampaign()
+    const item: import('../../shared/types').InventoryItem = {
+      id: 'legacy-artifact', name: 'Старая печать', description: 'Печать хранит один подтверждённый след.', category: 'artifact', quantity: 1,
+      rarity: 'rare', equipped: false, effects: ['Хранит след'], discoveredTurn: 0, history: [],
+      artifact: { sentient: false, awakened: true, attunement: 10, bond: 0, requirements: [], passiveEffects: ['Хранит след'], combinedEffects: [], failureModes: [], components: [], powers: [], drawbacks: [], evolutionPaths: [], secrets: [] },
+    }
+    campaign.inventory.push(item)
+    campaign.artifactRegistry = []
+
+    const next = commitTurn(campaign, 'Артефакт потерян в разломе.', 'story', {
+      narrative: 'Старая печать исчезает за закрывающейся границей.', suggestions: ['Искать след'], activeLoreIds: [], recalledMemoryIds: [],
+      statePatch: { inventory: [{ operation: 'remove', targetId: item.id, quantity: item.quantity, reason: 'Артефакт потерян в разломе.' }] },
+    })
+
+    expect(next.inventory.some((candidate) => candidate.id === item.id)).toBe(false)
+    expect(next.artifactRegistry).toEqual(expect.arrayContaining([
+      expect.objectContaining({ artifactId: item.id, name: item.name, status: 'lost', lastChangedTurn: 1 }),
+    ]))
+    const rewound = rewindLastTurn(next)
+    expect(rewound.inventory.some((candidate) => candidate.id === item.id)).toBe(true)
+    expect(rewound.artifactRegistry).toEqual([])
+  })
 })

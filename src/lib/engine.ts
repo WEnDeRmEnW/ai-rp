@@ -37,6 +37,7 @@ import type {
 } from '../../shared/types'
 import { compactMemoryBank } from '../../shared/context'
 import { normalizeItemRarity } from '../../shared/rarity'
+import { normalizeArtifactDiscovery, updateArtifactRegistry } from '../../shared/artifacts'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { diffCampaignState, summarizeStateChanges } from './state-changes'
 
@@ -44,6 +45,7 @@ const id = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const normalizedName = (value: string) => value.trim().toLocaleLowerCase('ru-RU')
+const uniqueStrings = (values: string[], limit: number) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(0, limit)
 const INTERFACE_MODULE_LIMIT = 8
 const INTERFACE_ELEMENT_LIMIT = 16
 const WORLD_METRIC_LIMIT = 48
@@ -322,8 +324,8 @@ function removePowerTechniques(
   return techniques.filter((technique) => !removed.has(technique.id))
 }
 
-function normalizeArtifact(artifact: ArtifactProfile): ArtifactProfile {
-  return {
+function normalizeArtifact(artifact: ArtifactProfile, turn: number): ArtifactProfile {
+  const normalized: ArtifactProfile = {
     ...artifact,
     mastery: artifact.mastery === undefined ? undefined : clamp(artifact.mastery, 0, 100),
     attunement: clamp(artifact.attunement, 0, 100),
@@ -347,7 +349,21 @@ function normalizeArtifact(artifact: ArtifactProfile): ArtifactProfile {
     drawbacks: artifact.drawbacks.slice(0, 48),
     evolutionPaths: artifact.evolutionPaths.slice(0, 24),
     secrets: artifact.secrets.slice(0, 48),
+    creativeIdentity: artifact.creativeIdentity ? {
+      ...artifact.creativeIdentity,
+      conceptualDomains: uniqueStrings(artifact.creativeIdentity.conceptualDomains, 12),
+      mechanicVerbs: uniqueStrings(artifact.creativeIdentity.mechanicVerbs, 16),
+      motifs: uniqueStrings(artifact.creativeIdentity.motifs, 16),
+      differentiation: uniqueStrings(artifact.creativeIdentity.differentiation, 12),
+      relatedArtifactIds: uniqueStrings(artifact.creativeIdentity.relatedArtifactIds ?? [], 24),
+    } : undefined,
+    presentation: artifact.presentation ? {
+      ...artifact.presentation,
+      sectionOrder: [...new Set(artifact.presentation.sectionOrder)].slice(0, 12),
+    } : undefined,
   }
+  normalized.discovery = normalizeArtifactDiscovery(artifact.discovery, { artifact: normalized } as InventoryItem, turn)
+  return normalized
 }
 
 function mergeTextDetails(current: string[] | undefined, incoming: string[] | undefined, limit: number): string[] {
@@ -737,6 +753,7 @@ function createSnapshot(campaign: Campaign): CampaignSnapshot {
     worldPressures: structuredClone(campaign.worldPressures ?? []),
     influenceAssets: structuredClone(campaign.influenceAssets ?? []),
     eventDirectorState: structuredClone(campaign.eventDirectorState),
+    artifactRegistry: structuredClone(campaign.artifactRegistry ?? []),
     messageCount: campaign.messages.length,
     eventCount: campaign.timeline.length,
   }
@@ -768,7 +785,7 @@ function materializeItem(patch: InventoryItemPatch, turn: number): InventoryItem
     origin: patch?.origin,
     discoveredTurn: patch?.discoveredTurn ?? turn,
     history: patch?.history?.slice(0, 40).map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })) ?? [],
-    artifact: patch?.artifact ? normalizeArtifact(patch.artifact) : undefined,
+    artifact: patch?.artifact ? normalizeArtifact(patch.artifact, turn) : undefined,
   })
 }
 
@@ -859,6 +876,7 @@ export function applyPatch(
   campaign.antagonistPlans ??= []
   campaign.worldPressures ??= []
   campaign.influenceAssets ??= []
+  campaign.artifactRegistry ??= []
   if (patch.eventDirectorState) campaign.eventDirectorState = structuredClone(patch.eventDirectorState)
   campaign.world.places ??= []
   campaign.world.processes ??= []
@@ -988,6 +1006,7 @@ export function applyPatch(
         existing.quantity = clamp(existing.quantity + incoming.quantity, 1, 999)
       } else {
         campaign.inventory.push(incoming)
+        if (incoming.artifact) campaign.artifactRegistry = updateArtifactRegistry(campaign.artifactRegistry, incoming, 'active', turn)
       }
       return
     }
@@ -1001,7 +1020,13 @@ export function applyPatch(
       const current = campaign.inventory[index]
       const amount = Number.isFinite(mutation.quantity) ? Math.max(1, Math.round(mutation.quantity ?? 1)) : undefined
       if (amount !== undefined && amount < current.quantity) current.quantity -= amount
-      else campaign.inventory.splice(index, 1)
+      else {
+        if (current.artifact) {
+          const destroyed = /уничтож|разруш|рассып|стерт|стёрт|destroy|erase|shatter/iu.test(mutation.reason ?? '')
+          campaign.artifactRegistry = updateArtifactRegistry(campaign.artifactRegistry, current, destroyed ? 'destroyed' : 'lost', turn)
+        }
+        campaign.inventory.splice(index, 1)
+      }
       return
     }
     const current = campaign.inventory[index]
@@ -1030,8 +1055,11 @@ export function applyPatch(
           .filter((entry, entryIndex, all) => all.findIndex((candidate) => candidate.id === entry.id) === entryIndex)
           .slice(-80)
         : current.history,
-      artifact: update.artifact ? normalizeArtifact({ ...current.artifact, ...update.artifact }) : current.artifact,
+      artifact: update.artifact ? normalizeArtifact({ ...current.artifact, ...update.artifact }, turn) : current.artifact,
     })
+    if (campaign.inventory[index].artifact && (update.artifact || update.description || update.origin || update.effects)) {
+      campaign.artifactRegistry = updateArtifactRegistry(campaign.artifactRegistry, campaign.inventory[index], 'active', turn)
+    }
   })
 
   const updateStats = (deltas: Record<string, number> | undefined, type: 'stats' | 'resources') => {
@@ -1086,6 +1114,12 @@ export function applyPatch(
       return
     }
     const artifact = item.artifact
+    const transformsIdentity = Boolean(
+      change.creativeIdentity || change.presentation || change.powerSource || change.operatingPrinciple
+      || change.classification || change.addPowers?.length || change.addComponents?.length
+      || change.powerChanges?.some((power) => power.name || power.description || power.capabilities || power.addCapabilities || power.addTechniques?.length)
+    )
+    const previousArtifactForm = transformsIdentity ? structuredClone(item) : undefined
     if (change.itemDescription?.trim()) item.description = change.itemDescription.trim()
     if (change.itemEffects) item.effects = change.itemEffects.slice(0, 12)
     if (Number.isFinite(change.mastery)) artifact.mastery = clamp(change.mastery ?? 0, 0, 100)
@@ -1102,6 +1136,18 @@ export function applyPatch(
     if (change.scale?.trim()) artifact.scale = change.scale.trim()
     if (change.canonStatus) artifact.canonStatus = change.canonStatus
     if (change.canonReference?.trim()) artifact.canonReference = change.canonReference.trim()
+    if (change.creativeIdentity) artifact.creativeIdentity = {
+      ...change.creativeIdentity,
+      conceptualDomains: uniqueStrings(change.creativeIdentity.conceptualDomains, 12),
+      mechanicVerbs: uniqueStrings(change.creativeIdentity.mechanicVerbs, 16),
+      motifs: uniqueStrings(change.creativeIdentity.motifs, 16),
+      differentiation: uniqueStrings(change.creativeIdentity.differentiation, 12),
+      relatedArtifactIds: uniqueStrings(change.creativeIdentity.relatedArtifactIds ?? [], 24),
+    }
+    if (change.presentation) artifact.presentation = {
+      ...change.presentation,
+      sectionOrder: [...new Set(change.presentation.sectionOrder)].slice(0, 12),
+    }
     if (change.requirements) artifact.requirements = change.requirements.slice(0, 48)
     if (change.passiveEffects) artifact.passiveEffects = change.passiveEffects.slice(0, 48)
     if (change.combinedEffects) artifact.combinedEffects = change.combinedEffects.slice(0, 48)
@@ -1198,7 +1244,22 @@ export function applyPatch(
       item.history.push({ id: id(), turn, title: change.history.title, description: change.history.description })
       item.history = item.history.slice(-80)
     }
+    if (change.discovery) artifact.discovery = normalizeArtifactDiscovery(
+      { ...change.discovery, updatedTurn: turn },
+      item,
+      turn,
+    )
     Object.assign(item, normalizeItemRarity(item))
+    if (previousArtifactForm) {
+      const previousFormIndex = (campaign.artifactRegistry ?? []).filter((entry) => entry.artifactId.startsWith(`${previousArtifactForm.id}@`)).length + 1
+      campaign.artifactRegistry = updateArtifactRegistry(
+        campaign.artifactRegistry,
+        { ...previousArtifactForm, id: `${previousArtifactForm.id}@${Math.max(0, turn - 1)}:${previousFormIndex}` },
+        'transformed',
+        turn,
+      )
+    }
+    campaign.artifactRegistry = updateArtifactRegistry(campaign.artifactRegistry, item, 'active', turn)
   })
 
   patch.addConditions?.forEach((condition) => {
@@ -2483,6 +2544,7 @@ export function rewindLastTurn(campaign: Campaign): Campaign {
     worldPressures: structuredClone(snapshot.worldPressures ?? campaign.worldPressures ?? []),
     influenceAssets: structuredClone(snapshot.influenceAssets ?? campaign.influenceAssets ?? []),
     eventDirectorState: structuredClone(snapshot.eventDirectorState ?? campaign.eventDirectorState),
+    artifactRegistry: structuredClone(snapshot.artifactRegistry ?? campaign.artifactRegistry ?? []),
     messages: campaign.messages.slice(0, snapshot.messageCount),
     timeline: campaign.timeline.slice(0, snapshot.eventCount),
     snapshots: campaign.snapshots.slice(0, -1),

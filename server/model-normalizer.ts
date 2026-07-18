@@ -41,6 +41,7 @@ const ARRAY_KEYS = new Set([
   'upsertLegends', 'removeLegendIds', 'deeds', 'myths', 'legacies', 'associatedFactionNames', 'relatedNpcIds', 'successorNpcIds',
   'relatedNpcNames', 'successorNpcNames', 'factionNames', 'witnesses', 'believers', 'holderNpcIds', 'holderNpcNames',
   'accessConditions', 'encounterConditions', 'qualifyingSigns', 'disqualifiers', 'anchorFacts', 'forbiddenContradictions', 'divergenceNotes',
+  'conceptualDomains', 'mechanicVerbs', 'motifs', 'differentiation', 'relatedArtifactIds', 'sectionOrder',
 ])
 
 const ARRAY_LIMITS: Record<string, number> = {
@@ -84,6 +85,7 @@ const ARRAY_LIMITS: Record<string, number> = {
   upsertLegends: 24, removeLegendIds: 24, deeds: 40, myths: 40, legacies: 40, associatedFactionNames: 20, relatedNpcIds: 24, successorNpcIds: 24,
   relatedNpcNames: 24, successorNpcNames: 24, factionNames: 20, witnesses: 20, believers: 20, holderNpcIds: 20, holderNpcNames: 20,
   accessConditions: 16, encounterConditions: 16, qualifyingSigns: 16, disqualifiers: 16, anchorFacts: 24, forbiddenContradictions: 24, divergenceNotes: 24,
+  conceptualDomains: 12, mechanicVerbs: 16, motifs: 16, differentiation: 12, relatedArtifactIds: 24, sectionOrder: 12,
 }
 
 const BOOLEAN_KEYS = new Set([
@@ -117,6 +119,7 @@ const ID_ARRAY_KEYS = new Set([
   'removeStatusEffectIds', 'removeKnowledgeIds', 'removePlaceIds', 'retireProcessIds', 'removeLawIds', 'removeMechanicIds', 'removeInterfaceModuleIds',
   'removeElementIds', 'removeMetricIds', 'links', 'targetIds', 'scopeIds', 'causeIds', 'npcIds', 'questIds', 'revealedAbilityIds',
   'removeLegendIds', 'relatedNpcIds', 'successorNpcIds', 'holderNpcIds',
+  'relatedArtifactIds',
 ])
 
 const ARRAY_IDENTITY: Record<string, string> = {
@@ -438,9 +441,18 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
 
   if (key === 'chosen') return translate({ а: 'a', '1': 'a', первый: 'a', б: 'b', '2': 'b', второй: 'b' })
   if (key === 'severity') return translate({ низкая: 'low', низкий: 'low', средняя: 'medium', средний: 'medium', высокая: 'high', высокий: 'high' })
+  if (key === 'layout' && has('artifact')) return translate({ реликварий: 'reliquary', схема: 'schematic', чертеж: 'schematic', чертёж: 'schematic', гримуар: 'grimoire', созвездие: 'constellation', монолит: 'monolith', органика: 'organic', арсенал: 'arsenal', минимализм: 'minimal' })
+  if (key === 'surface' && has('artifact')) return translate({ металл: 'metal', камень: 'stone', бумага: 'paper', стекло: 'glass', энергия: 'energy', органика: 'organic', пустота: 'void', ткань: 'fabric', дерево: 'wood', композит: 'composite', составной: 'composite' })
+  if (key === 'glow' && has('artifact')) return translate({ нет: 'none', отсутствует: 'none', мягкое: 'soft', пульсация: 'pulse', пульс: 'pulse', ореол: 'halo', жилы: 'veins', угли: 'embers', искры: 'embers', глитч: 'glitch', помехи: 'glitch' })
+  if (key === 'headerStyle' && has('artifact')) return translate({ гравировка: 'inscribed', надпись: 'inscribed', технический: 'technical', церемониальный: 'ceremonial', минимальный: 'minimal', живой: 'living' })
+  if (key === 'density' && has('artifact')) return translate({ удобная: 'comfortable', комфортная: 'comfortable', кинематографичная: 'cinematic', выразительная: 'cinematic' })
+  if (key === 'resemblanceKind') return translate({ канон: 'canon', серия: 'set', набор: 'set', культура: 'culture', создатель: 'creator', эволюция: 'evolution', развитие: 'evolution' })
+  if (key === '[]' && (has('sectionOrder') || has('revealedSections'))) return translate({
+    идентичность: 'identity', образ: 'identity', происхождение: 'origin', принцип: 'principle', требования: 'requirements', пассивы: 'passives', компоненты: 'components', силы: 'powers', сочетания: 'combined', недостатки: 'drawbacks', отказы: 'failureModes', уязвимости: 'failureModes', развитие: 'evolution', история: 'history', разумность: 'sentience', тайны: 'secrets',
+  })
   if (key === 'surface') return translate({ бумага: 'paper', бумажный: 'paper', магия: 'arcane', магический: 'arcane', технология: 'tech', технологичный: 'tech', органика: 'organic', органический: 'organic', нуар: 'noir', минимализм: 'minimal' })
   if (key === 'visibility') return translate({ известно: 'known', открыто: 'known', слух: 'rumored', слухи: 'rumored', предположение: 'rumored', скрыто: 'hidden', тайно: 'hidden', секретно: 'hidden' })
-  if (key === 'rarity') return translate({ обычный: 'common', обычное: 'common', необычный: 'uncommon', необычное: 'uncommon', редкий: 'rare', редкое: 'rare', эпический: 'epic', эпическое: 'epic', легендарный: 'legendary', легендарное: 'legendary' })
+  if (key === 'rarity') return translate({ обычный: 'common', обычное: 'common', необычный: 'uncommon', необычное: 'uncommon', редкий: 'rare', редкое: 'rare', исключительный: 'exceptional', исключительное: 'exceptional', эпический: 'epic', эпическое: 'epic', легендарный: 'legendary', легендарное: 'legendary', мифический: 'mythic', мифическое: 'mythic', трансцендентный: 'transcendent', трансцендентное: 'transcendent' })
   if (key === 'category' && (has('abilities') || has('addAbilities') || has('abilityChanges') || has('powers') || has('addPowers') || has('techniques') || has('addTechniques') || has('techniqueChanges') || has('capabilityChecklist'))) return translate({
     атака: 'offense', нападение: 'offense', защита: 'defense', контроль: 'control', мобильность: 'mobility', перемещение: 'mobility',
     утилита: 'utility', применение: 'utility', восприятие: 'perception', создание: 'creation', призыв: 'summoning',

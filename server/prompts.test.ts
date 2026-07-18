@@ -32,7 +32,7 @@ describe('world architect prompt', () => {
     expect(system.content).toContain('Квоты на разумные предметы нет')
     expect(system.content).toContain('При sentient=false полностью опусти personality')
     expect(system.content).toContain('Точное имя без полного набора отличительных свойств считается ошибкой')
-    expect(system.content).toContain('components[{name,description,role,status,capabilities[],required}]')
+    expect(system.content).toContain('components[{id,name,description,role,status,capabilities[],required}]')
     expect(system.content).toContain('capabilities[],synergies[],counters[],examples[],techniques[{name,description,kind,category,mastery,activation,scale,costs[{resource,amount}],effects[],requirements[],limitations[],unlocked}],canonStatus')
     expect(system.content).toContain('Для атомарной способности верни techniques=[]')
     expect(system.content).toContain('Каждая реально созданная ability NPC описывается ровно с той же полнотой')

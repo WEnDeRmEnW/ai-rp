@@ -466,6 +466,89 @@ export interface ArtifactComponentChangePatch {
   addCapabilities?: string[]
 }
 
+export type ArtifactResemblanceKind = 'canon' | 'set' | 'culture' | 'creator' | 'evolution'
+export type ArtifactLayout = 'reliquary' | 'schematic' | 'grimoire' | 'constellation' | 'monolith' | 'organic' | 'arsenal' | 'minimal'
+export type ArtifactSurface = 'metal' | 'stone' | 'paper' | 'glass' | 'energy' | 'organic' | 'void' | 'fabric' | 'wood' | 'composite'
+export type ArtifactGlow = 'none' | 'soft' | 'pulse' | 'halo' | 'veins' | 'embers' | 'glitch'
+export type ArtifactSection = 'identity' | 'origin' | 'principle' | 'requirements' | 'passives' | 'components' | 'powers' | 'combined' | 'drawbacks' | 'failureModes' | 'evolution' | 'history'
+export type ArtifactDiscoverySection = ArtifactSection | 'sentience' | 'secrets'
+export type ArtifactKnowledgeLevel = 'hidden' | 'hinted' | 'known' | 'understood'
+
+export interface ArtifactCreativeIdentity {
+  coreFantasy: string
+  centralConcept: string
+  physicalForm: string
+  originPattern: string
+  interactionModel: string
+  signatureExperience: string
+  conceptualDomains: string[]
+  mechanicVerbs: string[]
+  motifs: string[]
+  differentiation: string[]
+  lineageId?: ID
+  resemblanceKind?: ArtifactResemblanceKind
+  resemblanceReason?: string
+  relatedArtifactIds?: ID[]
+}
+
+export interface ArtifactPresentation {
+  layout: ArtifactLayout
+  motif: string
+  symbol: string
+  accent: string
+  secondary: string
+  surface: ArtifactSurface
+  glow: ArtifactGlow
+  headerStyle: 'inscribed' | 'technical' | 'ceremonial' | 'minimal' | 'living'
+  density: 'comfortable' | 'cinematic'
+  sectionOrder: ArtifactSection[]
+  summary: string
+}
+
+export interface ArtifactDiscoveryEvidence {
+  id: ID
+  section: ArtifactDiscoverySection
+  summary: string
+  source: string
+  reliability: number
+  learnedTurn: number
+}
+
+export interface ArtifactDiscovery {
+  awareness: number
+  revealedSections: ArtifactDiscoverySection[]
+  powerKnowledge: Record<ID, ArtifactKnowledgeLevel>
+  componentKnowledge: Record<ID, ArtifactKnowledgeLevel>
+  evidence: ArtifactDiscoveryEvidence[]
+  updatedTurn: number
+}
+
+export interface ArtifactFingerprint {
+  coreFantasy: string
+  centralConcept: string
+  physicalForm: string
+  originPattern: string
+  interactionModel: string
+  signatureExperience: string
+  conceptualDomains: string[]
+  mechanicVerbs: string[]
+  motifs: string[]
+  powerPatterns: string[]
+  visualSignature: string
+}
+
+export interface ArtifactRegistryEntry {
+  artifactId: ID
+  name: string
+  rarity: Rarity
+  status: 'active' | 'lost' | 'destroyed' | 'transformed'
+  fingerprint: ArtifactFingerprint
+  lineageId?: ID
+  canonStatus?: CanonStatus
+  createdTurn: number
+  lastChangedTurn: number
+}
+
 export interface ArtifactChangePatch {
   itemId: ID
   /** Inventory-facing dossier fields that must stay in sync with the artifact profile. */
@@ -485,6 +568,9 @@ export interface ArtifactChangePatch {
   scale?: string
   canonStatus?: CanonStatus
   canonReference?: string
+  creativeIdentity?: ArtifactCreativeIdentity
+  presentation?: ArtifactPresentation
+  discovery?: Omit<ArtifactDiscovery, 'updatedTurn'> & { updatedTurn?: number }
   requirements?: string[]
   passiveEffects?: string[]
   combinedEffects?: string[]
@@ -522,6 +608,9 @@ export interface ArtifactProfile {
   scale?: string
   canonStatus?: CanonStatus
   canonReference?: string
+  creativeIdentity?: ArtifactCreativeIdentity
+  presentation?: ArtifactPresentation
+  discovery?: ArtifactDiscovery
   requirements: string[]
   passiveEffects: string[]
   combinedEffects: string[]
@@ -1715,6 +1804,7 @@ export interface CampaignSnapshot {
   worldPressures?: WorldPressure[]
   influenceAssets?: InfluenceAsset[]
   eventDirectorState?: EventDirectorState
+  artifactRegistry?: ArtifactRegistryEntry[]
   messageCount: number
   eventCount: number
 }
@@ -1751,6 +1841,7 @@ export interface Campaign {
   worldPressures?: WorldPressure[]
   influenceAssets?: InfluenceAsset[]
   eventDirectorState?: EventDirectorState
+  artifactRegistry?: ArtifactRegistryEntry[]
   settings: CampaignSettings
   snapshots: CampaignSnapshot[]
 }

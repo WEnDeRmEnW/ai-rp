@@ -101,4 +101,26 @@ describe('campaign IndexedDB storage', () => {
       activeEvents: [],
     })
   })
+
+  it('backfills the uniqueness registry from factual legacy item data without inventing an identity', async () => {
+    const storage = await import('./storage')
+    const legacy = createDemoCampaign()
+    const legacyArtifact: import('../../shared/types').InventoryItem = {
+      id: 'legacy-artifact', name: 'Старая печать', description: 'Печать хранит один подтверждённый след.', category: 'artifact', quantity: 1,
+      rarity: 'rare', equipped: false, effects: ['Хранит след'], discoveredTurn: 0, history: [],
+      artifact: { sentient: false, awakened: true, attunement: 10, bond: 0, requirements: [], passiveEffects: ['Хранит след'], combinedEffects: [], failureModes: [], components: [], powers: [], drawbacks: [], evolutionPaths: [], secrets: [] },
+    }
+    legacy.inventory.push(legacyArtifact)
+    delete legacyArtifact.artifact!.creativeIdentity
+    delete legacyArtifact.artifact!.presentation
+    delete legacyArtifact.artifact!.discovery
+    delete legacy.artifactRegistry
+
+    const migrated = storage.migrateCampaign(legacy)
+    expect(migrated.inventory.find((item) => item.id === legacyArtifact.id)?.artifact?.creativeIdentity).toBeUndefined()
+    expect(migrated.artifactRegistry?.find((entry) => entry.artifactId === legacyArtifact.id)).toMatchObject({
+      name: legacyArtifact.name,
+      status: 'active',
+    })
+  })
 })

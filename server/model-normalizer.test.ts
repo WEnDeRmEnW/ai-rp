@@ -10,6 +10,28 @@ const worldRequest = {
 }
 
 describe('global DeepSeek output normalization', () => {
+  it('canonicalizes Russian artifact presentation, discovery and highest rarity enums', () => {
+    const normalized = normalizeModelOutput({
+      rarity: 'трансцендентный',
+      artifact: {
+        creativeIdentity: { resemblanceKind: 'серия' },
+        presentation: {
+          layout: 'созвездие', surface: 'пустота', glow: 'ореол', headerStyle: 'церемониальный', density: 'кинематографичная',
+          sectionOrder: ['идентичность', 'силы', 'происхождение', 'история'],
+        },
+        discovery: { revealedSections: ['принцип', 'компоненты', 'тайны'] },
+      },
+    }) as any
+
+    expect(normalized.rarity).toBe('transcendent')
+    expect(normalized.artifact.creativeIdentity.resemblanceKind).toBe('set')
+    expect(normalized.artifact.presentation).toMatchObject({
+      layout: 'constellation', surface: 'void', glow: 'halo', headerStyle: 'ceremonial', density: 'cinematic',
+      sectionOrder: ['identity', 'powers', 'origin', 'history'],
+    })
+    expect(normalized.artifact.discovery.revealedSections).toEqual(['principle', 'components', 'secrets'])
+  })
+
   it('canonicalizes Russian legendary-world enums without inventing missing legend data', () => {
     const normalized = normalizeModelOutput({
       world: {

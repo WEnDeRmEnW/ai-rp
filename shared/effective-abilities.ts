@@ -1,4 +1,5 @@
 import type { Ability, AbilityKind, ArtifactPower, Campaign, InventoryItem, Rarity } from './types.js'
+import { artifactPowerKnowledge, artifactSectionKnown } from './artifacts.js'
 
 export interface GrantedItemAbility {
   ability: Ability
@@ -71,6 +72,7 @@ function powerAsAbility(item: InventoryItem, power: ArtifactPower): Ability {
 function passiveAsAbility(item: InventoryItem): Ability | undefined {
   const artifact = item.artifact
   if (!artifact || (!artifact.passiveEffects.length && !artifact.combinedEffects.length)) return undefined
+  if (!artifactSectionKnown(item, 'passives') && !artifactSectionKnown(item, 'combined')) return undefined
   return {
     id: `item-passive:${item.id}`,
     name: `Пассивные свойства: ${item.name}`,
@@ -104,7 +106,12 @@ export function grantedItemAbilities(campaign: Pick<Campaign, 'inventory'>): Gra
     const blockers = accessBlockers(item)
     const passive = passiveAsAbility(item)
     const abilities = [
-      ...item.artifact.powers.map((power) => ({ ability: powerAsAbility(item, power), synthetic: false })),
+      ...item.artifact.powers
+        .filter((power) => {
+          const knowledge = artifactPowerKnowledge(item, power.id)
+          return knowledge === 'known' || knowledge === 'understood'
+        })
+        .map((power) => ({ ability: powerAsAbility(item, power), synthetic: false })),
       ...(passive ? [{ ability: passive, synthetic: true }] : []),
     ]
     return abilities.map(({ ability, synthetic }) => ({
