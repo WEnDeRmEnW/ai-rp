@@ -43,7 +43,7 @@ const ARRAY_KEYS = new Set([
   'accessConditions', 'encounterConditions', 'qualifyingSigns', 'disqualifiers', 'anchorFacts', 'forbiddenContradictions', 'divergenceNotes',
   'conceptualDomains', 'mechanicVerbs', 'motifs', 'differentiation', 'relatedArtifactIds', 'sectionOrder',
   'groups', 'tiers', 'natureKinds', 'comparisonRules', 'evidenceRequirements', 'sensoryMotifs',
-  'priorities', 'habits', 'signatures', 'developmentSeeds', 'addDevelopmentSeeds',
+  'priorities', 'habits', 'signatures', 'facets', 'developmentSeeds', 'addDevelopmentSeeds',
   'developmentSeedChanges', 'removeDevelopmentSeedIds', 'abilityExecutions', 'requirementsUsed',
 ])
 
@@ -90,7 +90,7 @@ const ARRAY_LIMITS: Record<string, number> = {
   accessConditions: 16, encounterConditions: 16, qualifyingSigns: 16, disqualifiers: 16, anchorFacts: 24, forbiddenContradictions: 24, divergenceNotes: 24,
   conceptualDomains: 12, mechanicVerbs: 16, motifs: 16, differentiation: 12, relatedArtifactIds: 24, sectionOrder: 12,
   groups: 16, tiers: 12, natureKinds: 14, comparisonRules: 16, evidenceRequirements: 12, sensoryMotifs: 10,
-  priorities: 10, habits: 10, signatures: 10, developmentSeeds: 12, addDevelopmentSeeds: 12,
+  priorities: 10, habits: 10, signatures: 10, facets: 6, developmentSeeds: 12, addDevelopmentSeeds: 12,
   developmentSeedChanges: 12, removeDevelopmentSeedIds: 12, abilityExecutions: 24, requirementsUsed: 16,
 }
 
@@ -599,6 +599,20 @@ function normalizeRecordAsArray(key: string, value: Record<string, unknown>): un
   if (key === 'costs') {
     return Object.entries(value).map(([resource, amount]) => ({ resource, amount }))
   }
+  if (key === 'facets') {
+    return Object.entries(value).map(([sourceLabel, entry]) => {
+      const details = isRecord(entry) ? entry : undefined
+      const label = typeof details?.label === 'string' && details.label.trim() ? details.label : sourceLabel
+      const facetValue = details?.value ?? details?.score ?? details?.rating ?? entry
+      const description = String(details?.description ?? details?.summary ?? `${label}: ${String(facetValue)}/100`)
+      return {
+        key: typeof details?.key === 'string' && details.key.trim() ? details.key : enumToken(sourceLabel).replaceAll(' ', '-'),
+        label,
+        value: facetValue,
+        description,
+      }
+    })
+  }
   if (key === 'memories' && ['kind', 'content', 'tags', 'importance'].some((field) => Object.hasOwn(value, field))) {
     return [value]
   }
@@ -962,6 +976,77 @@ function canonicalizePatchContainer(value: Record<string, unknown>): Record<stri
   return result
 }
 
+const ABILITY_RECORD_COLLECTIONS = new Set(['abilities', 'addAbilities', 'upsertAbilities', 'abilityChanges'])
+const ABILITY_AVAILABILITY_KEYS = new Set(['state', 'reasons', 'nextReady', 'charges', 'lastUsedTurn'])
+
+function rawValues(value: unknown): unknown[] {
+  if (value === undefined || value === null) return []
+  return Array.isArray(value) ? value : [value]
+}
+
+function mergeRawValues(...sources: unknown[]): unknown[] {
+  const result: unknown[] = []
+  const seen = new Set<string>()
+  sources.flatMap(rawValues).forEach((entry) => {
+    const identity = typeof entry === 'object' ? JSON.stringify(entry) : `${typeof entry}:${String(entry)}`
+    if (seen.has(identity)) return
+    seen.add(identity)
+    result.push(entry)
+  })
+  return result
+}
+
+function rawCosts(value: unknown): unknown[] {
+  if (!isRecord(value)) return rawValues(value)
+  if (Object.hasOwn(value, 'resource') || Object.hasOwn(value, 'amount')) return [value]
+  return Object.entries(value).map(([resource, amount]) => ({ resource, amount }))
+}
+
+function availabilityCooldownText(value: unknown): string | undefined {
+  const parts = rawValues(value).flatMap((entry) => {
+    if (typeof entry === 'string' || typeof entry === 'number') return String(entry).trim() ? [String(entry).trim()] : []
+    if (!isRecord(entry)) return []
+    return Object.entries(entry).map(([label, detail]) => `${label}: ${String(detail)}`)
+  })
+  return parts.length ? [...new Set(parts)].join(' · ') : undefined
+}
+
+function currentAvailabilityReasons(availability: Record<string, unknown>): unknown[] {
+  if (availability.reasons !== undefined) return rawValues(availability.reasons)
+  const state = typeof availability.state === 'string' ? enumToken(availability.state) : ''
+  if (['ready', 'available', 'usable', 'prepared', 'active', 'готова', 'готов', 'доступна', 'доступен'].includes(state)) return []
+  return mergeRawValues(availability.cooldown, availability.limitations, availability.requirements, availability.drawbacks)
+}
+
+function canonicalizeAbilityRecord(value: Record<string, unknown>, path: string[]): Record<string, unknown> {
+  if (path.at(-1) !== '[]' || !ABILITY_RECORD_COLLECTIONS.has(path.at(-2) ?? '')) return value
+  let result = { ...value }
+
+  for (const profileKey of ['profile', 'profileChanges'] as const) {
+    const profile = result[profileKey]
+    if (!isRecord(profile) || !isRecord(profile.availability)) continue
+    const availability = profile.availability
+    const misplacedLimitations = mergeRawValues(availability.limitations, availability.drawbacks)
+    const misplacedCooldown = availabilityCooldownText(availability.cooldown)
+
+    if (availability.costs !== undefined) result.costs = mergeRawValues(rawCosts(result.costs), rawCosts(availability.costs))
+    if (availability.requirements !== undefined) result.requirements = mergeRawValues(result.requirements, availability.requirements)
+    if (misplacedLimitations.length) result.limitations = mergeRawValues(result.limitations, misplacedLimitations)
+    if (misplacedCooldown) {
+      const existing = availabilityCooldownText(result.cooldown)
+      result.cooldown = existing && existing !== misplacedCooldown ? `${existing} · ${misplacedCooldown}` : misplacedCooldown
+    }
+
+    const cleanAvailability = Object.fromEntries(
+      Object.entries(availability).filter(([key]) => ABILITY_AVAILABILITY_KEYS.has(key)),
+    )
+    cleanAvailability.reasons = currentAvailabilityReasons(availability)
+    result = { ...result, [profileKey]: { ...profile, availability: cleanAvailability } }
+  }
+
+  return result
+}
+
 function looksLikePatchContainer(value: Record<string, unknown>, path: string[]): boolean {
   if (path.at(-1) === 'statePatch') return true
   return ['currentScene', 'current_scene', 'sceneUpdate', 'scenePatch', 'factionReputationChanges', 'faction_reputation_changes', 'reputationChanges']
@@ -973,11 +1058,14 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
   const parent = path.at(-2) === '[]' ? path.at(-3) : path.at(-2)
 
   if (isRecord(value)) {
-    let record = value
+    let record = canonicalizeAbilityRecord(value, path)
     if (key === 'nature' && path.includes('profile') && path.includes('abilities') && !record.groupId && typeof record.kind === 'string') {
       const misplacedGroup = enumToken(record.kind).replaceAll(' ', '-')
       const technicalKinds = new Set(['innate', 'trained', 'technological', 'social', 'authority', 'access', 'economic', 'organizational', 'contractual', 'divine', 'psionic', 'magical', 'biological', 'other'])
       if (misplacedGroup && !technicalKinds.has(misplacedGroup)) record = { ...record, groupId: misplacedGroup }
+    }
+    if (key === 'standing' && (path.includes('profile') || path.includes('profileChanges')) && !record.tierId && typeof record.tierLabel === 'string' && record.tierLabel.trim()) {
+      record = { ...record, tierId: record.tierLabel }
     }
     if (isArrayEntryOf(path, 'memories') || (isArrayEntryOf(path, 'events') && path.includes('statePatch'))) record = withoutServerOwnedEntryKeys(record)
     if (looksLikePatchContainer(record, path)) record = canonicalizePatchContainer(record)

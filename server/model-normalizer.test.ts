@@ -338,6 +338,36 @@ describe('global DeepSeek output normalization', () => {
     expect(parsed.lore[0]).toMatchObject({ alwaysOn: true, secret: false, discovered: true, priority: 90 })
   })
 
+  it('preserves shorthand facets and mechanics misplaced inside ability availability', () => {
+    const raw: any = demoWorld(worldRequest)
+    const ability = raw.player.abilities[0]
+    const tierLabel = ability.profile.standing.tierLabel
+    delete ability.profile.standing.tierId
+    ability.profile.facets = { восприятие: 100, копирование: 90, предвидение: { score: 95, summary: 'Точность предугадывания ближайшего действия.' } }
+    ability.profile.availability = {
+      state: 'ready',
+      costs: [{ resource: 'focus', amount: 5 }],
+      cooldown: ['один раз за сцену'],
+      limitations: ['Требует концентрации'],
+      requirements: ['Видеть цель'],
+      drawbacks: ['Утомляет глаза'],
+    }
+
+    const parsed = generatedWorldSchema.parse(raw)
+    const normalized = parsed.player.abilities[0]
+    expect(normalized.profile?.standing.tierId).toBe(tierLabel)
+    expect(normalized.profile?.facets).toEqual([
+      { key: 'восприятие', label: 'восприятие', value: 100, description: 'восприятие: 100/100' },
+      { key: 'копирование', label: 'копирование', value: 90, description: 'копирование: 90/100' },
+      { key: 'предвидение', label: 'предвидение', value: 95, description: 'Точность предугадывания ближайшего действия.' },
+    ])
+    expect(normalized.profile?.availability).toEqual({ state: 'ready', reasons: [] })
+    expect(normalized.costs).toContainEqual({ resource: 'focus', amount: 5 })
+    expect(normalized.cooldown).toContain('один раз за сцену')
+    expect(normalized.requirements).toEqual(expect.arrayContaining(['Видеть цель']))
+    expect(normalized.limitations).toEqual(expect.arrayContaining(['Требует концентрации', 'Утомляет глаза']))
+  })
+
   it('normalizes Russian critic fields and boolean strings', () => {
     const parsed = continuityReviewSchema.parse({
       chosen: 'б',
