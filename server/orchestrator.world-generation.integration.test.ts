@@ -3,7 +3,7 @@ import { demoWorld } from './demo'
 import { generateWorld, splitGeneratedWorldSections } from './orchestrator'
 
 type CompletionBody = { messages: Array<{ role: string; content: string }> }
-type Stage = 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
+type Stage = 'manifest' | 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
 
 const request = {
   inspiration: 'Эйдол',
@@ -31,6 +31,7 @@ function providerResponse(value: unknown) {
 }
 
 function requestedGenerationStage(system: string): Stage | undefined {
+  if (system.includes('единый компактный паспорт большого ролевого мира')) return 'manifest'
   if (!system.includes('МНОГОЭТАПНАЯ ГЕНЕРАЦИЯ')) return undefined
   if (system.includes('ЭТАП «ФУНДАМЕНТ И ГЕРОЙ»')) return 'core'
   if (system.includes('ЭТАП «МИР, ГЕОГРАФИЯ И ЦИВИЛИЗАЦИИ»')) return 'civilization'
@@ -39,6 +40,43 @@ function requestedGenerationStage(system: string): Stage | undefined {
   if (system.includes('ЭТАП «АВТОНОМНАЯ ИСТОРИЯ И СТАРТОВАЯ СЦЕНА»')) return 'narrative'
   if (system.includes('ЭТАП «АДАПТИВНЫЙ ИНТЕРФЕЙС МИРА»')) return 'interface'
   throw new Error('Неизвестный этап генерации')
+}
+
+function manifestFromWorld(world: ReturnType<typeof demoWorld>) {
+  const capabilitySystem = world.world.capabilitySystem!
+  return {
+    world: {
+      name: world.world.name,
+      tagline: world.world.tagline,
+      era: world.world.era,
+      overview: world.world.overview,
+      capabilitySystemId: capabilitySystem.id ?? 'capability-system',
+      capabilityGroups: capabilitySystem.groups.map((group) => ({ id: group.id ?? group.label, label: group.label })),
+      capabilityTiers: capabilitySystem.tiers.map((tier) => ({ id: tier.id ?? tier.label, label: tier.label })),
+    },
+    player: {
+      name: world.player.name,
+      statKeys: world.player.stats.map((stat) => stat.key),
+      resourceKeys: world.player.resources.map((resource) => resource.key),
+      abilityNames: world.player.abilities.map((ability) => ability.name),
+      inventory: world.inventory.map((item, index) => ({ id: item.id ?? `item-${index}`, name: item.name, category: item.category, rarity: item.rarity })),
+    },
+    factions: world.world.factions.map((faction) => ({ name: faction.name, role: faction.description })),
+    places: world.world.places.map((place) => ({ name: place.name, kind: place.kind, ...(place.parentName ? { parentName: place.parentName } : {}), ...(place.controllingFactionName ? { controllingFactionName: place.controllingFactionName } : {}) })),
+    npcs: world.npcs.map((npc) => ({ name: npc.name, role: npc.role, locationName: npc.lastSeen, factionNames: npc.factionNames ?? [], threatTier: npc.threatProfile?.tier ?? 'capable', hidden: npc.dossier?.familiarity === 'recognized' })),
+    legends: world.world.legends.map((legend) => ({ name: legend.name, ...(legend.characterName ? { characterName: legend.characterName } : {}), stage: legend.stage, lifeStatus: legend.lifeStatus, era: legend.era })),
+    narrative: {
+      processTitles: world.world.processes.map((process) => process.title),
+      eventTitles: world.worldEvents.map((event) => event.title),
+      threadTitles: world.threads.map((thread) => thread.title),
+      openingLocationName: world.opening.scene.location,
+      openingNpcNames: world.opening.scene.presentNpcNames,
+    },
+    interface: {
+      metricIds: (world.world.metrics ?? []).map((metric) => metric.id),
+      moduleIds: (world.world.interfaceModules ?? []).map((module) => module.id),
+    },
+  }
 }
 
 const passedQualityReview = {
@@ -66,7 +104,10 @@ describe('multi-stage world generation', () => {
   it('never asks the provider to emit the entire world in one completion', async () => {
     const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
     const sections = splitGeneratedWorldSections(completeWorld)
+    const manifest = manifestFromWorld(completeWorld)
     const requestedStages: string[] = []
+    let activeWorldSections = 0
+    let peakWorldSections = 0
 
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as CompletionBody
@@ -75,6 +116,11 @@ describe('multi-stage world generation', () => {
       const stage = requestedGenerationStage(system)
       if (stage) {
         requestedStages.push(stage)
+        if (stage === 'manifest') return providerResponse(manifest)
+        activeWorldSections += 1
+        peakWorldSections = Math.max(peakWorldSections, activeWorldSections)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        activeWorldSections -= 1
         return providerResponse(sections[stage])
       }
 
@@ -84,13 +130,15 @@ describe('multi-stage world generation', () => {
 
     const generated = await generateWorld(request)
 
-    expect(requestedStages).toEqual(['core', 'civilization', 'characters', 'legends', 'narrative', 'interface'])
+    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface'])
+    expect(peakWorldSections).toBe(4)
     expect(generated).toEqual(completeWorld)
   })
 
   it('repairs only the section that owns a broken cross-world binding', async () => {
     const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
     const sections = splitGeneratedWorldSections(completeWorld)
+    const manifest = manifestFromWorld(completeWorld)
     const brokenInterface = structuredClone(sections.interface)
     const firstElement = brokenInterface.world.interfaceModules[0]?.elements[0]
     expect(firstElement).toBeDefined()
@@ -105,6 +153,7 @@ describe('multi-stage world generation', () => {
       const stage = requestedGenerationStage(system)
       if (stage) {
         requestedStages.push(stage)
+        if (stage === 'manifest') return providerResponse(manifest)
         if (stage === 'interface') {
           interfaceCalls += 1
           return providerResponse(interfaceCalls === 1 ? brokenInterface : sections.interface)
@@ -116,6 +165,6 @@ describe('multi-stage world generation', () => {
     }))
 
     await expect(generateWorld(request)).resolves.toEqual(completeWorld)
-    expect(requestedStages).toEqual(['core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'interface'])
+    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'interface'])
   })
 })

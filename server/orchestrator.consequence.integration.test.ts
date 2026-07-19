@@ -525,11 +525,20 @@ describe('runTurn consequence reconciliation', () => {
     expect(criticUser).toContain('В пентхаусе тихо')
   })
 
-  it('runs the independent agency and consequence audits concurrently', async () => {
+  it('runs the critic and independent final audits concurrently', async () => {
     const campaign = createDemoCampaign()
     campaign.settings.qualityMode = 'balanced'
     let activeAuditors = 0
     let maximumActiveAuditors = 0
+    let activeLatencyStages = 0
+    let maximumActiveLatencyStages = 0
+
+    const delayedStage = async () => {
+      activeLatencyStages += 1
+      maximumActiveLatencyStages = Math.max(maximumActiveLatencyStages, activeLatencyStages)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      activeLatencyStages -= 1
+    }
 
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as CompletionBody
@@ -539,16 +548,22 @@ describe('runTurn consequence reconciliation', () => {
         outcome: 'Мира открывает карту безопасного пути.', beats: ['На карте появляется новый маршрут.'], suggestions: ['Изучить путь', 'Спросить Миру об опасностях'], statePatch: {},
       }))
       if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse('Мира кладёт карту на стол и ждёт ответа героя.')
-      if (system.includes('строгий редактор непротиворечивости')) return providerResponse(JSON.stringify({ chosen: 'a', pass: true, issues: [], rewriteInstructions: '' }))
+      if (system.includes('строгий редактор непротиворечивости')) {
+        await delayedStage()
+        return providerResponse(JSON.stringify({ chosen: 'a', pass: true, issues: [], rewriteInstructions: '' }))
+      }
       if (system.includes('аудитор свободы игрока') || system.includes('последний обязательный аудитор причин и последствий')) {
         activeAuditors += 1
         maximumActiveAuditors = Math.max(maximumActiveAuditors, activeAuditors)
-        await new Promise((resolve) => setTimeout(resolve, 30))
+        await delayedStage()
         activeAuditors -= 1
         if (system.includes('аудитор свободы игрока')) return providerResponse(JSON.stringify({ pass: true, violations: [] }))
         return providerResponse(JSON.stringify({ pass: true, narrativePass: true, narrativeIssues: [], verifiedDomains: consequenceDomains, omissions: [], statePatch: {} }))
       }
-      if (system.includes('архивариус очень долгой ролевой кампании')) return providerResponse(JSON.stringify({ memories: [], archives: [] }))
+      if (system.includes('архивариус очень долгой ролевой кампании')) {
+        await delayedStage()
+        return providerResponse(JSON.stringify({ memories: [], archives: [] }))
+      }
       return new Response(`Unexpected completion stage: ${system.slice(0, 120)}`, { status: 418 })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -556,5 +571,6 @@ describe('runTurn consequence reconciliation', () => {
     await runTurn({ campaign, input: 'Смотрю на карту, пока ничего не решая.', actionType: 'do', provider })
 
     expect(maximumActiveAuditors).toBe(2)
+    expect(maximumActiveLatencyStages).toBe(4)
   })
 })

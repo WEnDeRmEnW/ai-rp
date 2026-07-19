@@ -4,8 +4,8 @@ import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventD
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { agencyAuditSchema, abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AbilityQualityReview, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
+import { agencyRevisionPrompt, abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { agencyAuditSchema, abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityQualityReview, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
@@ -2556,39 +2556,6 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     }
     sanitized = repairedSanitized
   }
-  reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
-  const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
-  const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
-    ? await firstDraft.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
-    : await Promise.allSettled([firstDraft, completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'dramatic'))])
-  if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
-  const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
-  const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
-  const repetitionA = findNarrativeRepetitionIssues(draftA, request.campaign.messages)
-  const repetitionB = findNarrativeRepetitionIssues(draftB, request.campaign.messages)
-  reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 11)
-  const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB, repetitionA, repetitionB)
-  const review = await optionalStage('critic', async () => {
-    const rawReview = await completeJson(request.provider, criticMessages)
-    return parseWithRepair(rawReview, continuityReviewSchema, request.provider, criticMessages, () => ({ chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }))
-  }, { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' })
-  const reviewerChoice = review.chosen
-  const reviewerIssues = reviewerChoice === 'a' ? repetitionA : repetitionB
-  const alternateIssues = reviewerChoice === 'a' ? repetitionB : repetitionA
-  const chosen = narrativeRepetitionScore(alternateIssues) < narrativeRepetitionScore(reviewerIssues)
-    ? (reviewerChoice === 'a' ? 'b' : 'a')
-    : reviewerChoice
-  const chosenDraft = chosen === 'a' ? draftA : draftB
-  const chosenRepetitionIssues = chosen === 'a' ? repetitionA : repetitionB
-  const repetitionInstructions = chosenRepetitionIssues.map((issue) => issue.instruction).join('\n')
-  const rewriteInstructions = [review.pass ? '' : review.rewriteInstructions, repetitionInstructions].filter(Boolean).join('\n')
-  let narrative = review.pass && chosenRepetitionIssues.length === 0 ? chosenDraft : await optionalStage(
-    'revision',
-    () => chosenRepetitionIssues.length
-      ? completeText(request.provider, narrativeRepetitionRevisionPrompt(request.campaign, request.input, sanitized.plan, chosenDraft, chosenRepetitionIssues, review.pass ? '' : review.rewriteInstructions))
-      : completeText(request.provider, revisionPrompt(request.campaign, request.input, sanitized.plan, chosenDraft, rewriteInstructions)),
-    chosenDraft,
-  )
 
   const requestAgencyAudit = async (candidateNarrative: string) => {
     const deterministicViolations = findAgencyViolations({
@@ -2641,17 +2608,73 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     }, emptyCurator)
   }
 
-  // These audits only read the same finalized draft and plan. Running their first pass
-  // together removes one full provider round-trip without weakening either check. A result
-  // is reused only while both the prose and state plan are still exactly the audited version.
+  const requestAuditBundle = async (candidateNarrative: string) => {
+    const [agency, consequence, curator] = await Promise.all([
+      requestAgencyAudit(candidateNarrative),
+      requestConsequenceAudit(sanitized.plan, candidateNarrative),
+      requestMemoryCurator(sanitized.plan, candidateNarrative),
+    ])
+    return { agency, consequence, curator }
+  }
+
+  reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
+  const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
+  const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
+    ? await firstDraft.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
+    : await Promise.allSettled([firstDraft, completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'dramatic'))])
+  if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
+  const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
+  const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
+  const repetitionA = findNarrativeRepetitionIssues(draftA, request.campaign.messages)
+  const repetitionB = findNarrativeRepetitionIssues(draftB, request.campaign.messages)
+  reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 11)
+  const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB, repetitionA, repetitionB)
+  const preferredDraft = narrativeRepetitionScore(repetitionA) <= narrativeRepetitionScore(repetitionB) ? draftA : draftB
+  const draftNarratives = [...new Set([preferredDraft, preferredDraft === draftA ? draftB : draftA])]
+  const speculativeAuditsPromise = mapWithConcurrency(draftNarratives, 1, async (candidateNarrative) => ({
+    candidateNarrative,
+    bundle: await requestAuditBundle(candidateNarrative),
+  })).catch((error) => {
+    // A speculative result is only a latency optimization. The exact final narrative is
+    // audited below, so an unused speculative failure must never interrupt the turn.
+    console.warn('[orchestrator:speculative-audits] ignored', error)
+    return []
+  })
+  const reviewPromise = optionalStage('critic', async () => {
+    const rawReview = await completeJson(request.provider, criticMessages)
+    return parseWithRepair(rawReview, continuityReviewSchema, request.provider, criticMessages, () => ({ chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }))
+  }, { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' })
+  const review = await reviewPromise
+  const reviewerChoice = review.chosen
+  const reviewerIssues = reviewerChoice === 'a' ? repetitionA : repetitionB
+  const alternateIssues = reviewerChoice === 'a' ? repetitionB : repetitionA
+  const chosen = narrativeRepetitionScore(alternateIssues) < narrativeRepetitionScore(reviewerIssues)
+    ? (reviewerChoice === 'a' ? 'b' : 'a')
+    : reviewerChoice
+  const chosenDraft = chosen === 'a' ? draftA : draftB
+  const chosenRepetitionIssues = chosen === 'a' ? repetitionA : repetitionB
+  const repetitionInstructions = chosenRepetitionIssues.map((issue) => issue.instruction).join('\n')
+  const rewriteInstructions = [review.pass ? '' : review.rewriteInstructions, repetitionInstructions].filter(Boolean).join('\n')
+  let narrative = review.pass && chosenRepetitionIssues.length === 0 ? chosenDraft : await optionalStage(
+    'revision',
+    () => chosenRepetitionIssues.length
+      ? completeText(request.provider, narrativeRepetitionRevisionPrompt(request.campaign, request.input, sanitized.plan, chosenDraft, chosenRepetitionIssues, review.pass ? '' : review.rewriteInstructions))
+      : completeText(request.provider, revisionPrompt(request.campaign, request.input, sanitized.plan, chosenDraft, rewriteInstructions)),
+    chosenDraft,
+  )
+
+  // Speculative audits began at the same time as the critic. Reuse is allowed only for the
+  // exact unchanged narrative and plan; any revision receives a fresh complete audit bundle.
   const initiallyAuditedNarrative = narrative
   const initiallyAuditedPlanFingerprint = JSON.stringify(sanitized.plan)
   reportProgress(report, 69, 'parallel-audit', 'Одновременно сверяем сцену, последствия и долгую память', 8, 11, ['Свобода героя', '17 областей состояния', 'Долгая память'])
-  const [initialAgencyResult, initialConsequenceAudit, initialCurator] = await Promise.all([
-    requestAgencyAudit(initiallyAuditedNarrative),
-    requestConsequenceAudit(sanitized.plan, initiallyAuditedNarrative),
-    requestMemoryCurator(sanitized.plan, initiallyAuditedNarrative),
-  ])
+  const initialAuditBundle = draftNarratives.includes(initiallyAuditedNarrative)
+    ? (await speculativeAuditsPromise).find((entry) => entry.candidateNarrative === initiallyAuditedNarrative)?.bundle
+      ?? await requestAuditBundle(initiallyAuditedNarrative)
+    : await requestAuditBundle(initiallyAuditedNarrative)
+  const initialAgencyResult = initialAuditBundle.agency
+  const initialConsequenceAudit = initialAuditBundle.consequence
+  const initialCurator = initialAuditBundle.curator
 
   const agencyAuditNotes: string[] = []
   let agencyPassed = false
@@ -3306,12 +3329,13 @@ async function generateWorldSection<T>(
   stage: WorldGenerationStage,
   schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } } },
   issues?: string,
+  manifest?: WorldGenerationManifest,
 ): Promise<T> {
   const establishedFacts = establishedFactsForStage(sections, stage)
   const currentSection = sections[stage]
   const messages = issues && currentSection
-    ? worldGenerationStageRepairPrompt(request, concept, stage, establishedFacts, currentSection, issues)
-    : worldGenerationStagePrompt(request, concept, stage, establishedFacts)
+    ? worldGenerationStageRepairPrompt(request, concept, stage, establishedFacts, currentSection, issues, manifest)
+    : worldGenerationStagePrompt(request, concept, stage, establishedFacts, manifest)
   const maxOutputTokens = stage === 'characters' || stage === 'legends' ? 65_536 : 49_152
   const raw = await completeJson(request.provider, messages, { stage: 'world', maxOutputTokens })
   return parseWithRepair<T>(raw, schema, request.provider, messages)
@@ -3323,14 +3347,15 @@ async function regenerateOwnedWorldSection(
   request: WorldGenerationRequest,
   concept: ConceptAnalysis,
   issues: string,
+  manifest?: WorldGenerationManifest,
 ): Promise<GeneratedWorldSections> {
   const next = { ...sections }
-  if (stage === 'core') next.core = await generateWorldSection(request, concept, sections, stage, generatedWorldCoreSchema, issues)
-  else if (stage === 'civilization') next.civilization = await generateWorldSection(request, concept, sections, stage, generatedWorldCivilizationSchema, issues)
-  else if (stage === 'characters') next.characters = await generateWorldSection(request, concept, sections, stage, generatedWorldCharactersSchema, issues)
-  else if (stage === 'legends') next.legends = await generateWorldSection(request, concept, sections, stage, generatedWorldLegendsSchema, issues)
-  else if (stage === 'narrative') next.narrative = await generateWorldSection(request, concept, sections, stage, generatedWorldNarrativeSchema, issues)
-  else next.interface = await generateWorldSection(request, concept, sections, stage, generatedWorldInterfaceSchema, issues)
+  if (stage === 'core') next.core = await generateWorldSection(request, concept, sections, stage, generatedWorldCoreSchema, issues, manifest)
+  else if (stage === 'civilization') next.civilization = await generateWorldSection(request, concept, sections, stage, generatedWorldCivilizationSchema, issues, manifest)
+  else if (stage === 'characters') next.characters = await generateWorldSection(request, concept, sections, stage, generatedWorldCharactersSchema, issues, manifest)
+  else if (stage === 'legends') next.legends = await generateWorldSection(request, concept, sections, stage, generatedWorldLegendsSchema, issues, manifest)
+  else if (stage === 'narrative') next.narrative = await generateWorldSection(request, concept, sections, stage, generatedWorldNarrativeSchema, issues, manifest)
+  else next.interface = await generateWorldSection(request, concept, sections, stage, generatedWorldInterfaceSchema, issues, manifest)
   return next
 }
 
@@ -3339,6 +3364,7 @@ async function ensureGeneratedWorldIntegrity(
   request: WorldGenerationRequest,
   concept: ConceptAnalysis,
   report?: ProgressReporter,
+  manifest?: WorldGenerationManifest,
 ): Promise<{ world: GeneratedWorld; sections: GeneratedWorldSections }> {
   let sections = source
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -3353,17 +3379,21 @@ async function ensureGeneratedWorldIntegrity(
       grouped.set(stage, [...(grouped.get(stage) ?? []), issue])
     })
     const orderedStages: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
-    for (const stage of orderedStages.filter((entry) => grouped.has(entry))) {
+    const brokenStages = orderedStages.filter((entry) => grouped.has(entry))
+    const repairedSections = await mapWithConcurrency(brokenStages, 3, async (stage) => {
       const ownedIssues = grouped.get(stage) ?? []
       reportProgress(report, 80 + attempt * 2, 'world-integrity', `Исправляем только раздел «${stage}», не пересоздавая остальной мир`, 9, 11)
-      sections = await regenerateOwnedWorldSection(
+      const repaired = await regenerateOwnedWorldSection(
         stage,
         sections,
         request,
         concept,
         compactIssues({ issues: ownedIssues }, assembleGeneratedWorldSections(sections)),
+        manifest,
       )
-    }
+      return [stage, repaired[stage]] as const
+    })
+    sections = { ...sections, ...Object.fromEntries(repairedSections) }
   }
 
   const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
@@ -3403,6 +3433,65 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
   return results
 }
 
+const WORLD_GENERATION_STAGES: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
+
+function missingManifestValues(label: string, planned: string[], actual: string[]): string[] {
+  const known = new Set(actual.map((value) => value.trim().toLocaleLowerCase('ru-RU')))
+  const missing = planned.filter((value) => !known.has(value.trim().toLocaleLowerCase('ru-RU')))
+  return missing.length ? [`Паспорт мира требует ${label}: ${missing.join(', ')}`] : []
+}
+
+function worldManifestStageIssues(
+  stage: WorldGenerationStage,
+  sections: GeneratedWorldSections,
+  manifest: WorldGenerationManifest,
+): string[] {
+  if (stage === 'core') {
+    const system = sections.core.world.capabilitySystem
+    return [
+      ...(sections.core.world.name === manifest.world.name ? [] : [`Имя мира должно буквально совпадать с паспортом: ${manifest.world.name}`]),
+      ...(sections.core.player.name === manifest.player.name ? [] : [`Имя героя должно буквально совпадать с паспортом: ${manifest.player.name}`]),
+      ...missingManifestValues('характеристики героя', manifest.player.statKeys, sections.core.player.stats.map((entry) => entry.key)),
+      ...missingManifestValues('ресурсы героя', manifest.player.resourceKeys, sections.core.player.resources.map((entry) => entry.key)),
+      ...missingManifestValues('способности героя', manifest.player.abilityNames, sections.core.player.abilities.map((entry) => entry.name)),
+      ...missingManifestValues('стартовые предметы', manifest.player.inventory.map((entry) => entry.name), sections.core.inventory.map((entry) => entry.name)),
+      ...missingManifestValues('группы системы возможностей', manifest.world.capabilityGroups.map((entry) => entry.id), system?.groups.map((entry) => entry.id ?? '') ?? []),
+      ...missingManifestValues('классы системы возможностей', manifest.world.capabilityTiers.map((entry) => entry.id), system?.tiers.map((entry) => entry.id ?? '') ?? []),
+    ]
+  }
+  if (stage === 'civilization') return [
+    ...missingManifestValues('фракции', manifest.factions.map((entry) => entry.name), sections.civilization.world.factions.map((entry) => entry.name)),
+    ...missingManifestValues('места', manifest.places.map((entry) => entry.name), sections.civilization.world.places.map((entry) => entry.name)),
+  ]
+  if (stage === 'characters') return missingManifestValues('NPC', manifest.npcs.map((entry) => entry.name), sections.characters.npcs.map((entry) => entry.name))
+  if (stage === 'legends') return missingManifestValues('легендарные фигуры', manifest.legends.map((entry) => entry.name), sections.legends.world.legends.map((entry) => entry.name))
+  if (stage === 'narrative') return [
+    ...missingManifestValues('мировые процессы', manifest.narrative.processTitles, sections.narrative.world.processes.map((entry) => entry.title)),
+    ...missingManifestValues('мировые события', manifest.narrative.eventTitles, sections.narrative.worldEvents.map((entry) => entry.title)),
+    ...missingManifestValues('сюжетные нити', manifest.narrative.threadTitles, sections.narrative.threads.map((entry) => entry.title)),
+    ...(sections.narrative.opening.scene.location === manifest.narrative.openingLocationName ? [] : [`Стартовая локация должна совпадать с паспортом: ${manifest.narrative.openingLocationName}`]),
+  ]
+  return [
+    ...missingManifestValues('метрики интерфейса', manifest.interface.metricIds, (sections.interface.world.metrics ?? []).map((entry) => entry.id)),
+    ...missingManifestValues('модули интерфейса', manifest.interface.moduleIds, (sections.interface.world.interfaceModules ?? []).map((entry) => entry.id)),
+  ]
+}
+
+async function generateParallelWorldStage(
+  stage: WorldGenerationStage,
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
+  manifest: WorldGenerationManifest,
+): Promise<readonly [WorldGenerationStage, GeneratedWorldSections[WorldGenerationStage]]> {
+  const emptySections: Partial<GeneratedWorldSections> = {}
+  if (stage === 'core') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCoreSchema, undefined, manifest)]
+  if (stage === 'civilization') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCivilizationSchema, undefined, manifest)]
+  if (stage === 'characters') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCharactersSchema, undefined, manifest)]
+  if (stage === 'legends') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldLegendsSchema, undefined, manifest)]
+  if (stage === 'narrative') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldNarrativeSchema, undefined, manifest)]
+  return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldInterfaceSchema, undefined, manifest)]
+}
+
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {
   reportProgress(report, 3, 'concept', 'Разбираем замысел, героя и ограничения', 1, 11)
   if (request.provider.provider === 'demo') {
@@ -3421,28 +3510,41 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     }, concept)
   }
 
-  const sections: Partial<GeneratedWorldSections> = {}
-  reportProgress(report, 18, 'world-core', 'Создаём фундамент мира, героя, способности и предметы', 3, 11)
-  sections.core = await generateWorldSection(request, concept, sections, 'core', generatedWorldCoreSchema)
-  reportProgress(report, 30, 'world-civilization', 'Строим географию, общества, законы и механику мира', 4, 11)
-  sections.civilization = await generateWorldSection(request, concept, sections, 'civilization', generatedWorldCivilizationSchema)
-  reportProgress(report, 42, 'world-characters', 'Населяем мир самостоятельными и сильными персонажами', 5, 11)
-  sections.characters = await generateWorldSection(request, concept, sections, 'characters', generatedWorldCharactersSchema)
-  reportProgress(report, 55, 'world-legends', 'Создаём эпохи, легендарных личностей и глубокий лор', 6, 11)
-  sections.legends = await generateWorldSection(request, concept, sections, 'legends', generatedWorldLegendsSchema)
-  reportProgress(report, 67, 'world-narrative', 'Запускаем автономные процессы и готовим первую сцену', 7, 11)
-  sections.narrative = await generateWorldSection(request, concept, sections, 'narrative', generatedWorldNarrativeSchema)
-  reportProgress(report, 76, 'world-interface', 'Проектируем интерфейс по уже созданным фактам мира', 8, 11)
-  sections.interface = await generateWorldSection(request, concept, sections, 'interface', generatedWorldInterfaceSchema)
+  reportProgress(report, 15, 'world-manifest', 'Фиксируем единый паспорт имён, сил и причинных связей', 3, 11)
+  const manifestMessages = worldGenerationManifestPrompt(request, concept)
+  const rawManifest = await completeJson(request.provider, manifestMessages, { stage: 'world', maxOutputTokens: 24_576 })
+  const manifest = await parseWithRepair<WorldGenerationManifest>(rawManifest, worldGenerationManifestSchema, request.provider, manifestMessages)
+
+  reportProgress(report, 24, 'parallel-world', 'Одновременно создаём шесть полных разделов мира', 4, 11, ['Герой и предметы', 'Цивилизации', 'Персонажи', 'Легендарий', 'Сюжет', 'Интерфейс'])
+  const generatedSections = await mapWithConcurrency(
+    WORLD_GENERATION_STAGES,
+    4,
+    (stage) => generateParallelWorldStage(stage, request, concept, manifest),
+  )
+  let sections = Object.fromEntries(generatedSections) as unknown as GeneratedWorldSections
+  for (let manifestAttempt = 0; manifestAttempt < 2; manifestAttempt += 1) {
+    const manifestRepairs = WORLD_GENERATION_STAGES.flatMap((stage) => {
+      const issues = worldManifestStageIssues(stage, sections, manifest)
+      return issues.length ? [{ stage, issues }] : []
+    })
+    if (!manifestRepairs.length) break
+    reportProgress(report, 72, 'manifest-integrity', 'Точечно согласуем отклонившиеся разделы с паспортом мира', 8, 11)
+    const sectionsSnapshot = sections
+    const repairedEntries = await mapWithConcurrency(manifestRepairs, 3, async ({ stage, issues }) => {
+      const repaired = await regenerateOwnedWorldSection(stage, sectionsSnapshot, request, concept, issues.join('\n'), manifest)
+      return [stage, repaired[stage]] as const
+    })
+    sections = { ...sections, ...Object.fromEntries(repairedEntries) }
+  }
 
   reportProgress(report, 80, 'world-integrity', 'Проверяем все связи между разделами мира', 9, 11)
-  let integrity = await ensureGeneratedWorldIntegrity(sections as GeneratedWorldSections, request, concept, report)
+  let integrity = await ensureGeneratedWorldIntegrity(sections, request, concept, report, manifest)
   let world = integrity.world
   let completeSections = integrity.sections
   if (world.inventory.some((item) => item.category === 'artifact' && item.artifact)) {
     world = await repairGeneratedWorldArtifacts(world, request, concept, report)
     completeSections = splitGeneratedWorldSections(world)
-    integrity = await ensureGeneratedWorldIntegrity(completeSections, request, concept, report)
+    integrity = await ensureGeneratedWorldIntegrity(completeSections, request, concept, report, manifest)
     world = integrity.world
     completeSections = integrity.sections
   }
@@ -3517,11 +3619,14 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     }
 
     const repairSummary = JSON.stringify(effectiveReview)
-    for (const stage of qualityRepairStages(effectiveReview)) {
+    const repairStages = qualityRepairStages(effectiveReview)
+    const repairedEntries = await mapWithConcurrency(repairStages, 3, async (stage) => {
       reportProgress(report, 90 + attempt * 3, 'world-section-rewrite', `Улучшаем только раздел «${stage}» по замечаниям редактора`, 10, 11)
-      completeSections = await regenerateOwnedWorldSection(stage, completeSections, request, concept, repairSummary)
-    }
-    integrity = await ensureGeneratedWorldIntegrity(completeSections, request, concept, report)
+      const repaired = await regenerateOwnedWorldSection(stage, completeSections, request, concept, repairSummary, manifest)
+      return [stage, repaired[stage]] as const
+    })
+    completeSections = { ...completeSections, ...Object.fromEntries(repairedEntries) }
+    integrity = await ensureGeneratedWorldIntegrity(completeSections, request, concept, report, manifest)
     world = integrity.world
     completeSections = integrity.sections
   }

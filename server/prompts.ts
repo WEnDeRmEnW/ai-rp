@@ -4,7 +4,7 @@ import type { NarrativeRepetitionIssue } from '../shared/narrative-repetition.js
 import { normalizeEventDirectorSettings } from '../shared/event-director.js'
 import { grantedItemAbilities } from '../shared/effective-abilities.js'
 import { artifactPlayerView } from '../shared/artifacts.js'
-import type { ConceptAnalysis, GeneratedWorld, WorldQualityReview } from './schemas.js'
+import type { ConceptAnalysis, GeneratedWorld, WorldGenerationManifest, WorldQualityReview } from './schemas.js'
 
 export type WorldGenerationStage = 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
 
@@ -2129,6 +2129,32 @@ world содержит РОВНО processes и mysteries. Все ссылки и
 Проектируй интерфейс ПОСЛЕ всего мира и используй только точные существующие key/id/name из установленных фактов. Каждая binding обязана разрешаться; видимые элементы не раскрывают hidden-сущности. Все шесть основных вкладок dashboard, scene, hero, inventory, changes, world присутствуют и visible=true. Не выдумывай показатели ради виджета: metrics создаются только для реально установленной устойчивой механики. Если отдельный модуль не нужен, массив может быть пустым; качество определяется уместностью, а не количеством.`,
 }
 
+export function worldGenerationManifestPrompt(input: WorldConceptInput, concept: ConceptAnalysis) {
+  return [
+    {
+      role: 'system' as const,
+      content: `Ты создаёшь единый компактный паспорт большого ролевого мира перед его параллельной глубокой разработкой. Паспорт — не сокращённый мир и не художественный текст: это неизменяемый индекс точных имён, id и связей, благодаря которому независимые архитекторы затем создадут полные разделы без расхождений.
+
+Сохрани точный канон, выбранную эпоху, startingAccess, powerFantasy, capabilityChecklist, canonicalConstraints и forbiddenDistortions из проверенного разбора. Для оригинального мира придумай целостную основу самостоятельно.
+
+Верни только JSON со следующими разделами:
+- world: name, tagline, era, overview, capabilitySystemId, capabilityGroups[{id,label}], capabilityTiers[{id,label}];
+- player: точное имя героя, statKeys[], resourceKeys[], abilityNames[], inventory[{id,name,category,rarity}];
+- factions[{name,role}], places[{name,kind,parentName?,controllingFactionName?}];
+- npcs[{name,role,locationName,factionNames[],threatTier,hidden}];
+- legends[{name,characterName?,stage,lifeStatus,era}];
+- narrative:{processTitles[],eventTitles[],threadTitles[],openingLocationName,openingNpcNames[]};
+- interface:{metricIds[],moduleIds[]}.
+
+Все id стабильны, коротки и уникальны. Все ссылки используют буквальные имена из этого же паспорта. Живая или returned легенда с characterName буквально совпадает с героем либо одним из npcs; чисто историческая фигура может не иметь characterName. openingLocationName существует в places, openingNpcNames — в npcs. Родительские места и контролирующие фракции существуют в паспорте. Player abilityNames перечисляет самостоятельные способности, а не примеры применения. Состав NPC и легенд сразу обеспечивает требуемую экологию сильных, скрытых, исторических и восходящих фигур, но не завышает силу вопреки канону. Не пиши полные досье, способности, законы или сцены — их параллельно создадут следующие этапы.`
+    },
+    {
+      role: 'user' as const,
+      content: `ИСХОДНЫЙ ЗАМЫСЕЛ:\n${JSON.stringify({ ...input, provider: undefined })}\n\nПРОВЕРЕННЫЙ РАЗБОР КОНЦЕПТА:\n${JSON.stringify(concept)}\n\nСоздай единый паспорт мира.`,
+    },
+  ]
+}
+
 /**
  * Uses the same exhaustive creative rules as the original architect, but asks the provider to
  * finish only one bounded JSON contract. Previous stages are immutable facts, so later calls can
@@ -2139,16 +2165,17 @@ export function worldGenerationStagePrompt(
   concept: ConceptAnalysis,
   stage: WorldGenerationStage,
   establishedFacts?: unknown,
+  manifest?: WorldGenerationManifest,
 ) {
   const [architectSystem] = worldArchitectPrompt(input, concept)
   return [
     {
       role: 'system' as const,
-      content: `${architectSystem.content}\n\nМНОГОЭТАПНАЯ ГЕНЕРАЦИЯ — ПОСЛЕДНЕЕ И ОБЯЗАТЕЛЬНОЕ ПРАВИЛО:\n${worldGenerationStageContracts[stage]}\nПредыдущие этапы являются неизменяемыми фактами. Не возвращай полный мир, пояснения, Markdown или поля других этапов. Верни только полный JSON текущего этапа.`,
+      content: `${architectSystem.content}\n\nМНОГОЭТАПНАЯ ГЕНЕРАЦИЯ — ПОСЛЕДНЕЕ И ОБЯЗАТЕЛЬНОЕ ПРАВИЛО:\n${worldGenerationStageContracts[stage]}\n${manifest ? 'Единый паспорт мира является неизменяемым контрактом: используй все относящиеся к этапу буквальные имена и id, не переименовывай, не подменяй и не удаляй их. Полные содержательные поля разработай самостоятельно по основному контракту.' : 'Предыдущие этапы являются неизменяемыми фактами.'}\nНе возвращай полный мир, пояснения, Markdown или поля других этапов. Верни только полный JSON текущего этапа.`,
     },
     {
       role: 'user' as const,
-      content: `ИСХОДНЫЙ ЗАМЫСЕЛ:\n${JSON.stringify({ ...input, provider: undefined })}\n\nПРОВЕРЕННЫЙ РАЗБОР КОНЦЕПТА:\n${JSON.stringify(concept)}${establishedFacts === undefined ? '' : `\n\nУЖЕ УСТАНОВЛЕННЫЕ НЕИЗМЕНЯЕМЫЕ ФАКТЫ:\n${JSON.stringify(establishedFacts)}`}\n\nСоздай только этап ${stage}.`,
+      content: `ИСХОДНЫЙ ЗАМЫСЕЛ:\n${JSON.stringify({ ...input, provider: undefined })}\n\nПРОВЕРЕННЫЙ РАЗБОР КОНЦЕПТА:\n${JSON.stringify(concept)}${manifest === undefined ? '' : `\n\nЕДИНЫЙ НЕИЗМЕНЯЕМЫЙ ПАСПОРТ МИРА:\n${JSON.stringify(manifest)}`}${establishedFacts === undefined ? '' : `\n\nУЖЕ УСТАНОВЛЕННЫЕ НЕИЗМЕНЯЕМЫЕ ФАКТЫ:\n${JSON.stringify(establishedFacts)}`}\n\nСоздай только этап ${stage}.`,
     },
   ]
 }
@@ -2160,9 +2187,10 @@ export function worldGenerationStageRepairPrompt(
   establishedFacts: unknown,
   currentSection: unknown,
   issues: string,
+  manifest?: WorldGenerationManifest,
 ) {
   return [
-    ...worldGenerationStagePrompt(input, concept, stage, establishedFacts),
+    ...worldGenerationStagePrompt(input, concept, stage, establishedFacts, manifest),
     { role: 'assistant' as const, content: JSON.stringify(currentSection) },
     {
       role: 'user' as const,

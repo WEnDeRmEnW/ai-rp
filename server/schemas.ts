@@ -2761,6 +2761,96 @@ const generatedWorldStructuralContract = z.object({
 // its own domain, while generatedWorldContract below remains the single source of truth for the
 // assembled world's cross-entity guarantees. This keeps provider requests short enough to avoid
 // gateway timeouts without weakening any field or semantic validation.
+const worldGenerationManifestContract = z.object({
+  world: z.object({
+    name: shortText,
+    tagline: shortText,
+    era: shortText,
+    overview: longText,
+    capabilitySystemId: idSchema,
+    capabilityGroups: z.array(z.object({ id: idSchema, label: shortText }).strict()).min(1).max(16),
+    capabilityTiers: z.array(z.object({ id: idSchema, label: shortText }).strict()).min(1).max(12),
+  }).strict(),
+  player: z.object({
+    name: shortText,
+    statKeys: z.array(idSchema).max(24),
+    resourceKeys: z.array(idSchema).max(24),
+    abilityNames: z.array(shortText).max(40),
+    inventory: z.array(z.object({
+      id: idSchema,
+      name: shortText,
+      category: itemCategorySchema,
+      rarity: raritySchema,
+    }).strict()).max(25),
+  }).strict(),
+  factions: z.array(z.object({ name: shortText, role: longText }).strict()).max(12),
+  places: z.array(z.object({
+    name: shortText,
+    kind: worldPlaceKindSchema,
+    parentName: shortText.optional(),
+    controllingFactionName: shortText.optional(),
+  }).strict()).min(1).max(36),
+  npcs: z.array(z.object({
+    name: shortText,
+    role: longText,
+    locationName: shortText,
+    factionNames: z.array(shortText).max(8),
+    threatTier: threatTierSchema,
+    hidden: modelBoolean,
+  }).strict()).min(4).max(20),
+  legends: z.array(z.object({
+    name: shortText,
+    characterName: shortText.optional(),
+    stage: legendStageSchema,
+    lifeStatus: legendLifeStatusSchema,
+    era: shortText,
+  }).strict()).min(10).max(18),
+  narrative: z.object({
+    processTitles: z.array(shortText).max(14),
+    eventTitles: z.array(shortText).max(20),
+    threadTitles: z.array(shortText).max(20),
+    openingLocationName: shortText,
+    openingNpcNames: z.array(shortText).max(8),
+  }).strict(),
+  interface: z.object({
+    metricIds: z.array(idSchema).max(12),
+    moduleIds: z.array(idSchema).max(8),
+  }).strict(),
+}).strict().superRefine((manifest, context) => {
+  const unique = (values: string[], path: Array<string | number>) => {
+    const normalized = values.map((value) => value.trim().toLocaleLowerCase('ru-RU'))
+    if (new Set(normalized).size !== normalized.length) context.addIssue({ code: z.ZodIssueCode.custom, path, message: 'Manifest names and ids must be unique' })
+  }
+  unique(manifest.factions.map((entry) => entry.name), ['factions'])
+  unique(manifest.places.map((entry) => entry.name), ['places'])
+  unique(manifest.npcs.map((entry) => entry.name), ['npcs'])
+  unique(manifest.legends.map((entry) => entry.name), ['legends'])
+  unique(manifest.world.capabilityGroups.map((entry) => entry.id), ['world', 'capabilityGroups'])
+  unique(manifest.world.capabilityTiers.map((entry) => entry.id), ['world', 'capabilityTiers'])
+  unique(manifest.interface.metricIds, ['interface', 'metricIds'])
+  unique(manifest.interface.moduleIds, ['interface', 'moduleIds'])
+  const placeNames = new Set(manifest.places.map((entry) => entry.name.toLocaleLowerCase('ru-RU')))
+  const factionNames = new Set(manifest.factions.map((entry) => entry.name.toLocaleLowerCase('ru-RU')))
+  const characterNames = new Set([manifest.player.name, ...manifest.npcs.map((entry) => entry.name)].map((entry) => entry.toLocaleLowerCase('ru-RU')))
+  manifest.places.forEach((place, index) => {
+    if (place.parentName && !placeNames.has(place.parentName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['places', index, 'parentName'], message: 'Unknown manifest parent place' })
+    if (place.controllingFactionName && !factionNames.has(place.controllingFactionName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['places', index, 'controllingFactionName'], message: 'Unknown manifest controlling faction' })
+  })
+  manifest.npcs.forEach((npc, index) => {
+    if (!placeNames.has(npc.locationName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['npcs', index, 'locationName'], message: 'Unknown manifest NPC location' })
+    npc.factionNames.forEach((name, factionIndex) => {
+      if (!factionNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['npcs', index, 'factionNames', factionIndex], message: 'Unknown manifest NPC faction' })
+    })
+  })
+  manifest.legends.forEach((legend, index) => {
+    if (legend.characterName && !characterNames.has(legend.characterName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['legends', index, 'characterName'], message: 'Manifest legend character must match player or NPC' })
+  })
+  if (!placeNames.has(manifest.narrative.openingLocationName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['narrative', 'openingLocationName'], message: 'Unknown manifest opening location' })
+  manifest.narrative.openingNpcNames.forEach((name, index) => {
+    if (!characterNames.has(name.toLocaleLowerCase('ru-RU')) || name.toLocaleLowerCase('ru-RU') === manifest.player.name.toLocaleLowerCase('ru-RU')) context.addIssue({ code: z.ZodIssueCode.custom, path: ['narrative', 'openingNpcNames', index], message: 'Unknown manifest opening NPC' })
+  })
+})
+
 const generatedWorldCoreContract = z.object({
   title: generatedWorldStructuralContract.shape.title,
   world: generatedWorldStructuralContract.shape.world.pick({
@@ -3301,6 +3391,7 @@ const generatedWorldEcologyRepairContract = z.object({
  * unrelated law, item, place and UI module five times.
  */
 export const generatedWorldDraftSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldStructuralContract)
+export const worldGenerationManifestSchema = z.preprocess((value) => normalizeModelOutput(value), worldGenerationManifestContract)
 export const generatedWorldCoreSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCoreContract)
 export const generatedWorldCivilizationSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCivilizationContract)
 export const generatedWorldCharactersSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCharactersContract)
@@ -3311,6 +3402,7 @@ export const generatedWorldEcologyRepairSchema = z.preprocess((value) => normali
 export const generatedWorldSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldContract)
 
 export type GeneratedWorld = z.infer<typeof generatedWorldSchema>
+export type WorldGenerationManifest = z.infer<typeof worldGenerationManifestSchema>
 export type GeneratedWorldCore = z.infer<typeof generatedWorldCoreSchema>
 export type GeneratedWorldCivilization = z.infer<typeof generatedWorldCivilizationSchema>
 export type GeneratedWorldCharacters = z.infer<typeof generatedWorldCharactersSchema>
