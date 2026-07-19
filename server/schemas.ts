@@ -787,6 +787,8 @@ const capabilityNatureKindSchema = z.preprocess((value) => {
   if (typeof value !== 'string') return value
   const key = value.trim().toLowerCase().replace(/[ _]+/g, '-')
   const aliases: Record<string, string> = {
+    'kekkei-genkai': 'innate', 'kekkei genkai': 'innate', bloodline: 'innate', hereditary: 'innate', inherited: 'innate', dojutsu: 'innate',
+    ninjutsu: 'trained', taijutsu: 'trained', genjutsu: 'trained', senjutsu: 'trained', kenjutsu: 'trained', fuinjutsu: 'trained',
     'врождённая': 'innate', 'врожденная': 'innate', 'обученная': 'trained', 'навык': 'trained',
     'технология': 'technological', 'технологии': 'technological', 'социальная': 'social',
     'влияние': 'social', 'власть': 'authority', 'доступ': 'access', 'экономическая': 'economic',
@@ -796,7 +798,10 @@ const capabilityNatureKindSchema = z.preprocess((value) => {
   }
   return aliases[key] ?? key
 }, z.enum(['innate', 'trained', 'technological', 'social', 'authority', 'access', 'economic', 'organizational', 'contractual', 'divine', 'psionic', 'magical', 'biological', 'other']))
-const abilityProfileSectionSchema = z.enum(['identity', 'principle', 'source', 'standing', 'facets', 'availability', 'techniques', 'counterplay', 'progression', 'history'])
+const abilityProfileSectionSchema = z.preprocess(alias({
+  nature: 'source', creativeidentity: 'principle', 'creative identity': 'principle', ownerexpression: 'identity', 'owner expression': 'identity',
+  'природа': 'source', 'творческая идентичность': 'principle', 'стиль владельца': 'identity',
+}), z.enum(['identity', 'principle', 'source', 'standing', 'facets', 'availability', 'techniques', 'counterplay', 'progression', 'history']))
 const abilityKnowledgeLevelSchema = z.enum(['hidden', 'hinted', 'known', 'understood'])
 const abilityPresentationLayoutSchema = z.enum(['discipline', 'protocol', 'network', 'mandate', 'mutation', 'constellation', 'arsenal', 'minimal'])
 const abilityAvailabilityStateSchema = z.preprocess(alias({

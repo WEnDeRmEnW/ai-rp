@@ -293,6 +293,13 @@ describe('global DeepSeek output normalization', () => {
     const raw: any = demoWorld(worldRequest)
     raw.player.currency = '37 штормовых марок'
     raw.player.abilities[0].profile.availability = { state: 'available', reasons: [] }
+    raw.player.abilities[0].profile.nature.kind = 'kekkei_genkai'
+    delete raw.player.abilities[0].profile.nature.groupId
+    raw.player.abilities[0].profile.presentation.sectionOrder = ['nature', 'creativeIdentity', 'ownerExpression']
+    raw.player.abilities[0].profile.discovery.revealedSections = ['nature', 'creativeIdentity', 'ownerExpression']
+    raw.player.abilities[0].profile.discovery.evidence = [{ section: 'nature', summary: 'Пробуждение зафиксировано.', source: 'Личное наблюдение', reliability: 100 }]
+    raw.player.abilities[1].profile.nature.kind = 'ninjutsu'
+    delete raw.player.abilities[1].profile.nature.groupId
     raw.opening.scene.tension = 'опасность: 81%'
     raw.world.presentation.accent = '#abc'
     raw.world.presentation.accentStrong = '11aa77'
@@ -315,6 +322,12 @@ describe('global DeepSeek output normalization', () => {
     const parsed = generatedWorldSchema.parse(raw)
     expect(parsed.player.currency).toEqual({ 'штормовых марок': 37 })
     expect(parsed.player.abilities[0].profile?.availability?.state).toBe('ready')
+    expect(parsed.player.abilities[0].profile).toMatchObject({
+      nature: { kind: 'innate', groupId: 'kekkei-genkai' },
+      presentation: { sectionOrder: ['source', 'principle', 'identity'] },
+      discovery: { revealedSections: ['source', 'principle', 'identity'], evidence: [{ section: 'source' }] },
+    })
+    expect(parsed.player.abilities[1].profile?.nature).toMatchObject({ kind: 'trained', groupId: 'ninjutsu' })
     expect(parsed.opening.scene.tension).toBe(81)
     expect(parsed.world.presentation).toMatchObject({ accent: '#aabbcc', accentStrong: '#11aa77', secondary: '#0c2238', surface: 'arcane' })
     expect(parsed.world.routes[0]).toMatchObject({ danger: 61, discovered: false })

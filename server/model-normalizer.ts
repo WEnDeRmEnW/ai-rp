@@ -360,6 +360,12 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'state' && has('inventory')) return translate(itemStateAliases)
   if (key === 'category' && (has('statusEffects') || has('upsertStatusEffects'))) return translate(statusEffectCategoryAliases)
   if (key === 'kind' && (has('resources') || has('upsertResources'))) return translate(resourceKindAliases)
+  if (key === 'kind' && has('nature')) return translate({
+    'kekkei genkai': 'innate', kekkeigenkai: 'innate', bloodline: 'innate', hereditary: 'innate', inherited: 'innate',
+    dojutsu: 'innate', 'додзюцу': 'innate', 'кеккей генкай': 'innate', 'наследственная': 'innate',
+    ninjutsu: 'trained', taijutsu: 'trained', genjutsu: 'trained', senjutsu: 'trained', kenjutsu: 'trained', fuinjutsu: 'trained',
+    'ниндзюцу': 'trained', 'тайдзюцу': 'trained', 'гендзюцу': 'trained', 'сендзюцу': 'trained', 'кендзюцу': 'trained', 'фуиндзюцу': 'trained',
+  })
   if (key === 'state' && has('availability')) return translate({
     ready: 'ready', available: 'ready', usable: 'ready', prepared: 'ready', active: 'ready',
     'готова': 'ready', 'готов': 'ready', 'доступна': 'ready', 'доступен': 'ready',
@@ -470,6 +476,10 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'headerStyle' && has('artifact')) return translate({ гравировка: 'inscribed', надпись: 'inscribed', технический: 'technical', церемониальный: 'ceremonial', минимальный: 'minimal', живой: 'living' })
   if (key === 'density' && has('artifact')) return translate({ удобная: 'comfortable', комфортная: 'comfortable', кинематографичная: 'cinematic', выразительная: 'cinematic' })
   if (key === 'resemblanceKind') return translate({ канон: 'canon', серия: 'set', набор: 'set', культура: 'culture', создатель: 'creator', эволюция: 'evolution', развитие: 'evolution' })
+  if (((key === '[]' && (has('sectionOrder') || has('revealedSections'))) || (key === 'section' && has('discovery') && has('evidence'))) && has('profile') && has('abilities')) return translate({
+    nature: 'source', creativeidentity: 'principle', 'creative identity': 'principle', ownerexpression: 'identity', 'owner expression': 'identity',
+    'природа': 'source', 'творческая идентичность': 'principle', 'стиль владельца': 'identity',
+  })
   if (key === '[]' && (has('sectionOrder') || has('revealedSections'))) return translate({
     идентичность: 'identity', образ: 'identity', происхождение: 'origin', принцип: 'principle', требования: 'requirements', пассивы: 'passives', компоненты: 'components', силы: 'powers', сочетания: 'combined', недостатки: 'drawbacks', отказы: 'failureModes', уязвимости: 'failureModes', развитие: 'evolution', история: 'history', разумность: 'sentience', тайны: 'secrets',
   })
@@ -964,6 +974,11 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
 
   if (isRecord(value)) {
     let record = value
+    if (key === 'nature' && path.includes('profile') && path.includes('abilities') && !record.groupId && typeof record.kind === 'string') {
+      const misplacedGroup = enumToken(record.kind).replaceAll(' ', '-')
+      const technicalKinds = new Set(['innate', 'trained', 'technological', 'social', 'authority', 'access', 'economic', 'organizational', 'contractual', 'divine', 'psionic', 'magical', 'biological', 'other'])
+      if (misplacedGroup && !technicalKinds.has(misplacedGroup)) record = { ...record, groupId: misplacedGroup }
+    }
     if (isArrayEntryOf(path, 'memories') || (isArrayEntryOf(path, 'events') && path.includes('statePatch'))) record = withoutServerOwnedEntryKeys(record)
     if (looksLikePatchContainer(record, path)) record = canonicalizePatchContainer(record)
     value = record
