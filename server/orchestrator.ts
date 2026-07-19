@@ -1,6 +1,6 @@
-import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorkshopEventDirective, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
+import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, NarrativeEventProposal, NarrativeEventRequirement, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorkshopEventDirective, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
-import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, normalizeEventDirectorState, normalizeNarrativeEventProposal, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
+import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, narrativeEventKnownIds, normalizeEventDirectorState, normalizeNarrativeEventProposal, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
@@ -3036,13 +3036,268 @@ async function repairCampaignEditorAbilities(
   return turnPlanSchema.parse(source)
 }
 
-function normalizeWorkshopEventResponse(response: CampaignEditResponse): CampaignEditResponse {
+type EventTargetCandidate = { id: string; terms: string[] }
+
+const workshopCreateTargetDomains = new Set<NarrativeEventRequirement['domain']>([
+  'npc', 'stat', 'resource', 'currency', 'condition', 'status-effect', 'ability', 'artifact', 'inventory', 'social-link',
+  'quest', 'thread', 'character-arc', 'mystery', 'antagonist-plan', 'influence', 'faction', 'place', 'route',
+  'process', 'world-rule', 'law', 'mechanic', 'legend', 'lore', 'world-event', 'world-pressure', 'metric',
+])
+
+const workshopMutationTargetDomains = new Set<NarrativeEventRequirement['domain']>([
+  ...workshopCreateTargetDomains,
+  'relationship', 'party', 'memory', 'conflict', 'faction-reputation',
+])
+
+function workshopReferenceText(value: string) {
+  return value.trim().toLocaleLowerCase('ru-RU').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+}
+
+function workshopRelatedTargetDomains(domain: NarrativeEventRequirement['domain']): NarrativeEventRequirement['domain'][] {
+  if (domain === 'artifact' || domain === 'inventory') return ['artifact', 'inventory']
+  if (domain === 'relationship' || domain === 'party') return [domain, 'npc']
+  if (domain === 'faction-reputation') return ['faction-reputation', 'faction']
+  return [domain]
+}
+
+function uniqueEventCandidates(candidates: EventTargetCandidate[]) {
+  const merged = new Map<string, EventTargetCandidate>()
+  candidates.filter((candidate) => candidate.id).forEach((candidate) => {
+    const current = merged.get(candidate.id)
+    merged.set(candidate.id, {
+      id: candidate.id,
+      terms: [...new Set([...(current?.terms ?? []), candidate.id, ...candidate.terms].filter(Boolean))],
+    })
+  })
+  return [...merged.values()]
+}
+
+function workshopCampaignTargets(campaign: Campaign, domain: NarrativeEventRequirement['domain']): EventTargetCandidate[] {
+  const named = (entries: Array<{ id: string; name?: string; title?: string; label?: string }>) => entries.map((entry) => ({
+    id: entry.id,
+    terms: [entry.name, entry.title, entry.label].filter((value): value is string => Boolean(value)),
+  }))
+  switch (domain) {
+    case 'npc': return named(campaign.npcs)
+    case 'stat': return uniqueEventCandidates([
+      ...campaign.player.stats.map((entry) => ({ id: entry.key, terms: [entry.label] })),
+      ...campaign.npcs.flatMap((npc) => (npc.stats ?? []).map((entry) => ({ id: entry.key, terms: [entry.label, npc.name] }))),
+    ])
+    case 'resource': return uniqueEventCandidates([
+      ...campaign.player.resources.map((entry) => ({ id: entry.key, terms: [entry.label] })),
+      ...campaign.npcs.flatMap((npc) => (npc.resources ?? []).map((entry) => ({ id: entry.key, terms: [entry.label, npc.name] }))),
+    ])
+    case 'currency': return Object.keys(campaign.player.currency ?? {}).map((id) => ({ id, terms: [id] }))
+    case 'condition': return campaign.player.conditions.map((id) => ({ id, terms: [id] }))
+    case 'status-effect': return named([
+      ...(campaign.player.statusEffects ?? []),
+      ...campaign.npcs.flatMap((npc) => npc.statusEffects ?? []),
+    ])
+    case 'ability': return named([
+      ...campaign.player.abilities,
+      ...campaign.npcs.flatMap((npc) => npc.abilities ?? []),
+    ])
+    case 'artifact': return named(campaign.inventory.filter((item) => item.category === 'artifact'))
+    case 'inventory': return named(campaign.inventory)
+    case 'relationship':
+    case 'party': return named(campaign.npcs)
+    case 'social-link': return named((campaign.socialLinks ?? []).map((entry) => ({ ...entry, name: `${entry.fromNpcId} ${entry.toNpcId}` })))
+    case 'quest': return named(campaign.quests)
+    case 'thread': return named(campaign.threads ?? [])
+    case 'character-arc': return named(campaign.characterArcs ?? [])
+    case 'mystery': return named(campaign.mysteryCases ?? [])
+    case 'antagonist-plan': return named(campaign.antagonistPlans ?? [])
+    case 'influence': return named(campaign.influenceAssets ?? [])
+    case 'memory': return named(campaign.memories.map((entry) => ({ ...entry, title: entry.content })))
+    case 'conflict': return campaign.activeConflict ? named([{ id: campaign.activeConflict.id, title: campaign.activeConflict.title }]) : []
+    case 'faction-reputation': return (campaign.factionReputation ?? []).map((entry) => ({ id: entry.factionName, terms: [entry.factionName, entry.label ?? ''] }))
+    case 'faction': return (campaign.world.factions ?? []).map((entry) => ({ id: entry.id ?? entry.name, terms: [entry.name] }))
+    case 'place': return uniqueEventCandidates([
+      ...(campaign.world.places ?? []).map((entry) => ({ id: entry.id, terms: [entry.name] })),
+      ...(campaign.world.locations ?? []).map((entry) => ({ id: entry.name, terms: [entry.name] })),
+    ])
+    case 'route': return named((campaign.world.routes ?? []).map((entry) => ({ ...entry, name: `${entry.from} ${entry.to}` })))
+    case 'process': return named(campaign.world.processes ?? [])
+    case 'world-rule': return (campaign.world.rules ?? []).map((id) => ({ id, terms: [id] }))
+    case 'law': return named(campaign.world.laws ?? [])
+    case 'mechanic': return named(campaign.world.mechanics ?? [])
+    case 'legend': return named(campaign.world.legends ?? [])
+    case 'lore': return named(campaign.lore)
+    case 'world-event': return named(campaign.worldEvents ?? [])
+    case 'world-pressure': return named(campaign.worldPressures ?? [])
+    case 'metric': return (campaign.world.metrics ?? []).map((entry) => ({ id: entry.id, terms: [entry.key, entry.label] }))
+    case 'interface': return named(campaign.world.interfaceModules ?? [])
+    default: return []
+  }
+}
+
+function workshopPatchTargets(patch: TurnPatch, domain: NarrativeEventRequirement['domain']): string[] {
+  switch (domain) {
+    case 'npc': return (patch.npcs ?? []).map((entry) => entry.operation === 'add' ? entry.npc.id : entry.targetId)
+    case 'stat': return [...(patch.upsertStats ?? []).map((entry) => entry.key), ...Object.keys(patch.statDeltas ?? {}), ...(patch.removeStatKeys ?? [])]
+    case 'resource': return [...(patch.upsertResources ?? []).map((entry) => entry.key), ...Object.keys(patch.resourceDeltas ?? {}), ...(patch.removeResourceKeys ?? [])]
+    case 'currency': return Object.keys(patch.currencyDeltas ?? {})
+    case 'condition': return [...(patch.addConditions ?? []), ...(patch.removeConditions ?? [])]
+    case 'status-effect': return [...(patch.upsertStatusEffects ?? []).flatMap((entry) => entry.id ? [entry.id] : []), ...(patch.removeStatusEffectIds ?? [])]
+    case 'ability': return [...(patch.addAbilities ?? []).flatMap((entry) => entry.id ? [entry.id] : []), ...(patch.abilityChanges ?? []).map((entry) => entry.abilityId), ...(patch.removeAbilityIds ?? [])]
+    case 'artifact': return [...(patch.artifactChanges ?? []).map((entry) => entry.itemId), ...(patch.inventory ?? []).flatMap((entry) => entry.operation === 'add' ? entry.item.id ? [entry.item.id] : [] : [entry.targetId])]
+    case 'inventory': return (patch.inventory ?? []).flatMap((entry) => entry.operation === 'add' ? entry.item.id ? [entry.item.id] : [] : [entry.targetId])
+    case 'relationship': return (patch.relationships ?? []).map((entry) => entry.npcId)
+    case 'party': return [...(patch.party?.addNpcIds ?? []), ...(patch.party?.removeNpcIds ?? []), ...Object.keys(patch.party?.roles ?? {})]
+    case 'social-link': return [...(patch.socialLinks ?? []).map((entry) => entry.id), ...(patch.removeSocialLinkIds ?? [])]
+    case 'quest': return (patch.quests ?? []).flatMap((entry) => entry.operation === 'add' ? entry.quest?.id ? [entry.quest.id] : [] : entry.targetId ? [entry.targetId] : [])
+    case 'thread': return (patch.threads ?? []).flatMap((entry) => entry.operation === 'add' ? entry.thread?.id ? [entry.thread.id] : [] : entry.targetId ? [entry.targetId] : [])
+    case 'character-arc': return (patch.upsertCharacterArcs ?? []).map((entry) => entry.id)
+    case 'mystery': return (patch.upsertMysteryCases ?? []).map((entry) => entry.id)
+    case 'antagonist-plan': return (patch.upsertAntagonistPlans ?? []).map((entry) => entry.id)
+    case 'influence': return [...(patch.upsertInfluenceAssets ?? []).map((entry) => entry.id), ...(patch.removeInfluenceAssetIds ?? [])]
+    case 'conflict': return patch.conflict && patch.conflict.operation !== 'resolve' ? [patch.conflict.state.id] : []
+    case 'faction-reputation': return [...Object.keys(patch.factionReputationDeltas ?? {}), ...(patch.upsertFactionReputation ?? []).map((entry) => entry.factionName)]
+    case 'faction': return [...(patch.world?.upsertFactions ?? []).map((entry) => entry.id ?? entry.name), ...(patch.world?.removeFactions ?? [])]
+    case 'place': return [...(patch.world?.upsertPlaces ?? []).map((entry) => entry.id), ...(patch.world?.removePlaceIds ?? [])]
+    case 'route': return [...(patch.world?.upsertRoutes ?? []).map((entry) => entry.id), ...(patch.world?.removeRouteIds ?? [])]
+    case 'process': return [...(patch.world?.upsertProcesses ?? []).map((entry) => entry.id), ...(patch.world?.retireProcessIds ?? [])]
+    case 'world-rule': return [...(patch.world?.addRules ?? []), ...(patch.world?.removeRules ?? [])]
+    case 'law': return [...(patch.world?.upsertLaws ?? []).map((entry) => entry.id), ...(patch.world?.removeLawIds ?? [])]
+    case 'mechanic': return [...(patch.world?.upsertMechanics ?? []).map((entry) => entry.id), ...(patch.world?.removeMechanicIds ?? [])]
+    case 'legend': return [...(patch.world?.upsertLegends ?? []).map((entry) => entry.id), ...(patch.world?.removeLegendIds ?? [])]
+    case 'lore': return (patch.lore ?? []).flatMap((entry) => entry.id ? [entry.id] : [])
+    case 'world-event': return (patch.worldEvents ?? []).flatMap((entry) => entry.operation === 'add' ? entry.event?.id ? [entry.event.id] : [] : entry.targetId ? [entry.targetId] : [])
+    case 'world-pressure': return (patch.upsertWorldPressures ?? []).map((entry) => entry.id)
+    case 'metric': return [...(patch.world?.upsertMetrics ?? []).map((entry) => entry.id), ...Object.keys(patch.world?.metricDeltas ?? {}), ...(patch.world?.removeMetricIds ?? [])]
+    case 'interface': return [...(patch.world?.upsertInterfaceModules ?? []).map((entry) => entry.id), ...(patch.world?.interfaceModuleChanges ?? []).map((entry) => entry.moduleId), ...(patch.world?.removeInterfaceModuleIds ?? [])]
+    default: return []
+  }
+}
+
+function workshopStableEventId(proposal: NarrativeEventProposal, requirement: NarrativeEventRequirement, index: number, reserved: Set<string>) {
+  const source = `${proposal.concept}|${requirement.domain}|${requirement.requirement}|${index}`
+  let hash = 2166136261
+  for (let cursor = 0; cursor < source.length; cursor += 1) {
+    hash ^= source.charCodeAt(cursor)
+    hash = Math.imul(hash, 16777619)
+  }
+  const prefix = requirement.domain.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'entity'
+  const base = `event-${prefix}-${(hash >>> 0).toString(36)}`
+  let candidate = base
+  let suffix = 2
+  while (reserved.has(candidate)) candidate = `${base}-${suffix++}`
+  reserved.add(candidate)
+  return candidate
+}
+
+function stabilizeWorkshopEventProposal(
+  request: CampaignEditRequest,
+  patch: TurnPatch,
+  source: NarrativeEventProposal,
+): NarrativeEventProposal {
+  const normalized = normalizeNarrativeEventProposal(source)
+  const immediateEffects = normalized.immediateEffects.map((effect) => ({ ...effect }))
+  const persistentEffects = normalized.persistentEffects.map((effect) => ({ ...effect }))
+  const requirements = [...immediateEffects, ...persistentEffects]
+  const known = narrativeEventKnownIds(request.campaign)
+  const originalReferences = [...new Set([
+    ...normalized.sourceIds,
+    ...normalized.causeIds,
+    ...normalized.scopeIds,
+    ...normalized.participantIds,
+  ])]
+  const unknownReferences = originalReferences.filter((id) => !known.has(id))
+  const reserved = new Set([...known, ...requirements.flatMap((effect) => effect.targetId ? [effect.targetId] : [])])
+  const idRemap = new Map<string, string>()
+
+  requirements.forEach((effect, index) => {
+    if (effect.operation !== 'create' || !workshopCreateTargetDomains.has(effect.domain)) return
+    const patchTargets = [...new Set(workshopPatchTargets(patch, effect.domain))]
+    if (patchTargets.length === 1 && effect.targetId !== patchTargets[0]) {
+      if (effect.targetId) idRemap.set(effect.targetId, patchTargets[0])
+      effect.targetId = patchTargets[0]
+      reserved.add(patchTargets[0])
+      return
+    }
+    if (effect.targetId) return
+    const unclaimedReference = unknownReferences.find((id) => !reserved.has(id))
+    effect.targetId = unclaimedReference ?? workshopStableEventId(normalized, effect, index, reserved)
+    reserved.add(effect.targetId)
+  })
+
+  const createdByDomain = new Map<NarrativeEventRequirement['domain'], string[]>()
+  requirements.forEach((effect) => {
+    if (effect.operation !== 'create' || !effect.targetId) return
+    createdByDomain.set(effect.domain, [...(createdByDomain.get(effect.domain) ?? []), effect.targetId])
+  })
+
+  requirements.forEach((effect) => {
+    if (effect.operation === 'create' || effect.targetId || !workshopMutationTargetDomains.has(effect.domain)) return
+    const relatedDomains = workshopRelatedTargetDomains(effect.domain)
+    const patchTargets = [...new Set(relatedDomains.flatMap((domain) => workshopPatchTargets(patch, domain)))]
+    const createdTargets = [...new Set(relatedDomains.flatMap((domain) => createdByDomain.get(domain) ?? []))]
+    const candidates = workshopCampaignTargets(request.campaign, effect.domain)
+    const routingIds = new Set([
+      ...normalized.sourceIds,
+      ...normalized.causeIds,
+      ...normalized.scopeIds,
+      ...normalized.participantIds,
+    ])
+    const routedCandidates = candidates.filter((candidate) => routingIds.has(candidate.id))
+    const hint = workshopReferenceText(`${request.instruction} ${normalized.concept} ${effect.requirement}`)
+    const namedCandidates = candidates.filter((candidate) => candidate.terms.some((term) => {
+      const normalizedTerm = workshopReferenceText(term)
+      return normalizedTerm.length >= 3 && hint.includes(normalizedTerm)
+    }))
+    const exact = [patchTargets, createdTargets, routedCandidates.map((entry) => entry.id), namedCandidates.map((entry) => entry.id), candidates.map((entry) => entry.id)]
+      .map((entries) => [...new Set(entries)])
+      .find((entries) => entries.length === 1)
+    if (exact) effect.targetId = exact[0]
+  })
+
+  const createdTargets = new Set(requirements.flatMap((effect) => effect.operation === 'create' && effect.targetId ? [effect.targetId] : []))
+  const preferredCreated = (() => {
+    const preferredDomains: NarrativeEventRequirement['domain'][] = normalized.originKind === 'new_npc'
+      ? ['npc']
+      : normalized.category === 'power_shift'
+        ? ['ability']
+        : normalized.category === 'artifact_shift'
+          ? ['artifact', 'inventory']
+          : normalized.category === 'faction_move'
+            ? ['faction']
+            : []
+    const preferred = preferredDomains.flatMap((domain) => createdByDomain.get(domain) ?? [])
+    return preferred.length === 1 ? preferred[0] : createdTargets.size === 1 ? [...createdTargets][0] : undefined
+  })()
+  const safeReferences = (values: string[], createdFallback?: string) => [...new Set(values
+    .map((id) => idRemap.get(id) ?? id)
+    .map((id) => known.has(id) || createdTargets.has(id) ? id : createdFallback)
+    .filter((id): id is string => Boolean(id)))]
+  const miracleText = workshopReferenceText([
+    normalized.concept,
+    normalized.trigger,
+    ...requirements.map((effect) => effect.requirement),
+  ].join(' '))
+  const immediateMortalDanger = /(?:гибел|смертел|смерт|полный тупик|невозможност\p{L}* действовать|немедленн\p{L}* уничтож)/iu.test(miracleText)
+  const miracleKind = normalized.miracleKind === 'intervention' && !immediateMortalDanger
+    ? normalized.category === 'divine' || normalized.originKind === 'deity' ? 'sign' : 'none'
+    : normalized.miracleKind
+
+  return normalizeNarrativeEventProposal({
+    ...normalized,
+    miracleKind,
+    sourceIds: safeReferences(normalized.sourceIds, preferredCreated),
+    causeIds: safeReferences(normalized.causeIds),
+    scopeIds: safeReferences(normalized.scopeIds, (createdByDomain.get('place') ?? []).length === 1 ? createdByDomain.get('place')?.[0] : undefined),
+    participantIds: safeReferences(normalized.participantIds, preferredCreated),
+    immediateEffects,
+    persistentEffects,
+  })
+}
+
+function normalizeWorkshopEventResponse(request: CampaignEditRequest, response: CampaignEditResponse): CampaignEditResponse {
   if (!response.eventDirective) return response
   return {
     ...response,
     eventDirective: {
       ...response.eventDirective,
-      proposal: normalizeNarrativeEventProposal(response.eventDirective.proposal),
+      proposal: stabilizeWorkshopEventProposal(request, response.statePatch, response.eventDirective.proposal),
     },
   }
 }
@@ -3118,7 +3373,7 @@ async function repairWorkshopEventResponse(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   initial: CampaignEditResponse,
 ) {
-  let response = normalizeWorkshopEventResponse(initial)
+  let response = normalizeWorkshopEventResponse(request, initial)
   let issues = workshopEventResponseIssues(request, response)
   if (!issues.length) return response
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -3132,7 +3387,7 @@ async function repairWorkshopEventResponse(
     ]
     const repairedRaw = await completeJson(request.provider, repairMessages)
     const repaired = await parseWithRepair<CampaignEditResponse>(repairedRaw, campaignEditResponseSchema, request.provider, repairMessages)
-    response = normalizeWorkshopEventResponse(repaired)
+    response = normalizeWorkshopEventResponse(request, repaired)
     issues = workshopEventResponseIssues(request, response)
     if (!issues.length) return response
   }

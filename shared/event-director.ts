@@ -216,7 +216,7 @@ export function narrativeEventSignature(proposal: NarrativeEventProposal) {
   return [proposal.category, proposal.magnitude, origin, dominantDomain, scope, arrival].join('|')
 }
 
-function knownIds(campaign: Campaign) {
+export function narrativeEventKnownIds(campaign: Campaign) {
   return new Set([
     campaign.player.id,
     ...campaign.player.stats.map((stat) => stat.key),
@@ -391,7 +391,7 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
       )
     ))) issues.push('Прямое чудо пытается превратить спасение в победу либо стереть уже произошедшие последствия.')
   }
-  const known = knownIds(campaign)
+  const known = narrativeEventKnownIds(campaign)
   const createdTargets = new Set(requirements
     .filter((effect) => effect.operation === 'create' && effect.targetId)
     .map((effect) => effect.targetId as string))

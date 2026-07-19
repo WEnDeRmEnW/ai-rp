@@ -69,4 +69,52 @@ describe('campaign workshop event controls', () => {
     expect(result.eventDirective?.proposal.affectedDomains).toEqual(['scene', 'npc'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('binds model-authored new entities, dependent mutations and non-emergency miracle metadata without repair calls', async () => {
+    const campaign = createDemoCampaign()
+    const response = {
+      summary: 'Необычная встреча назначена на следующий ход.',
+      campaignPatch: {},
+      settingsPatch: {},
+      statePatch: {},
+      eventDirective: {
+        delivery: 'next-turn',
+        proposal: {
+          mode: 'manifest', lifecycleStage: 'manifested', concept: 'Неизвестный проводник появляется у закрытого перехода.',
+          category: 'encounter', magnitude: 'notable', miracleKind: 'intervention', originKind: 'new_npc',
+          sourceIds: ['npc-unbound-guide'], causeIds: ['invented-cause-id'], scopeIds: [], participantIds: ['npc-unbound-guide'], affectedDomains: ['scene'],
+          knowledgeChannel: 'Герой видит прибытие собственными глазами.', trigger: 'Проводник завершил долгий самостоятельный поиск перехода.',
+          arrivalMethod: 'Он выходит из существующего тоннеля и останавливается на расстоянии.', observableSigns: ['На одежде видна пыль дальнего маршрута.'],
+          immediateEffects: [
+            { domain: 'npc', operation: 'create', requirement: 'Создать полного самостоятельного NPC-проводника.', observable: true, mandatory: true },
+            { domain: 'npc', operation: 'update', requirement: 'Зафиксировать для нового проводника текущую цель изучить переход.', observable: false, mandatory: true },
+            { domain: 'scene', operation: 'update', requirement: 'Показать наблюдаемое прибытие, не решая реакцию героя.', observable: true, mandatory: true },
+          ],
+          persistentEffects: [], counterplay: [], cancellationConditions: ['Проводник обнаружит, что переход окончательно уничтожен.'],
+          canonReasoning: 'Событие использует обычного нового жителя мира.', pacingReasoning: 'Короткая встреча открывает возможность, но ничего не навязывает.', noveltyReasoning: 'Проводник имеет самостоятельную цель.', minimumDelay: 0,
+        },
+      },
+    }
+    const fetchMock = vi.fn(async () => providerResponse(response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await editCampaign({
+      campaign,
+      instruction: 'На следующем ходу пусть появится новый проводник.',
+      eventOptions: { delivery: 'next-turn', magnitude: 'notable', category: 'encounter' },
+      provider,
+    })
+
+    const proposal = result.eventDirective?.proposal
+    const createdNpc = proposal?.immediateEffects.find((effect) => effect.domain === 'npc' && effect.operation === 'create')
+    const updatedNpc = proposal?.immediateEffects.find((effect) => effect.domain === 'npc' && effect.operation === 'update')
+    expect(createdNpc?.targetId).toBe('npc-unbound-guide')
+    expect(updatedNpc?.targetId).toBe('npc-unbound-guide')
+    expect(proposal?.sourceIds).toEqual(['npc-unbound-guide'])
+    expect(proposal?.participantIds).toEqual(['npc-unbound-guide'])
+    expect(proposal?.causeIds).toEqual([])
+    expect(proposal?.miracleKind).toBe('none')
+    expect(proposal?.affectedDomains).toEqual(['scene', 'npc'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })
