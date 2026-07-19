@@ -22,6 +22,7 @@ interface AppContextValue {
   loading: boolean
   generating: boolean
   error?: string
+  errorTitle: string
   operationProgress?: OperationProgress
   syncState: 'local' | 'syncing' | 'synced' | 'error'
   syncMessage?: string
@@ -68,6 +69,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string>()
+  const [errorTitle, setErrorTitle] = useState('Операция не завершена')
   const [operationProgress, setOperationProgress] = useState<OperationProgress>()
   const abortRef = useRef<AbortController | undefined>(undefined)
   const lastFailedTurnRef = useRef<{ input: string; actionType: ActionType } | undefined>(undefined)
@@ -222,6 +224,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const campaign = campaigns.find((candidate) => candidate.id === activeCampaignId)
     if (!campaign || generating || !input.trim()) return false
     setGenerating(true)
+    setErrorTitle('Ход не применён')
     setError(undefined)
     const controller = new AbortController()
     abortRef.current = controller
@@ -266,6 +269,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController()
     abortRef.current = controller
     setGenerating(true)
+    setErrorTitle('Повтор хода не завершён')
     setError(undefined)
     try {
       setOperationProgress({ percent: 1, stage: 'connecting', detail: 'Готовим повторную генерацию' })
@@ -286,6 +290,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createCampaign = useCallback(async (request: Omit<WorldGenerationRequest, 'provider'>) => {
     setGenerating(true)
+    setErrorTitle('Мир не создан')
     setError(undefined)
     const controller = new AbortController()
     abortRef.current = controller
@@ -310,6 +315,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const campaign = campaigns.find((candidate) => candidate.id === activeCampaignId)
     if (!campaign || generating || instruction.trim().length < 3) return undefined
     setGenerating(true)
+    setErrorTitle('Изменения не применены')
     setError(undefined)
     setOperationProgress({ percent: 1, stage: 'connecting', detail: 'Передаём корректировку ИИ-редактору' })
     const controller = new AbortController()
@@ -402,6 +408,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [activeCampaignId, auth.user, campaigns, ownerId, queueCloudWrite, setActiveCampaignId])
 
   const importCampaign = useCallback(async (file: File) => {
+    setErrorTitle('Импорт не завершён')
     try {
       const imported = await readCampaignFile(file)
       const campaign = { ...imported, id: crypto.randomUUID(), title: `${imported.title} — импорт`, updatedAt: new Date().toISOString(), snapshots: [] }
@@ -413,10 +420,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setActiveCampaignId, upsert])
 
   const value = useMemo<AppContextValue>(() => ({
-    campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, syncState, syncMessage, lastSyncedAt, syncNow,
+    campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, errorTitle, operationProgress, syncState, syncMessage, lastSyncedAt, syncNow,
     setActiveCampaignId, setProvider, setTheme, dismissError: () => setError(undefined), sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, canRetryFailedTurn, createCampaign, aiEditCampaign,
     updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign,
-  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, operationProgress, syncState, syncMessage, lastSyncedAt, syncNow, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
+  }), [campaigns, activeCampaign, activeCampaignId, provider, theme, loading, generating, error, errorTitle, operationProgress, syncState, syncMessage, lastSyncedAt, syncNow, canRetryFailedTurn, setActiveCampaignId, setProvider, setTheme, sendTurn, cancelGeneration, retryLastTurn, retryFailedTurn, createCampaign, aiEditCampaign, updateActiveCampaign, undoLastEdit, canUndoEdit, undoTurn, duplicateCampaign, removeCampaign, importCampaign])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

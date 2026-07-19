@@ -210,6 +210,6 @@ export function App() {
       onUndo={() => void app.undoTurn()}
     />
 
-    {app.error && <div className="error-toast" role="alert"><AlertCircle size={18} /><div><strong>Ход не применён</strong><span>{app.error}</span>{app.canRetryFailedTurn && <button className="error-retry" disabled={app.generating} onClick={() => void app.retryFailedTurn()}>Повторить ход</button>}</div><button onClick={app.dismissError} aria-label="Закрыть ошибку"><X size={16} /></button></div>}
+    {app.error && <div className="error-toast" role="alert"><AlertCircle size={18} /><div><strong>{app.errorTitle}</strong><span>{app.error}</span>{app.canRetryFailedTurn && <button className="error-retry" disabled={app.generating} onClick={() => void app.retryFailedTurn()}>Повторить ход</button>}</div><button onClick={app.dismissError} aria-label="Закрыть ошибку"><X size={16} /></button></div>}
   </div>
 }

@@ -12,6 +12,7 @@ interface OperationJob<T> {
   requestId: string
   status: 'pending' | 'complete' | 'failed'
   createdAt: number
+  finishedAt?: number
   result?: T
   error?: string
   progress: OperationProgress
@@ -23,7 +24,10 @@ export class OperationJobs<T> {
   private readonly jobs = new Map<string, OperationJob<T>>()
   private readonly requestIds = new Map<string, string>()
 
-  constructor(private readonly ttlMs = DEFAULT_TTL) {}
+  constructor(
+    private readonly ttlMs = DEFAULT_TTL,
+    private readonly now: () => number = Date.now,
+  ) {}
 
   start(requestId: string, work: (report: (progress: OperationProgress) => void) => Promise<T>): OperationJobSnapshot<T> {
     this.prune()
@@ -35,7 +39,7 @@ export class OperationJobs<T> {
       id: randomUUID(),
       requestId,
       status: 'pending',
-      createdAt: Date.now(),
+      createdAt: this.now(),
       progress: { percent: 1, stage: 'queued', detail: 'Задача поставлена в очередь' },
     }
     this.jobs.set(job.id, job)
@@ -51,6 +55,7 @@ export class OperationJobs<T> {
       return { result, stats: completionScopeStats() }
     })).then(({ result, stats }) => {
       job.status = 'complete'
+      job.finishedAt = this.now()
       job.result = result
       job.progress = {
         ...job.progress,
@@ -59,12 +64,13 @@ export class OperationJobs<T> {
         detail: 'Готово',
         completedSteps: job.progress.totalSteps,
         totalSteps: job.progress.totalSteps,
-        elapsedMs: Date.now() - job.createdAt,
+        elapsedMs: job.finishedAt - job.createdAt,
         cacheHits: stats?.cacheHits ?? job.progress.cacheHits,
         providerCalls: stats?.providerCalls ?? job.progress.providerCalls,
       }
     }).catch((cause) => {
       job.status = 'failed'
+      job.finishedAt = this.now()
       job.error = cause instanceof Error ? cause.message : String(cause)
     })
 
@@ -86,9 +92,12 @@ export class OperationJobs<T> {
   }
 
   private prune() {
-    const cutoff = Date.now() - this.ttlMs
+    const cutoff = this.now() - this.ttlMs
     for (const [id, job] of this.jobs) {
-      if (job.status === 'pending' || job.createdAt >= cutoff) continue
+      // A world can legitimately take longer than the retention period. Keep it
+      // for the full TTL after it finishes so the next poll can always collect
+      // the result instead of receiving a misleading 404.
+      if (job.status === 'pending' || (job.finishedAt ?? job.createdAt) >= cutoff) continue
       this.forget(id)
     }
   }

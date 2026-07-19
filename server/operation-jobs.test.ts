@@ -43,4 +43,26 @@ describe('long-running operation jobs', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(jobs.get(job.id)).toMatchObject({ status: 'complete', result: 7, progress: { percent: 100, stage: 'complete' } })
   })
+
+  it('retains a result for the full TTL after a very long job finishes', async () => {
+    let now = 0
+    let finish!: () => void
+    const gate = new Promise<void>((resolve) => { finish = resolve })
+    const jobs = new OperationJobs<number>(1_000, () => now)
+    const job = jobs.start('longer-than-ttl', async () => {
+      await gate
+      return 42
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    now = 60_000
+    expect(jobs.get(job.id)).toMatchObject({ status: 'pending' })
+
+    finish()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(jobs.get(job.id)).toMatchObject({ status: 'complete', result: 42 })
+
+    now = 61_001
+    expect(jobs.get(job.id)).toBeUndefined()
+  })
 })

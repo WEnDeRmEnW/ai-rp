@@ -51,6 +51,13 @@ app.use('/api', rateLimit({
   handler: (_req, res) => res.status(429).json({ error: 'Слишком много новых запросов за минуту. Подождите немного и повторите.' }),
 }))
 
+// Job snapshots are live state. Browser/proxy revalidation (304 responses)
+// can otherwise make a progress poll observe an older status.
+app.use('/api/jobs', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store')
+  next()
+})
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, name: 'letopis-api', time: new Date().toISOString() })
 })
