@@ -47,6 +47,9 @@ function reportProgress(
     parallelTasks,
     cacheHits: providerStats?.cacheHits,
     providerCalls: providerStats?.providerCalls,
+    providerTimeMs: providerStats?.providerTimeMs,
+    providerWallMs: providerStats?.providerWallMs,
+    peakProviderConcurrency: providerStats?.peakProviderConcurrency,
   })
   clock.lastReportedAt = now
   progressClocks.set(report, clock)
@@ -2055,7 +2058,7 @@ async function repairGeneratedWorldArtifacts(
   report?: ProgressReporter,
 ): Promise<GeneratedWorld> {
   const inventory = [...source.inventory]
-  let registry = generatedWorldArtifactQuality(source).registry
+  const initialRegistry = generatedWorldArtifactQuality(source).registry
   const worldContext = {
     title: source.title,
     world: source.world,
@@ -2063,12 +2066,12 @@ async function repairGeneratedWorldArtifacts(
     inventory: source.inventory.map((item) => ({ id: plannedArtifactId(item as PlannedArtifactItem), name: item.name, rarity: item.rarity, origin: item.origin })),
   }
 
-  for (let index = 0; index < inventory.length; index += 1) {
-    const initial = inventory[index]
-    if (initial.category !== 'artifact' || !initial.artifact) continue
+  const repairOne = async (
+    initial: GeneratedWorld['inventory'][number],
+    candidateRegistry: NonNullable<Campaign['artifactRegistry']>,
+  ): Promise<GeneratedWorld['inventory'][number]> => {
     let current = initial as PlannedArtifactItem
     const identity = { id: plannedArtifactId(current), name: current.name, origin: current.origin }
-    const candidateRegistry = registry.filter((entry) => entry.artifactId !== artifactCandidate(current).id)
     let issues = artifactItemQualityIssues(current, undefined, candidateRegistry)
     let best = current
     let bestIssues = issues
@@ -2112,9 +2115,27 @@ async function repairGeneratedWorldArtifacts(
 
     const assessment = assessItemRarity(best)
     const honestBest = assessment.rarity === best.rarity ? best : { ...best, rarity: assessment.rarity }
-    inventory[index] = honestBest as typeof initial
-    registry = updateArtifactRegistry(registry, artifactCandidate(honestBest), 'active', 0)
     if (bestIssues.length) console.warn(`[artifact-quality] Best world artifact candidate retained for ${best.name}: ${bestIssues.join(' ')}`)
+    return honestBest as GeneratedWorld['inventory'][number]
+  }
+
+  const artifactIndices = inventory.flatMap((item, index) => item.category === 'artifact' && item.artifact ? [index] : [])
+  const repaired = await mapWithConcurrency(artifactIndices, Math.min(3, Math.max(1, artifactIndices.length)), async (index) => {
+    const initial = inventory[index]
+    const candidateRegistry = initialRegistry.filter((entry) => entry.artifactId !== artifactCandidate(initial as PlannedArtifactItem).id)
+    return [index, await repairOne(initial, candidateRegistry)] as const
+  })
+  repaired.forEach(([index, item]) => { inventory[index] = item })
+
+  // Independent drafts can rarely converge on the same new idea. Recheck the assembled set and
+  // rerun only the colliding item against the already improved full registry.
+  for (const index of artifactIndices) {
+    const current = inventory[index]
+    const plannedCurrent = current as PlannedArtifactItem
+    const assembledRegistry = generatedWorldArtifactQuality({ ...source, inventory }).registry
+      .filter((entry) => entry.artifactId !== artifactCandidate(plannedCurrent).id)
+    if (!artifactNoveltyIssues(artifactCandidate(plannedCurrent), assembledRegistry).length) continue
+    inventory[index] = await repairOne(current, assembledRegistry)
   }
   return { ...source, inventory }
 }
@@ -2133,41 +2154,68 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   reportProgress(report, 8, 'world-simulation', 'Персонажи и мир делают свои независимые шаги', 2, 11)
   const backgroundMessages = backgroundSimulatorPrompt(request.campaign, request.input)
   const emptyBackground: ReturnType<typeof backgroundSimulationSchema.parse> = { signals: [], statePatch: {} }
-  const background = await optionalStage<ReturnType<typeof backgroundSimulationSchema.parse>>('background', async () => {
+  const backgroundPromise = optionalStage<ReturnType<typeof backgroundSimulationSchema.parse>>('background', async () => {
     const rawBackground = await completeJson(request.provider, backgroundMessages)
     return parseWithRepair(rawBackground, backgroundSimulationSchema, request.provider, backgroundMessages, () => ({ signals: [], statePatch: {} }))
   }, emptyBackground)
-  let eventDecision: NarrativeEventDecision = { mode: 'none', reason: 'История ещё не накопила готовность к отдельному повороту.' }
+  const quietEventDecision: NarrativeEventDecision = { mode: 'none', reason: 'История ещё не накопила готовность к отдельному повороту.' }
+  const eventConsultationNeeded = shouldConsultEventDirector(request.campaign, preparedEventState)
+  const requestEventDecision = async (eventMessages: ReturnType<typeof eventDirectorPrompt>) => optionalStage<NarrativeEventDecision>('event-director', async () => {
+    const rawDecision = await completeJson(request.provider, eventMessages)
+    let decision = await parseWithRepair<NarrativeEventDecision>(rawDecision, narrativeEventDecisionSchema, request.provider, eventMessages)
+    if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
+    let issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
+    if (decision.mode !== 'none' && issues.length) {
+      const retryMessages = [
+        ...eventMessages,
+        { role: 'assistant' as const, content: JSON.stringify(decision) },
+        {
+          role: 'user' as const,
+          content: `Предложение отклонено программной проверкой:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни полностью исправленное предложение либо честный {"mode":"none","reason":"..."}. Не спорь с ограничениями и не отвечай пояснением.`,
+        },
+      ]
+      const retryRaw = await completeJson(request.provider, retryMessages)
+      decision = await parseWithRepair<NarrativeEventDecision>(retryRaw, narrativeEventDecisionSchema, request.provider, retryMessages)
+      if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
+      issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
+    }
+    if (decision.mode !== 'none' && issues.length) {
+      console.warn(`[event-director] Предложение безопасно отложено: ${issues.join(' ')}`)
+      return { mode: 'none', reason: `Предложение отложено программной проверкой: ${issues.join(' ')}` }
+    }
+    return decision
+  }, { mode: 'none', reason: 'Этап необычного события не завершился и был безопасно пропущен.' })
+  const requestDirectorPlan = async (candidate: ReturnType<typeof directorPrompt>) => {
+    const rawPlan = await completeJson(request.provider, candidate.messages)
+    return parseWithRepair(rawPlan, turnPlanSchema, request.provider, candidate.messages, salvageTurnPlan)
+  }
+  // Empty background + no unusual event is the common path. Begin both optional decisions and
+  // the exact plan for that path immediately. A result is reusable only when later inputs are
+  // byte-for-byte equivalent; otherwise the authoritative request still runs with full context.
+  const speculativeEventMessages = eventConsultationNeeded
+    ? eventDirectorPrompt(request.campaign, request.input, emptyBackground, preparedEventState)
+    : undefined
+  const speculativeEventPromise = speculativeEventMessages
+    ? requestEventDecision(speculativeEventMessages)
+      .then((decision) => ({ ok: true as const, decision }))
+      .catch((error: unknown) => ({ ok: false as const, error }))
+    : undefined
+  const speculativeDirector = directorPrompt(request.campaign, request.input, request.actionType, check, emptyBackground, quietEventDecision)
+  const speculativePlanPromise = requestDirectorPlan(speculativeDirector)
+    .then((plan) => ({ ok: true as const, plan, director: speculativeDirector }))
+    .catch((error: unknown) => ({ ok: false as const, error }))
+  const background = await backgroundPromise
+  const exactEmptyBackground = background.signals.length === 0 && Object.keys(background.statePatch).length === 0
+  let eventDecision: NarrativeEventDecision = quietEventDecision
   let eventDirectorConsulted = false
-  if (shouldConsultEventDirector(request.campaign, preparedEventState)) {
+  if (eventConsultationNeeded) {
     eventDirectorConsulted = true
     reportProgress(report, 17, 'event-director', 'Проверяем, созрело ли редкое необычное событие', 3, 11)
-    const eventMessages = eventDirectorPrompt(request.campaign, request.input, background, preparedEventState)
-    eventDecision = await optionalStage<NarrativeEventDecision>('event-director', async () => {
-      const rawDecision = await completeJson(request.provider, eventMessages)
-      let decision = await parseWithRepair<NarrativeEventDecision>(rawDecision, narrativeEventDecisionSchema, request.provider, eventMessages)
-      if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
-      let issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
-      if (decision.mode !== 'none' && issues.length) {
-        const retryMessages = [
-          ...eventMessages,
-          { role: 'assistant' as const, content: JSON.stringify(decision) },
-          {
-            role: 'user' as const,
-            content: `Предложение отклонено программной проверкой:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни полностью исправленное предложение либо честный {"mode":"none","reason":"..."}. Не спорь с ограничениями и не отвечай пояснением.`,
-          },
-        ]
-        const retryRaw = await completeJson(request.provider, retryMessages)
-        decision = await parseWithRepair<NarrativeEventDecision>(retryRaw, narrativeEventDecisionSchema, request.provider, retryMessages)
-        if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
-        issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
-      }
-      if (decision.mode !== 'none' && issues.length) {
-        console.warn(`[event-director] Предложение безопасно отложено: ${issues.join(' ')}`)
-        return { mode: 'none', reason: `Предложение отложено программной проверкой: ${issues.join(' ')}` }
-      }
-      return decision
-    }, { mode: 'none', reason: 'Этап необычного события не завершился и был безопасно пропущен.' })
+    const speculativeEvent = exactEmptyBackground ? await speculativeEventPromise : undefined
+    if (speculativeEvent && !speculativeEvent.ok) throw speculativeEvent.error
+    eventDecision = speculativeEvent?.ok
+      ? speculativeEvent.decision
+      : await requestEventDecision(eventDirectorPrompt(request.campaign, request.input, background, preparedEventState))
   }
   const forcedWorkshopEvent = forcedWorkshopEventDecision(preparedEventState, request.campaign.turn + 1)
   if (forcedWorkshopEvent && (
@@ -2180,11 +2228,12 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
 
   reportProgress(report, 26, 'directing', 'Режиссёр строит причинный план и последствия', 4, 11)
   let director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
-  const createPlan = async () => {
-    const rawPlan = await completeJson(request.provider, director.messages)
-    return parseWithRepair(rawPlan, turnPlanSchema, request.provider, director.messages, salvageTurnPlan)
-  }
-  let validPlan = await createPlan()
+  const speculativeResult = exactEmptyBackground && eventDecision.mode === 'none' ? await speculativePlanPromise : undefined
+  if (speculativeResult && !speculativeResult.ok) throw speculativeResult.error
+  const speculative = speculativeResult?.ok ? speculativeResult : undefined
+  if (speculative) director = speculative.director
+  const createPlan = () => requestDirectorPlan(director)
+  let validPlan = speculative?.plan ?? await createPlan()
   const reviewedArtifactSignatures = new Set<string>()
   const reviewedAbilitySignatures = new Set<string>()
 
@@ -2481,6 +2530,34 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     }
   }
 
+  const requestNarrativeDrafts = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
+    const grounded = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'grounded'))
+    const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
+      ? await grounded.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
+      : await Promise.allSettled([grounded, completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'dramatic'))])
+    if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
+    const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
+    const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
+    return { draftA, draftB }
+  }
+  const speculativeNarrativePlan = structuredClone(validPlan)
+  speculativeNarrativePlan.statePatch = mergeAuditPatch(
+    speculativeNarrativePlan.statePatch,
+    restrictBackgroundPatch(background.statePatch),
+  ) as typeof speculativeNarrativePlan.statePatch
+  const speculativeNarrativeSanitized = sanitizePlan(request.campaign, speculativeNarrativePlan).plan
+  const speculativeNarrativeFingerprint = JSON.stringify(narratorPrompt(
+    request.campaign,
+    request.input,
+    request.actionType,
+    speculativeNarrativeSanitized,
+    check,
+    'grounded',
+  ))
+  const speculativeNarrativesPromise = requestNarrativeDrafts(speculativeNarrativeSanitized)
+    .then((drafts) => ({ ok: true as const, drafts }))
+    .catch((error: unknown) => ({ ok: false as const, error }))
+
   const applyProgressionAudit = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
     const progressionMessages = progressionAuditPrompt(request.campaign, request.input, plan)
     if (!progressionMessages) return plan
@@ -2618,13 +2695,19 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
 
   reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
-  const firstDraft = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'grounded'))
-  const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
-    ? await firstDraft.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
-    : await Promise.allSettled([firstDraft, completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, sanitized.plan, check, 'dramatic'))])
-  if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
-  const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
-  const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
+  const exactSpeculativeNarrative = JSON.stringify(narratorPrompt(
+    request.campaign,
+    request.input,
+    request.actionType,
+    sanitized.plan,
+    check,
+    'grounded',
+  )) === speculativeNarrativeFingerprint
+  const speculativeNarratives = exactSpeculativeNarrative ? await speculativeNarrativesPromise : undefined
+  if (speculativeNarratives && !speculativeNarratives.ok) throw speculativeNarratives.error
+  const { draftA, draftB } = speculativeNarratives?.ok
+    ? speculativeNarratives.drafts
+    : await requestNarrativeDrafts(sanitized.plan)
   const repetitionA = findNarrativeRepetitionIssues(draftA, request.campaign.messages)
   const repetitionB = findNarrativeRepetitionIssues(draftB, request.campaign.messages)
   reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 11)
@@ -3186,6 +3269,11 @@ function workshopStableEventId(proposal: NarrativeEventProposal, requirement: Na
   return candidate
 }
 
+function workshopRequirementCreatesSomething(requirement: NarrativeEventRequirement) {
+  if (!['update', 'transform'].includes(requirement.operation)) return false
+  return /(?:нов\p{L}*|созда\p{L}*|появ\p{L}*|возник\p{L}*|основа\p{L}*|учред\p{L}*|откры\p{L}*|пробуд\p{L}*|родил\p{L}*|сформир\p{L}*|new|create|spawn|establish|awaken)/iu.test(requirement.requirement)
+}
+
 function stabilizeWorkshopEventProposal(
   request: CampaignEditRequest,
   patch: TurnPatch,
@@ -3221,13 +3309,17 @@ function stabilizeWorkshopEventProposal(
     reserved.add(effect.targetId)
   })
 
-  const createdByDomain = new Map<NarrativeEventRequirement['domain'], string[]>()
-  requirements.forEach((effect) => {
-    if (effect.operation !== 'create' || !effect.targetId) return
-    createdByDomain.set(effect.domain, [...(createdByDomain.get(effect.domain) ?? []), effect.targetId])
-  })
+  const indexCreatedTargets = () => {
+    const result = new Map<NarrativeEventRequirement['domain'], string[]>()
+    requirements.forEach((effect) => {
+      if (effect.operation !== 'create' || !effect.targetId) return
+      result.set(effect.domain, [...(result.get(effect.domain) ?? []), effect.targetId])
+    })
+    return result
+  }
+  let createdByDomain = indexCreatedTargets()
 
-  requirements.forEach((effect) => {
+  requirements.forEach((effect, index) => {
     if (effect.operation === 'create' || effect.targetId || !workshopMutationTargetDomains.has(effect.domain)) return
     const relatedDomains = workshopRelatedTargetDomains(effect.domain)
     const patchTargets = [...new Set(relatedDomains.flatMap((domain) => workshopPatchTargets(patch, domain)))]
@@ -3248,8 +3340,35 @@ function stabilizeWorkshopEventProposal(
     const exact = [patchTargets, createdTargets, routedCandidates.map((entry) => entry.id), namedCandidates.map((entry) => entry.id), candidates.map((entry) => entry.id)]
       .map((entries) => [...new Set(entries)])
       .find((entries) => entries.length === 1)
-    if (exact) effect.targetId = exact[0]
+    if (exact) {
+      effect.targetId = exact[0]
+      return
+    }
+
+    // DeepSeek sometimes describes a genuinely new permanent entity correctly but labels the
+    // semantic operation as update/transform. If no existing target can be identified, promote
+    // that authored creation intent instead of spending three identical repair requests.
+    if (workshopCreateTargetDomains.has(effect.domain) && workshopRequirementCreatesSomething(effect)) {
+      const unclaimedReference = unknownReferences.find((id) => !reserved.has(id))
+      effect.operation = 'create'
+      effect.targetId = unclaimedReference ?? workshopStableEventId(normalized, effect, requirements.length + index, reserved)
+      reserved.add(effect.targetId)
+    }
   })
+
+  // A model can provide an explicit unknown target for the same new-entity intent. It is the
+  // same structural alias as the missing-target case above and is safe to canonicalize because
+  // the authored requirement itself says that the entity is being created.
+  const alreadyCreatedTargets = new Set(requirements.flatMap((effect) => (
+    effect.operation === 'create' && effect.targetId ? [effect.targetId] : []
+  )))
+  requirements.forEach((effect) => {
+    if (effect.operation === 'create' || !effect.targetId || known.has(effect.targetId) || alreadyCreatedTargets.has(effect.targetId)) return
+    if (!workshopCreateTargetDomains.has(effect.domain) || !workshopRequirementCreatesSomething(effect)) return
+    effect.operation = 'create'
+    reserved.add(effect.targetId)
+  })
+  createdByDomain = indexCreatedTargets()
 
   const createdTargets = new Set(requirements.flatMap((effect) => effect.operation === 'create' && effect.targetId ? [effect.targetId] : []))
   const preferredCreated = (() => {
@@ -3274,8 +3393,12 @@ function stabilizeWorkshopEventProposal(
     normalized.trigger,
     ...requirements.map((effect) => effect.requirement),
   ].join(' '))
+  const instructionText = workshopReferenceText(request.instruction)
   const immediateMortalDanger = /(?:гибел|смертел|смерт|полный тупик|невозможност\p{L}* действовать|немедленн\p{L}* уничтож)/iu.test(miracleText)
-  const miracleKind = normalized.miracleKind === 'intervention' && !immediateMortalDanger
+  const ownerRequestedEmergency = /(?:чуд|божествен\p{L}* спас|спаси|спасен|вмешательств)/iu.test(instructionText)
+    && /(?:гибел|смертел|смерт|полный тупик|невозможност\p{L}* действовать|уничтож)/iu.test(instructionText)
+  const directMiracleAllowed = immediateMortalDanger && ownerRequestedEmergency
+  const miracleKind = normalized.miracleKind === 'intervention' && !directMiracleAllowed
     ? normalized.category === 'divine' || normalized.originKind === 'deity' ? 'sign' : 'none'
     : normalized.miracleKind
 
@@ -3773,7 +3896,7 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
   reportProgress(report, 24, 'parallel-world', 'Одновременно создаём шесть полных разделов мира', 4, 11, ['Герой и предметы', 'Цивилизации', 'Персонажи', 'Легендарий', 'Сюжет', 'Интерфейс'])
   const generatedSections = await mapWithConcurrency(
     WORLD_GENERATION_STAGES,
-    4,
+    WORLD_GENERATION_STAGES.length,
     (stage) => generateParallelWorldStage(stage, request, concept, manifest),
   )
   let sections = Object.fromEntries(generatedSections) as unknown as GeneratedWorldSections

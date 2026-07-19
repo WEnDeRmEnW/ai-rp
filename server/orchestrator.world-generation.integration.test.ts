@@ -131,7 +131,7 @@ describe('multi-stage world generation', () => {
     const generated = await generateWorld(request)
 
     expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface'])
-    expect(peakWorldSections).toBe(4)
+    expect(peakWorldSections).toBe(6)
     expect(generated).toEqual(completeWorld)
   })
 

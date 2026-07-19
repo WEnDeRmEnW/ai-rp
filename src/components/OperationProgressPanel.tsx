@@ -71,6 +71,7 @@ export function OperationProgressPanel({ progress, compact = false }: { progress
         {progress?.totalSteps ? `Этап ${Math.min(progress.completedSteps ?? 1, progress.totalSteps)} из ${progress.totalSteps}` : ''}
         {elapsed ? `${progress?.totalSteps ? ' · ' : ''}${elapsed}` : ''}
         {progress?.providerCalls ? ` · ИИ-запросов: ${progress.providerCalls}` : ''}
+        {(progress?.peakProviderConcurrency ?? 0) > 1 ? ` · одновременно: ${progress?.peakProviderConcurrency}` : ''}
       </small>}
     </div>
   </div>

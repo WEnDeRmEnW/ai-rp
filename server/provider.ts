@@ -25,6 +25,10 @@ interface CompletionScope {
   cacheHits: number
   providerCalls: number
   providerTimeMs: number
+  activeProviderCalls: number
+  peakProviderConcurrency: number
+  firstProviderStartedAt?: number
+  lastProviderFinishedAt?: number
 }
 
 const completionScopes = new AsyncLocalStorage<CompletionScope>()
@@ -33,6 +37,8 @@ export interface CompletionScopeStats {
   cacheHits: number
   providerCalls: number
   providerTimeMs: number
+  providerWallMs: number
+  peakProviderConcurrency: number
 }
 
 /**
@@ -42,12 +48,23 @@ export interface CompletionScopeStats {
  */
 export async function withCompletionScope<T>(work: () => Promise<T>): Promise<T> {
   if (completionScopes.getStore()) return work()
-  return completionScopes.run({ cache: new Map(), cacheHits: 0, providerCalls: 0, providerTimeMs: 0 }, work)
+  return completionScopes.run({
+    cache: new Map(), cacheHits: 0, providerCalls: 0, providerTimeMs: 0,
+    activeProviderCalls: 0, peakProviderConcurrency: 0,
+  }, work)
 }
 
 export function completionScopeStats(): CompletionScopeStats | undefined {
   const scope = completionScopes.getStore()
-  return scope ? { cacheHits: scope.cacheHits, providerCalls: scope.providerCalls, providerTimeMs: scope.providerTimeMs } : undefined
+  return scope ? {
+    cacheHits: scope.cacheHits,
+    providerCalls: scope.providerCalls,
+    providerTimeMs: scope.providerTimeMs,
+    providerWallMs: scope.firstProviderStartedAt === undefined
+      ? 0
+      : Math.max(0, Math.round((scope.activeProviderCalls > 0 ? performance.now() : scope.lastProviderFinishedAt ?? performance.now()) - scope.firstProviderStartedAt)),
+    peakProviderConcurrency: scope.peakProviderConcurrency,
+  } : undefined
 }
 
 const outputTokensByStage: Record<CompletionStage, number> = {
@@ -260,8 +277,16 @@ async function scopedRequestCompletion(
   }
   const startedAt = performance.now()
   scope.providerCalls += 1
+  scope.activeProviderCalls += 1
+  scope.peakProviderConcurrency = Math.max(scope.peakProviderConcurrency, scope.activeProviderCalls)
+  scope.firstProviderStartedAt ??= startedAt
   const pending = requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback)
-    .finally(() => { scope.providerTimeMs += Math.round(performance.now() - startedAt) })
+    .finally(() => {
+      const finishedAt = performance.now()
+      scope.providerTimeMs += Math.round(finishedAt - startedAt)
+      scope.activeProviderCalls = Math.max(0, scope.activeProviderCalls - 1)
+      scope.lastProviderFinishedAt = finishedAt
+    })
     .catch((error) => {
       scope.cache.delete(key)
       throw error

@@ -117,4 +117,54 @@ describe('campaign workshop event controls', () => {
     expect(proposal?.affectedDomains).toEqual(['scene', 'npc'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('canonicalizes several unknown permanent entities and mislabeled creation operations in one pass', async () => {
+    const campaign = createDemoCampaign()
+    const response = {
+      summary: 'Новая охотница и её печать назначены на следующий ход.',
+      campaignPatch: {},
+      settingsPatch: {},
+      statePatch: {},
+      eventDirective: {
+        delivery: 'next-turn',
+        proposal: {
+          mode: 'manifest', lifecycleStage: 'manifested', concept: 'Охотница приходит с ещё не существовавшей печатью перехода.',
+          category: 'encounter', magnitude: 'notable', miracleKind: 'intervention', originKind: 'multiple',
+          sourceIds: ['npc-workshop-hunter', 'artifact-workshop-seal'], causeIds: ['unknown-rumor'], scopeIds: [], participantIds: ['npc-workshop-hunter'], affectedDomains: ['scene'],
+          knowledgeChannel: 'Герой наблюдает её прибытие.', trigger: 'Охотница завершила самостоятельное расследование.',
+          arrivalMethod: 'Она приходит по существующей дороге.', observableSigns: ['На её ладони видна незнакомая печать.'],
+          immediateEffects: [
+            { domain: 'npc', operation: 'create', requirement: 'Создать новую самостоятельную охотницу.', observable: true, mandatory: true },
+            { domain: 'npc', operation: 'update', requirement: 'Зафиксировать цель новой охотницы исследовать переход.', observable: false, mandatory: true },
+            { domain: 'artifact', operation: 'transform', targetId: 'artifact-workshop-seal', requirement: 'Создать новый постоянный артефакт-печать.', observable: true, mandatory: true },
+            { domain: 'scene', operation: 'update', requirement: 'Показать прибытие, не назначая герою реакцию.', observable: true, mandatory: true },
+          ],
+          persistentEffects: [], counterplay: ['Не вступать в контакт.'], cancellationConditions: ['Охотница откажется от расследования.'],
+          canonReasoning: 'Новые сущности не противоречат миру.', pacingReasoning: 'Событие открывает возможность.', noveltyReasoning: 'Новый мотив и способ появления.', minimumDelay: 0,
+        },
+      },
+    }
+    const fetchMock = vi.fn(async () => providerResponse(response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await editCampaign({
+      campaign,
+      instruction: 'На следующем ходу создай охотницу с новым артефактом.',
+      eventOptions: { delivery: 'next-turn', magnitude: 'notable', category: 'encounter' },
+      provider,
+    })
+
+    const proposal = result.eventDirective?.proposal
+    const createdNpc = proposal?.immediateEffects.find((effect) => effect.domain === 'npc' && effect.operation === 'create')
+    const dependentNpc = proposal?.immediateEffects.find((effect) => effect.domain === 'npc' && effect.requirement.includes('цель'))
+    const createdArtifact = proposal?.immediateEffects.find((effect) => effect.domain === 'artifact')
+    expect(createdNpc?.targetId).toBe('npc-workshop-hunter')
+    expect(dependentNpc).toMatchObject({ operation: 'update', targetId: 'npc-workshop-hunter' })
+    expect(createdArtifact).toMatchObject({ operation: 'create', targetId: 'artifact-workshop-seal' })
+    expect(proposal?.sourceIds).toEqual(['npc-workshop-hunter', 'artifact-workshop-seal'])
+    expect(proposal?.causeIds).toEqual([])
+    expect(proposal?.miracleKind).toBe('none')
+    expect(proposal?.affectedDomains).toEqual(['scene', 'npc', 'artifact'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })

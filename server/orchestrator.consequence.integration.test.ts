@@ -532,6 +532,10 @@ describe('runTurn consequence reconciliation', () => {
     let maximumActiveAuditors = 0
     let activeLatencyStages = 0
     let maximumActiveLatencyStages = 0
+    let activeEarlyStages = 0
+    let maximumActiveEarlyStages = 0
+    let activePlanAndProseStages = 0
+    let maximumActivePlanAndProseStages = 0
 
     const delayedStage = async () => {
       activeLatencyStages += 1
@@ -543,11 +547,24 @@ describe('runTurn consequence reconciliation', () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as CompletionBody
       const system = systemPrompt(body)
-      if (system.includes('скрытый симулятор живого мира')) return providerResponse(JSON.stringify({ signals: [], statePatch: {} }))
-      if (system.includes('режиссёр и строгий распорядитель состояния')) return providerResponse(JSON.stringify({
-        outcome: 'Мира открывает карту безопасного пути.', beats: ['На карте появляется новый маршрут.'], suggestions: ['Изучить путь', 'Спросить Миру об опасностях'], statePatch: {},
-      }))
-      if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse('Мира кладёт карту на стол и ждёт ответа героя.')
+      if (system.includes('скрытый симулятор живого мира') || system.includes('режиссёр и строгий распорядитель состояния')) {
+        activeEarlyStages += 1
+        maximumActiveEarlyStages = Math.max(maximumActiveEarlyStages, activeEarlyStages)
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        activeEarlyStages -= 1
+        if (system.includes('скрытый симулятор живого мира')) return providerResponse(JSON.stringify({ signals: [], statePatch: {} }))
+        return providerResponse(JSON.stringify({
+          outcome: 'Мира открывает карту безопасного пути.', beats: ['На карте появляется новый маршрут.'], suggestions: ['Изучить путь', 'Спросить Миру об опасностях'], statePatch: {},
+        }))
+      }
+      if (system.includes('выдающийся ведущий живой текстовой ролевой игры') || system.includes('аудитор развития способностей')) {
+        activePlanAndProseStages += 1
+        maximumActivePlanAndProseStages = Math.max(maximumActivePlanAndProseStages, activePlanAndProseStages)
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        activePlanAndProseStages -= 1
+        if (system.includes('аудитор развития способностей')) return providerResponse(JSON.stringify({ abilityChanges: [], artifactChanges: [], npcAbilityChanges: [] }))
+        return providerResponse('Мира кладёт карту на стол и ждёт ответа героя.')
+      }
       if (system.includes('строгий редактор непротиворечивости')) {
         await delayedStage()
         return providerResponse(JSON.stringify({ chosen: 'a', pass: true, issues: [], rewriteInstructions: '' }))
@@ -568,9 +585,11 @@ describe('runTurn consequence reconciliation', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await runTurn({ campaign, input: 'Смотрю на карту, пока ничего не решая.', actionType: 'do', provider })
+    await runTurn({ campaign, input: `Осматриваю карту с помощью ${campaign.player.abilities[0].name}, пока ничего больше не решая.`, actionType: 'do', provider })
 
     expect(maximumActiveAuditors).toBe(2)
     expect(maximumActiveLatencyStages).toBe(4)
+    expect(maximumActiveEarlyStages).toBe(2)
+    expect(maximumActivePlanAndProseStages).toBe(2)
   })
 })

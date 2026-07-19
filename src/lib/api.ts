@@ -77,7 +77,11 @@ async function runJob<T>(kind: 'turn' | 'world' | 'edit' | 'question', payload: 
   let recreated = false
   try {
     while (job.status === 'pending') {
-      await abortableDelay(1_250, signal)
+      // A completed model response should appear immediately instead of waiting up to another
+      // 1.25 seconds for the next poll. Job snapshots are tiny and the interval relaxes on long
+      // world builds to avoid unnecessary traffic.
+      const elapsed = job.progress?.elapsedMs ?? 0
+      await abortableDelay(elapsed > 120_000 ? 750 : elapsed > 30_000 ? 500 : 250, signal)
       try {
         job = await fetchJson<JobState<T>>(`/api/jobs/${kind}/${job.id}`, { method: 'GET' }, signal)
         if (job.progress) onProgress?.(job.progress)

@@ -28,6 +28,35 @@ describe('structured provider recovery', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('measures genuinely parallel provider work separately from summed model time', async () => {
+    let started = 0
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const fetchMock = vi.fn(async () => {
+      started += 1
+      if (started === 2) release()
+      await gate
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'Готово.' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const provider = { provider: 'ollama' as const, model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', apiKey: 'test', temperature: 0.8 }
+
+    const stats = await withCompletionScope(async () => {
+      await Promise.all([
+        completeText(provider, [{ role: 'user', content: 'Первая независимая стадия.' }]),
+        completeText(provider, [{ role: 'user', content: 'Вторая независимая стадия.' }]),
+      ])
+      return completionScopeStats()
+    })
+
+    expect(stats).toMatchObject({ providerCalls: 2, cacheHits: 0, peakProviderConcurrency: 2 })
+    expect(stats?.providerWallMs).toBeGreaterThanOrEqual(0)
+    expect(stats?.providerTimeMs).toBeGreaterThanOrEqual(stats?.providerWallMs ?? 0)
+  })
+
   it('uses deterministic temperature and repairs invalid JSON syntax automatically', async () => {
     const bodies: any[] = []
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

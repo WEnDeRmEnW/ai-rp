@@ -67,6 +67,9 @@ export class OperationJobs<T> {
         elapsedMs: job.finishedAt - job.createdAt,
         cacheHits: stats?.cacheHits ?? job.progress.cacheHits,
         providerCalls: stats?.providerCalls ?? job.progress.providerCalls,
+        providerTimeMs: stats?.providerTimeMs ?? job.progress.providerTimeMs,
+        providerWallMs: stats?.providerWallMs ?? job.progress.providerWallMs,
+        peakProviderConcurrency: stats?.peakProviderConcurrency ?? job.progress.peakProviderConcurrency,
       }
     }).catch((cause) => {
       job.status = 'failed'

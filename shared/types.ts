@@ -2361,6 +2361,9 @@ export interface OperationProgress {
   parallelTasks?: string[]
   cacheHits?: number
   providerCalls?: number
+  providerTimeMs?: number
+  providerWallMs?: number
+  peakProviderConcurrency?: number
 }
 
 export interface CampaignEditRequest {
