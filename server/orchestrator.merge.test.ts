@@ -173,6 +173,35 @@ describe('turn patch merging', () => {
     ]))
   })
 
+  it('binds status-effect removals by a unique name and treats an already absent effect as a safe no-op', () => {
+    const campaign = createDemoCampaign()
+    campaign.player.statusEffects = [{
+      id: 'effect-burn',
+      name: 'Ожог ладони',
+      description: 'Поверхностный ожог мешает точным движениям.',
+      category: 'injury',
+      severity: 20,
+      source: 'Раскалённый металл',
+      effects: ['Боль при движении кистью.'],
+      stacks: 1,
+      duration: { unit: 'turns', remaining: 1 },
+      appliedTurn: 1,
+    }]
+    const plan = turnPlanSchema.parse({
+      outcome: 'Ожог проходит после обработки.',
+      beats: ['Ладонь обработана.'],
+      suggestions: ['Продолжить', 'Проверить ладонь'],
+      statePatch: { removeStatusEffectIds: ['Ожог ладони', 'effect-already-gone'] },
+    })
+
+    const sanitized = sanitizePlan(campaign, plan)
+
+    expect(sanitized.plan.statePatch.removeStatusEffectIds).toEqual(['effect-burn'])
+    expect(sanitized.rejections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ blocking: false, message: expect.stringContaining('уже отсутствующего статусного эффекта') }),
+    ]))
+  })
+
   it('rejects unknown world removals and removal of a character outside the party before applying a turn', () => {
     const campaign = createDemoCampaign()
     const npcId = campaign.npcs[0].id

@@ -272,6 +272,8 @@ type ConsequenceDomain = ConsequenceAudit['omissions'][number]['domain']
 type SanitizationRejection = {
   message: string
   domains: ConsequenceDomain[]
+  /** False for an idempotent removal whose target is already absent. */
+  blocking: boolean
 }
 
 function normalizedReference(value: string | undefined) {
@@ -286,10 +288,11 @@ function normalizedReference(value: string | undefined) {
 export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPlanSchema.parse>) {
   const notes: string[] = []
   const rejections: SanitizationRejection[] = []
-  const reject = (message: string, domains: ConsequenceDomain[]) => {
+  const reject = (message: string, domains: ConsequenceDomain[], blocking = true) => {
     notes.push(message)
-    rejections.push({ message, domains })
+    rejections.push({ message, domains, blocking })
   }
+  const rejectStaleRemoval = (message: string, domains: ConsequenceDomain[]) => reject(message, domains, false)
   const sanitizeTechniquePatch = (
     existingTechniqueIds: string[],
     change: {
@@ -310,11 +313,13 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     })
     const beforeRemovals = change.removeTechniqueIds?.length ?? 0
     change.removeTechniqueIds = change.removeTechniqueIds?.filter((techniqueId) => knownTechniqueIds.has(techniqueId))
-    if ((change.techniqueChanges?.length ?? 0) < beforeChanges || (change.removeTechniqueIds?.length ?? 0) < beforeRemovals) {
+    if ((change.techniqueChanges?.length ?? 0) < beforeChanges) {
       reject(`Отклонено изменение неизвестной подспособности: ${ownerLabel}.`, ['abilities', 'artifacts', 'characters'])
     }
+    if ((change.removeTechniqueIds?.length ?? 0) < beforeRemovals) {
+      rejectStaleRemoval(`Пропущено снятие уже отсутствующей подспособности: ${ownerLabel}.`, ['abilities', 'artifacts', 'characters'])
+    }
   }
-  const knownItems = new Set(campaign.inventory.map((item) => item.id))
   const knownStats = new Set([
     ...campaign.player.stats,
     ...(plan.statePatch.upsertStats ?? []),
@@ -345,13 +350,22 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   const usableNpcIds = new Set([...knownNpcs, ...addedNpcIds])
 
   if (plan.statePatch.inventory) {
-    const before = plan.statePatch.inventory.length
-    plan.statePatch.inventory = plan.statePatch.inventory.filter((mutation) => {
-      if (mutation.operation === 'add') return Boolean(mutation.item?.name)
-      if (!mutation.targetId || !knownItems.has(mutation.targetId)) return false
-      return true
+    type ParsedInventoryMutation = NonNullable<typeof plan.statePatch.inventory>[number]
+    plan.statePatch.inventory = plan.statePatch.inventory.flatMap<ParsedInventoryMutation>((mutation) => {
+      if (mutation.operation === 'add') {
+        if (mutation.item?.name) return [mutation]
+        reject('Отклонено неполное добавление предмета.', ['inventory', 'equipment', 'artifacts'])
+        return []
+      }
+      const exactItem = campaign.inventory.find((item) => item.id === mutation.targetId)
+      const normalizedTarget = normalizedReference(mutation.targetId)
+      const nameMatches = exactItem ? [] : campaign.inventory.filter((item) => normalizedReference(item.name) === normalizedTarget)
+      const resolvedItem = exactItem ?? (nameMatches.length === 1 ? nameMatches[0] : undefined)
+      if (resolvedItem) return [{ ...mutation, targetId: resolvedItem.id }]
+      if (mutation.operation === 'remove') rejectStaleRemoval('Пропущено удаление уже отсутствующего предмета.', ['inventory', 'equipment', 'artifacts'])
+      else reject('Отклонено обновление неизвестного предмета.', ['inventory', 'equipment', 'artifacts'])
+      return []
     })
-    if (plan.statePatch.inventory.length < before) reject('Отклонено недопустимое изменение инвентаря.', ['inventory', 'equipment', 'artifacts'])
   }
   if (plan.statePatch.statDeltas) {
     const entries = Object.entries(plan.statePatch.statDeltas)
@@ -429,7 +443,8 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
       return change
     })
     incoming.removeAbilityIds = incoming.removeAbilityIds?.filter((abilityId) => knownNpcAbilityIds.has(abilityId))
-    if (rejectedChanges + rejectedRemovals > 0) reject(`Отклонено изменение неизвестной способности персонажа «${existingNpc.name}».`, ['abilities', 'characters'])
+    if (rejectedChanges > 0) reject(`Отклонено изменение неизвестной способности персонажа «${existingNpc.name}».`, ['abilities', 'characters'])
+    if (rejectedRemovals > 0) rejectStaleRemoval(`Пропущено удаление уже отсутствующей способности персонажа «${existingNpc.name}».`, ['abilities', 'characters'])
 
     const metricReferences = (values: Array<{ key: string; label: string; aliases?: string[] }>) => new Set(values
       .flatMap((metric) => [metric.key, metric.label, ...(metric.aliases ?? [])])
@@ -447,17 +462,29 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     const rejectedResourceRemovalCount = incoming.removeResourceKeys?.filter((key) => !knownNpcResources.has(normalizedReference(key))).length ?? 0
     incoming.removeStatKeys = incoming.removeStatKeys?.filter((key) => knownNpcStats.has(normalizedReference(key)))
     incoming.removeResourceKeys = incoming.removeResourceKeys?.filter((key) => knownNpcResources.has(normalizedReference(key)))
-    if (rejectedStatDeltaCount + rejectedStatRemovalCount > 0) reject(`Отклонено изменение неизвестной характеристики персонажа «${existingNpc.name}».`, ['stats', 'characters'])
-    if (rejectedResourceDeltaCount + rejectedResourceRemovalCount > 0) reject(`Отклонено изменение неизвестного ресурса персонажа «${existingNpc.name}».`, ['health', 'resources', 'characters'])
+    if (rejectedStatDeltaCount > 0) reject(`Отклонено изменение неизвестной характеристики персонажа «${existingNpc.name}».`, ['stats', 'characters'])
+    if (rejectedResourceDeltaCount > 0) reject(`Отклонено изменение неизвестного ресурса персонажа «${existingNpc.name}».`, ['health', 'resources', 'characters'])
+    if (rejectedStatRemovalCount > 0) rejectStaleRemoval(`Пропущено удаление уже отсутствующей характеристики персонажа «${existingNpc.name}».`, ['stats', 'characters'])
+    if (rejectedResourceRemovalCount > 0) rejectStaleRemoval(`Пропущено удаление уже отсутствующего ресурса персонажа «${existingNpc.name}».`, ['health', 'resources', 'characters'])
 
-    const knownNpcEffectIds = new Set((existingNpc.statusEffects ?? []).map((effect) => effect.id))
-    const rejectedEffectRemovals = incoming.removeStatusEffectIds?.filter((effectId) => !knownNpcEffectIds.has(effectId)).length ?? 0
-    incoming.removeStatusEffectIds = incoming.removeStatusEffectIds?.filter((effectId) => knownNpcEffectIds.has(effectId))
-    if (rejectedEffectRemovals > 0) reject(`Отклонено снятие неизвестного эффекта персонажа «${existingNpc.name}».`, ['conditions', 'characters'])
+    if (incoming.removeStatusEffectIds?.length) {
+      const npcEffects = existingNpc.statusEffects ?? []
+      const requestedNpcEffectRemovals = incoming.removeStatusEffectIds
+      const resolvedNpcEffectRemovals = requestedNpcEffectRemovals.flatMap((reference) => {
+        const exact = npcEffects.find((effect) => effect.id === reference)
+        const matches = exact ? [] : npcEffects.filter((effect) => normalizedReference(effect.name) === normalizedReference(reference))
+        const resolved = exact ?? (matches.length === 1 ? matches[0] : undefined)
+        return resolved ? [resolved.id] : []
+      })
+      incoming.removeStatusEffectIds = resolvedNpcEffectRemovals.length ? [...new Set(resolvedNpcEffectRemovals)] : undefined
+      if (resolvedNpcEffectRemovals.length < requestedNpcEffectRemovals.length) {
+        rejectStaleRemoval(`Пропущено снятие уже отсутствующего эффекта персонажа «${existingNpc.name}».`, ['conditions', 'characters'])
+      }
+    }
     const knownKnowledgeIds = new Set((existingNpc.knowledge ?? []).map((fact) => fact.id))
     const rejectedKnowledgeRemovals = incoming.removeKnowledgeIds?.filter((knowledgeId) => !knownKnowledgeIds.has(knowledgeId)).length ?? 0
     incoming.removeKnowledgeIds = incoming.removeKnowledgeIds?.filter((knowledgeId) => knownKnowledgeIds.has(knowledgeId))
-    if (rejectedKnowledgeRemovals > 0) reject(`Отклонено удаление неизвестного знания персонажа «${existingNpc.name}».`, ['knowledge', 'characters'])
+    if (rejectedKnowledgeRemovals > 0) rejectStaleRemoval(`Пропущено удаление уже отсутствующего знания персонажа «${existingNpc.name}».`, ['knowledge', 'characters'])
 
     const incomingRecord = incoming as unknown as Record<string, unknown>
     const ensureCompleteNewObject = (
@@ -491,7 +518,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     const knownLegendIds = new Set((campaign.world.legends ?? []).map((legend) => legend.id))
     const removedLegendCount = worldPatch.removeLegendIds?.length ?? 0
     worldPatch.removeLegendIds = worldPatch.removeLegendIds?.filter((legendId) => knownLegendIds.has(legendId))
-    if ((worldPatch.removeLegendIds?.length ?? 0) < removedLegendCount) reject('Отклонено удаление неизвестной легендарной личности.', ['world', 'characters', 'knowledge'])
+    if ((worldPatch.removeLegendIds?.length ?? 0) < removedLegendCount) rejectStaleRemoval('Пропущено удаление уже отсутствующей легендарной личности.', ['world', 'characters', 'knowledge'])
 
     const thresholds = new Map((worldPatch.legendarium?.thresholds ?? campaign.world.legendarium?.thresholds ?? []).map((threshold) => [threshold.stage, threshold.minRenown]))
     const legendPowerRank = { noncombatant: -2, unknown: -1, minor: 0, capable: 1, dangerous: 2, elite: 3, legendary: 4, mythic: 5 } as const
@@ -546,10 +573,10 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   }
   const unknownRemovedStats = plan.statePatch.removeStatKeys?.filter((key) => !knownStats.has(key.toLocaleLowerCase('ru-RU'))) ?? []
   plan.statePatch.removeStatKeys = plan.statePatch.removeStatKeys?.filter((key) => knownStats.has(key.toLocaleLowerCase('ru-RU')))
-  if (unknownRemovedStats.length) reject(`Нельзя удалить неизвестные характеристики: ${unknownRemovedStats.join(', ')}.`, ['stats'])
+  if (unknownRemovedStats.length) rejectStaleRemoval(`Пропущено удаление уже отсутствующих характеристик: ${unknownRemovedStats.join(', ')}.`, ['stats'])
   const unknownRemovedResources = plan.statePatch.removeResourceKeys?.filter((key) => !knownResources.has(key.toLocaleLowerCase('ru-RU'))) ?? []
   plan.statePatch.removeResourceKeys = plan.statePatch.removeResourceKeys?.filter((key) => knownResources.has(key.toLocaleLowerCase('ru-RU')))
-  if (unknownRemovedResources.length) reject(`Нельзя удалить неизвестные ресурсы: ${unknownRemovedResources.join(', ')}.`, ['health', 'resources'])
+  if (unknownRemovedResources.length) rejectStaleRemoval(`Пропущено удаление уже отсутствующих ресурсов: ${unknownRemovedResources.join(', ')}.`, ['health', 'resources'])
 
   type QuestMutation = NonNullable<typeof plan.statePatch.quests>[number]
   const questReferences: Array<{ id: string; title: string }> = campaign.quests.map((quest) => ({ id: quest.id, title: quest.title }))
@@ -586,7 +613,8 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
       mutation.operation === 'update' ? mutation.quest.title : undefined,
     )
     if (!resolved) {
-      reject(`Отклонено изменение неизвестного задания «${mutation.targetId}».`, ['quests'])
+      if (mutation.operation === 'complete' || mutation.operation === 'fail') rejectStaleRemoval(`Пропущено завершение уже отсутствующего задания «${mutation.targetId}».`, ['quests'])
+      else reject(`Отклонено изменение неизвестного задания «${mutation.targetId}».`, ['quests'])
       continue
     }
     normalizedQuestMutations.push({ ...mutation, targetId: resolved.id })
@@ -594,7 +622,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   plan.statePatch.quests = plan.statePatch.quests ? normalizedQuestMutations : undefined
   const removedAbilityCount = plan.statePatch.removeAbilityIds?.length ?? 0
   plan.statePatch.removeAbilityIds = plan.statePatch.removeAbilityIds?.filter((abilityId) => knownAbilities.has(abilityId))
-  if ((plan.statePatch.removeAbilityIds?.length ?? 0) < removedAbilityCount) reject('Отклонено удаление неизвестной способности.', ['abilities'])
+  if ((plan.statePatch.removeAbilityIds?.length ?? 0) < removedAbilityCount) rejectStaleRemoval('Пропущено удаление уже отсутствующей способности.', ['abilities'])
   const abilityChangeCount = plan.statePatch.abilityChanges?.length ?? 0
   plan.statePatch.abilityChanges = plan.statePatch.abilityChanges?.filter((change) => knownAbilities.has(change.abilityId)).map((change) => {
     if (change.mastery !== undefined && change.masteryDelta !== undefined) {
@@ -650,10 +678,18 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   })
   if ((plan.statePatch.artifactChanges?.length ?? 0) < artifactChangeCount) reject('Отклонено изменение неизвестного особого предмета.', ['artifacts'])
   if (plan.statePatch.removeStatusEffectIds?.length) {
-    const knownEffectIds = new Set((campaign.player.statusEffects ?? []).map((effect) => effect.id))
-    const before = plan.statePatch.removeStatusEffectIds.length
-    plan.statePatch.removeStatusEffectIds = plan.statePatch.removeStatusEffectIds.filter((effectId) => knownEffectIds.has(effectId))
-    if (plan.statePatch.removeStatusEffectIds.length < before) reject('Отклонено снятие неизвестного статусного эффекта.', ['conditions'])
+    const effects = campaign.player.statusEffects ?? []
+    const requested = plan.statePatch.removeStatusEffectIds
+    const resolvedRemovals = requested.flatMap((reference) => {
+      const exact = effects.find((effect) => effect.id === reference)
+      const matches = exact ? [] : effects.filter((effect) => normalizedReference(effect.name) === normalizedReference(reference))
+      const resolved = exact ?? (matches.length === 1 ? matches[0] : undefined)
+      return resolved ? [resolved.id] : []
+    })
+    plan.statePatch.removeStatusEffectIds = resolvedRemovals.length ? [...new Set(resolvedRemovals)] : undefined
+    if (resolvedRemovals.length < requested.length) {
+      rejectStaleRemoval('Пропущено снятие уже отсутствующего статусного эффекта.', ['conditions'])
+    }
   }
   if (plan.statePatch.scene?.presentNpcIds) {
     const before = plan.statePatch.scene.presentNpcIds.length
@@ -790,7 +826,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     ) => {
       if (!values?.length) return values
       const accepted = values.filter(exists)
-      if (accepted.length < values.length) reject(message, ['world'])
+      if (accepted.length < values.length) rejectStaleRemoval(message, ['world'])
       return accepted.length ? accepted : undefined
     }
     worldPatch.removeRules = keepKnown(
@@ -870,7 +906,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
         const removableElementIds = new Set([...currentElementIds, ...upsertedElementIds])
         const acceptedRemovals = (change.removeElementIds ?? []).filter((elementId) => removableElementIds.has(elementId))
         if (acceptedRemovals.length < (change.removeElementIds?.length ?? 0)) {
-          reject('Отклонено удаление неизвестного элемента модуля интерфейса.', ['world'])
+          rejectStaleRemoval('Пропущено удаление неизвестного элемента модуля интерфейса: он уже отсутствует.', ['world'])
         }
         const nextElementIds = new Set([...currentElementIds].filter((elementId) => !acceptedRemovals.includes(elementId)))
         upsertedElementIds.forEach((elementId) => nextElementIds.add(elementId))
@@ -934,7 +970,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   const removedSocialLinkCount = plan.statePatch.removeSocialLinkIds?.length ?? 0
   const knownSocialLinkIds = new Set((campaign.socialLinks ?? []).map((link) => link.id))
   plan.statePatch.removeSocialLinkIds = plan.statePatch.removeSocialLinkIds?.filter((linkId) => knownSocialLinkIds.has(linkId))
-  if ((plan.statePatch.removeSocialLinkIds?.length ?? 0) < removedSocialLinkCount) reject('Отклонено удаление неизвестной социальной связи.', ['relationships', 'characters'])
+  if ((plan.statePatch.removeSocialLinkIds?.length ?? 0) < removedSocialLinkCount) rejectStaleRemoval('Пропущено удаление уже отсутствующей социальной связи.', ['relationships', 'characters'])
   if (plan.statePatch.party) {
     const requestedPartyAdds = plan.statePatch.party.addNpcIds ?? []
     plan.statePatch.party.addNpcIds = requestedPartyAdds.filter((npcId) => {
@@ -947,7 +983,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     const resultingPartyIds = new Set([...(campaign.partyMemberIds ?? []), ...(plan.statePatch.party.addNpcIds ?? [])])
     const requestedPartyRemovals = plan.statePatch.party.removeNpcIds ?? []
     plan.statePatch.party.removeNpcIds = requestedPartyRemovals.filter((npcId) => resultingPartyIds.has(npcId))
-    if ((plan.statePatch.party.removeNpcIds?.length ?? 0) < requestedPartyRemovals.length) reject('Отклонено удаление персонажа, которого нет в отряде.', ['characters', 'relationships'])
+    if ((plan.statePatch.party.removeNpcIds?.length ?? 0) < requestedPartyRemovals.length) rejectStaleRemoval('Пропущено удаление персонажа, которого уже нет в отряде.', ['characters', 'relationships'])
     plan.statePatch.party.removeNpcIds?.forEach((npcId) => resultingPartyIds.delete(npcId))
     if (plan.statePatch.party.roles) {
       plan.statePatch.party.roles = Object.fromEntries(Object.entries(plan.statePatch.party.roles).filter(([npcId]) => usableNpcIds.has(npcId) && resultingPartyIds.has(npcId)))
@@ -1044,7 +1080,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   if ((plan.statePatch.upsertInfluenceAssets?.length ?? 0) < influenceAssetCount) reject('Отклонён ресурс влияния с неизвестным участником.', ['relationships', 'characters'])
   const removedInfluenceCount = plan.statePatch.removeInfluenceAssetIds?.length ?? 0
   plan.statePatch.removeInfluenceAssetIds = plan.statePatch.removeInfluenceAssetIds?.filter((assetId) => campaign.influenceAssets?.some((asset) => asset.id === assetId))
-  if ((plan.statePatch.removeInfluenceAssetIds?.length ?? 0) < removedInfluenceCount) reject('Отклонено удаление неизвестного ресурса влияния.', ['relationships'])
+  if ((plan.statePatch.removeInfluenceAssetIds?.length ?? 0) < removedInfluenceCount) rejectStaleRemoval('Пропущено удаление уже отсутствующего ресурса влияния.', ['relationships'])
   if (plan.statePatch.cleanup) {
     plan.statePatch.cleanup.quests = plan.statePatch.cleanup.quests?.map((entry) => {
       const resolved = resolveQuestReference(entry.targetId)
@@ -1069,7 +1105,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     ;(Object.keys(validTargets) as Array<keyof typeof validTargets>).forEach((key) => {
       const before = plan.statePatch.cleanup?.[key]?.length ?? 0
       if (plan.statePatch.cleanup) plan.statePatch.cleanup[key] = plan.statePatch.cleanup[key]?.filter((entry) => validTargets[key].has(entry.targetId))
-      if ((plan.statePatch.cleanup?.[key]?.length ?? 0) < before) reject(`Отклонена очистка неизвестной записи: ${key}.`, cleanupDomains[key])
+      if ((plan.statePatch.cleanup?.[key]?.length ?? 0) < before) rejectStaleRemoval(`Пропущена очистка уже отсутствующей записи: ${key}.`, cleanupDomains[key])
     })
   }
   return { plan, notes, rejections }
@@ -1081,7 +1117,7 @@ function blockingRejectionMessages(
 ) {
   const requiredDomains = new Set(omissions.map((omission) => omission.domain))
   return [...new Set(sanitized.rejections
-    .filter((rejection) => rejection.domains.some((domain) => requiredDomains.has(domain)))
+    .filter((rejection) => rejection.blocking && rejection.domains.some((domain) => requiredDomains.has(domain)))
     .map((rejection) => rejection.message))]
 }
 

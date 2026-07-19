@@ -422,7 +422,7 @@ describe('runTurn consequence reconciliation', () => {
     expect(result.statePatch.quests).toEqual([{ operation: 'complete', targetId: quest.id }])
   })
 
-  it('accepts a clean repeat audit after an unresolvable quest mutation is withdrawn', async () => {
+  it('treats completion of an already absent quest as an idempotent no-op', async () => {
     const campaign = createDemoCampaign()
     campaign.settings.qualityMode = 'balanced'
     let auditCalls = 0
@@ -462,7 +462,7 @@ describe('runTurn consequence reconciliation', () => {
 
     const result = await runTurn({ campaign, input: 'Осматриваю зал, не принимая новых обязательств.', actionType: 'do', provider })
 
-    expect(auditCalls).toBe(2)
+    expect(auditCalls).toBe(1)
     expect(result.statePatch.quests ?? []).toEqual([])
   })
 
