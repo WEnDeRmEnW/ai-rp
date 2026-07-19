@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { OperationProgress } from '../shared/types.js'
+import { completionScopeStats, withCompletionScope } from './provider.js'
 
 export type OperationJobSnapshot<T> =
   | { id: string; status: 'pending'; createdAt: number; progress: OperationProgress }
@@ -45,10 +46,23 @@ export class OperationJobs<T> {
       if (Math.round(progress.percent) < job.progress.percent) return
       job.progress = { ...progress, percent: Math.max(job.progress.percent, Math.min(99, Math.round(progress.percent))) }
     }
-    void Promise.resolve().then(() => work(report)).then((result) => {
+    void Promise.resolve().then(() => withCompletionScope(async () => {
+      const result = await work(report)
+      return { result, stats: completionScopeStats() }
+    })).then(({ result, stats }) => {
       job.status = 'complete'
       job.result = result
-      job.progress = { percent: 100, stage: 'complete', detail: 'Готово', completedSteps: job.progress.totalSteps, totalSteps: job.progress.totalSteps }
+      job.progress = {
+        ...job.progress,
+        percent: 100,
+        stage: 'complete',
+        detail: 'Готово',
+        completedSteps: job.progress.totalSteps,
+        totalSteps: job.progress.totalSteps,
+        elapsedMs: Date.now() - job.createdAt,
+        cacheHits: stats?.cacheHits ?? job.progress.cacheHits,
+        providerCalls: stats?.providerCalls ?? job.progress.providerCalls,
+      }
     }).catch((cause) => {
       job.status = 'failed'
       job.error = cause instanceof Error ? cause.message : String(cause)

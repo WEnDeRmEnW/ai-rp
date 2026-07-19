@@ -1,4 +1,6 @@
 import type { ProviderConfig } from '../shared/types.js'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { createHash } from 'node:crypto'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -16,6 +18,36 @@ interface CompletionResult {
   content: string
   finishReason?: string
   truncated: boolean
+}
+
+interface CompletionScope {
+  cache: Map<string, Promise<CompletionResult>>
+  cacheHits: number
+  providerCalls: number
+  providerTimeMs: number
+}
+
+const completionScopes = new AsyncLocalStorage<CompletionScope>()
+
+export interface CompletionScopeStats {
+  cacheHits: number
+  providerCalls: number
+  providerTimeMs: number
+}
+
+/**
+ * Gives one user operation an isolated content-addressed completion cache. Identical
+ * requests inside the same turn/world build share the in-flight promise, while a new
+ * user operation always gets a fresh scope and can intentionally regenerate prose.
+ */
+export async function withCompletionScope<T>(work: () => Promise<T>): Promise<T> {
+  if (completionScopes.getStore()) return work()
+  return completionScopes.run({ cache: new Map(), cacheHits: 0, providerCalls: 0, providerTimeMs: 0 }, work)
+}
+
+export function completionScopeStats(): CompletionScopeStats | undefined {
+  const scope = completionScopes.getStore()
+  return scope ? { cacheHits: scope.cacheHits, providerCalls: scope.providerCalls, providerTimeMs: scope.providerTimeMs } : undefined
 }
 
 const outputTokensByStage: Record<CompletionStage, number> = {
@@ -188,6 +220,56 @@ async function requestCompletion(
   }
 }
 
+function completionCacheKey(
+  configInput: ProviderConfig,
+  messages: ChatMessage[],
+  jsonMode: boolean,
+  maxOutputTokens: number | undefined,
+  retryWithoutJson: boolean,
+  tokenLimitFallback: TokenLimitFallback,
+) {
+  const config = resolveConfig(configInput)
+  return createHash('sha256').update(JSON.stringify({
+    provider: config.provider,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    temperature: jsonMode ? 0 : config.temperature,
+    messages,
+    jsonMode,
+    maxOutputTokens,
+    retryWithoutJson,
+    tokenLimitFallback,
+  })).digest('hex')
+}
+
+async function scopedRequestCompletion(
+  config: ProviderConfig,
+  messages: ChatMessage[],
+  jsonMode: boolean,
+  maxOutputTokens: number | undefined,
+  retryWithoutJson = true,
+  tokenLimitFallback: TokenLimitFallback = 'reduce',
+): Promise<CompletionResult> {
+  const scope = completionScopes.getStore()
+  if (!scope) return requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback)
+  const key = completionCacheKey(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback)
+  const cached = scope.cache.get(key)
+  if (cached) {
+    scope.cacheHits += 1
+    return cached
+  }
+  const startedAt = performance.now()
+  scope.providerCalls += 1
+  const pending = requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback)
+    .finally(() => { scope.providerTimeMs += Math.round(performance.now() - startedAt) })
+    .catch((error) => {
+      scope.cache.delete(key)
+      throw error
+    })
+  scope.cache.set(key, pending)
+  return pending
+}
+
 function extractJson(text: string): unknown {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
   try {
@@ -206,7 +288,7 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   let maxOutputTokens = outputLimit(messages, true, options)
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await requestCompletion(config, repairMessages, true, maxOutputTokens)
+    const completion = await scopedRequestCompletion(config, repairMessages, true, maxOutputTokens)
     const raw = completion.content
     if (completion.truncated) {
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
@@ -245,7 +327,7 @@ export async function completeText(config: ProviderConfig, messages: ChatMessage
   let finishReason = 'length'
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await requestCompletion(config, retryMessages, false, maxOutputTokens)
+    const completion = await scopedRequestCompletion(config, retryMessages, false, maxOutputTokens)
     if (!completion.truncated) return completion.content
     finishReason = completion.finishReason ?? finishReason
     maxOutputTokens = expandedOutputLimit(maxOutputTokens)

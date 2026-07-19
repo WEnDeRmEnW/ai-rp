@@ -2,7 +2,7 @@ import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEdit
 import { randomUUID } from 'node:crypto'
 import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, normalizeEventDirectorState, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
-import { completeJson, completeText } from './provider.js'
+import { completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
 import { agencyRevisionPrompt, abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
 import { agencyAuditSchema, abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema, type AbilityQualityReview, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldQualityReview } from './schemas.js'
@@ -16,8 +16,40 @@ import { abilityExecutionIssues, abilityNoveltyIssues, abilityNoveltyScore, abil
 
 type ProgressReporter = (progress: OperationProgress) => void
 
-function reportProgress(report: ProgressReporter | undefined, percent: number, stage: string, detail: string, completedSteps?: number, totalSteps?: number) {
-  report?.({ percent, stage, detail, completedSteps, totalSteps })
+interface ProgressClock {
+  startedAt: number
+  lastReportedAt: number
+}
+
+const progressClocks = new WeakMap<ProgressReporter, ProgressClock>()
+
+function reportProgress(
+  report: ProgressReporter | undefined,
+  percent: number,
+  stage: string,
+  detail: string,
+  completedSteps?: number,
+  totalSteps?: number,
+  parallelTasks?: string[],
+) {
+  if (!report) return
+  const now = performance.now()
+  const clock = progressClocks.get(report) ?? { startedAt: now, lastReportedAt: now }
+  const providerStats = completionScopeStats()
+  report({
+    percent,
+    stage,
+    detail,
+    completedSteps,
+    totalSteps,
+    elapsedMs: Math.round(now - clock.startedAt),
+    stageElapsedMs: Math.round(now - clock.lastReportedAt),
+    parallelTasks,
+    cacheHits: providerStats?.cacheHits,
+    providerCalls: providerStats?.providerCalls,
+  })
+  clock.lastReportedAt = now
+  progressClocks.set(report, clock)
 }
 
 function capabilitySystemCandidate(
@@ -2151,6 +2183,8 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     return parseWithRepair(rawPlan, turnPlanSchema, request.provider, director.messages, salvageTurnPlan)
   }
   let validPlan = await createPlan()
+  const reviewedArtifactSignatures = new Set<string>()
+  const reviewedAbilitySignatures = new Set<string>()
 
   const enforceArtifactQuality = async (initialPlan: ReturnType<typeof turnPlanSchema.parse>) => {
     let plan = initialPlan
@@ -2213,6 +2247,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       const mutation = inventory[index]
       if (mutation?.operation !== 'add' || mutation.item.category !== 'artifact') continue
       let current = mutation.item
+      const initialSignature = JSON.stringify(artifactCandidate(current, request.campaign.turn))
+      if (reviewedArtifactSignatures.has(initialSignature)) {
+        workingRegistry = updateArtifactRegistry(workingRegistry, artifactCandidate(current, request.campaign.turn), 'active', request.campaign.turn)
+        continue
+      }
       const identity = { id: plannedArtifactId(current), name: current.name, origin: current.origin }
       const currentCandidateId = artifactCandidate(current, request.campaign.turn).id
       const registry = workingRegistry.filter((entry) => entry.artifactId !== currentCandidateId)
@@ -2262,6 +2301,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       }
       inventory[index] = { operation: 'add', item: best }
       workingRegistry = updateArtifactRegistry(workingRegistry, artifactCandidate(best, request.campaign.turn), 'active', request.campaign.turn)
+      reviewedArtifactSignatures.add(JSON.stringify(artifactCandidate(best, request.campaign.turn)))
     }
 
     plan = turnPlanSchema.parse({ ...plan, statePatch: { ...plan.statePatch, inventory } })
@@ -2326,6 +2366,12 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       strengths: [], issues: [], verdict: issues.length ? 'repair' : 'good',
     })
     const processRef = async (ref: AbilityRef, registry: NonNullable<Campaign['abilityRegistry']>) => {
+      const initialSignature = JSON.stringify({
+        ownerKind: ref.ownerKind,
+        ownerId: ref.ownerId,
+        ability: abilityStateCandidate(ref.ability, request.campaign.turn),
+      })
+      if (reviewedAbilitySignatures.has(initialSignature)) return { ref, ability: ref.ability }
       let current = ref.ability
       let issues = newAbilityQualityIssues(current, systemDraft, request.campaign.world.capabilitySystem, ref.resources, registry, request.campaign.turn)
       let review = fallbackReview(issues)
@@ -2365,6 +2411,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       if (bestIssues.length) console.warn(`[ability-quality] Best structurally safe variant retained for ${best.name}: ${bestIssues.join(' ')}`)
       const remainingHardIssues = hardAbilityQualityIssues(best, systemDraft, request.campaign.world.capabilitySystem, ref.resources, request.campaign.turn)
       if (remainingHardIssues.length) throw new Error(`Новая способность «${best.name}» не прошла обязательную механическую проверку: ${remainingHardIssues.join(' ')}`)
+      reviewedAbilitySignatures.add(JSON.stringify({
+        ownerKind: ref.ownerKind,
+        ownerId: ref.ownerId,
+        ability: abilityStateCandidate(best, request.campaign.turn),
+      }))
       return { ref, ability: best }
     }
 
@@ -2537,38 +2588,78 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     chosenDraft,
   )
 
-  const agencyAuditNotes: string[] = []
-  let agencyPassed = false
-  for (let agencyAttempt = 0; agencyAttempt < 3; agencyAttempt += 1) {
+  const requestAgencyAudit = async (candidateNarrative: string) => {
     const deterministicViolations = findAgencyViolations({
       playerName: request.campaign.player.name,
       input: request.input,
       actionType: request.actionType,
-      narrative,
+      narrative: candidateNarrative,
       agencyMode: request.campaign.settings.playerAgency,
     })
-    reportProgress(report, 70 + agencyAttempt * 2, 'agency-audit', agencyAttempt === 0
-      ? 'Проверяем, что герой принадлежит только игроку'
-      : `Убираем присвоенные герою решения: попытка ${agencyAttempt + 1}`, 8, 11)
     const auditMessages = playerAgencyAuditorPrompt(
       request.campaign,
       request.input,
       request.actionType,
       sanitized.plan,
-      narrative,
+      candidateNarrative,
       deterministicViolations,
     )
     const fallbackAgencyAudit: AgencyAudit = {
       pass: deterministicViolations.length === 0,
       violations: deterministicViolations,
     }
-    const agencyAudit = await optionalStage<AgencyAudit>('agency-audit', async () => {
+    const audit = await optionalStage<AgencyAudit>('agency-audit', async () => {
       const rawAgencyAudit = await completeJson(request.provider, auditMessages)
       return parseWithRepair<AgencyAudit>(rawAgencyAudit, agencyAuditSchema, request.provider, auditMessages)
     }, fallbackAgencyAudit)
-    const violations = [...deterministicViolations, ...agencyAudit.violations].filter((violation, index, all) => (
+    const violations = [...deterministicViolations, ...audit.violations].filter((violation, index, all) => (
       all.findIndex((candidate) => candidate.kind === violation.kind && candidate.evidence === violation.evidence) === index
     ))
+    return { audit, violations }
+  }
+
+  const requestConsequenceAudit = async (
+    plan: ReturnType<typeof turnPlanSchema.parse>,
+    candidateNarrative: string,
+  ) => {
+    const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, plan, candidateNarrative, check)
+    const rawAudit = await completeJson(request.provider, auditMessages)
+    return parseWithRepair<ConsequenceAudit>(rawAudit, consequenceAuditSchema, request.provider, auditMessages)
+  }
+
+  const requestMemoryCurator = async (
+    plan: ReturnType<typeof turnPlanSchema.parse>,
+    candidateNarrative: string,
+  ) => {
+    const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, candidateNarrative, plan)
+    const emptyCurator: ReturnType<typeof memoryCuratorSchema.parse> = { memories: [], archives: [] }
+    return optionalStage('memory', async () => {
+      const rawCurator = await completeJson(request.provider, curatorMessages)
+      return parseWithRepair(rawCurator, memoryCuratorSchema, request.provider, curatorMessages, () => emptyCurator)
+    }, emptyCurator)
+  }
+
+  // These audits only read the same finalized draft and plan. Running their first pass
+  // together removes one full provider round-trip without weakening either check. A result
+  // is reused only while both the prose and state plan are still exactly the audited version.
+  const initiallyAuditedNarrative = narrative
+  const initiallyAuditedPlanFingerprint = JSON.stringify(sanitized.plan)
+  reportProgress(report, 69, 'parallel-audit', 'Одновременно сверяем сцену, последствия и долгую память', 8, 11, ['Свобода героя', '17 областей состояния', 'Долгая память'])
+  const [initialAgencyResult, initialConsequenceAudit, initialCurator] = await Promise.all([
+    requestAgencyAudit(initiallyAuditedNarrative),
+    requestConsequenceAudit(sanitized.plan, initiallyAuditedNarrative),
+    requestMemoryCurator(sanitized.plan, initiallyAuditedNarrative),
+  ])
+
+  const agencyAuditNotes: string[] = []
+  let agencyPassed = false
+  for (let agencyAttempt = 0; agencyAttempt < 3; agencyAttempt += 1) {
+    reportProgress(report, 70 + agencyAttempt * 2, 'agency-audit', agencyAttempt === 0
+      ? 'Проверяем, что герой принадлежит только игроку'
+      : `Убираем присвоенные герою решения: попытка ${agencyAttempt + 1}`, 8, 11)
+    const { audit: agencyAudit, violations } = agencyAttempt === 0 && narrative === initiallyAuditedNarrative
+      ? initialAgencyResult
+      : await requestAgencyAudit(narrative)
     agencyAuditNotes.push(...violations.map((violation) => `Агентность ${violation.kind}: ${violation.reason}`))
     if (agencyAudit.pass && violations.length === 0) {
       agencyPassed = true
@@ -2600,9 +2691,9 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   // own scene, rewrite the prose and audit the corrected result again before committing anything.
   for (let narrativeAttempt = 0; narrativeAttempt < 3; narrativeAttempt += 1) {
     reportProgress(report, 76 + narrativeAttempt * 5, 'consequence-audit', narrativeAttempt === 0 ? 'Проверяем все 17 областей состояния' : `Исправляем пропущенные последствия: попытка ${narrativeAttempt + 1}`, 9, 11)
-    const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, reconciled.plan, narrative, check)
-    const rawAudit = await completeJson(request.provider, auditMessages)
-    consequenceAudit = await parseWithRepair<ConsequenceAudit>(rawAudit, consequenceAuditSchema, request.provider, auditMessages)
+    consequenceAudit = narrativeAttempt === 0 && narrative === initiallyAuditedNarrative
+      ? initialConsequenceAudit
+      : await requestConsequenceAudit(reconciled.plan, narrative)
     repairedOmissions.push(...consequenceAudit.omissions)
     narrativeAuditNotes.push(...consequenceAudit.narrativeIssues.map((issue) => `${issue.severity}: ${issue.requirement}`))
     reconciled.plan.statePatch = mergeAuditPatch(reconciled.plan.statePatch, consequenceAudit.statePatch) as typeof reconciled.plan.statePatch
@@ -2687,11 +2778,9 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
 
   reportProgress(report, 93, 'memory', 'Закрепляем факты и долгую память истории', 10, 11)
-  const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, narrative, reconciled.plan)
-  const curator = await optionalStage('memory', async () => {
-    const rawCurator = await completeJson(request.provider, curatorMessages)
-    return parseWithRepair(rawCurator, memoryCuratorSchema, request.provider, curatorMessages, () => ({ memories: [], archives: [] }))
-  }, { memories: [], archives: [] })
+  const curator = narrative === initiallyAuditedNarrative && JSON.stringify(reconciled.plan) === initiallyAuditedPlanFingerprint
+    ? initialCurator
+    : await requestMemoryCurator(reconciled.plan, narrative)
   if (curator.cleanup) {
     const safeCleanup = protectNarrativeEventCleanup(curator.cleanup, eventDecision)
     reconciled.plan.statePatch = mergePatches(reconciled.plan.statePatch, { cleanup: safeCleanup }) as typeof reconciled.plan.statePatch
@@ -3283,6 +3372,21 @@ function qualityRepairStages(review: WorldQualityReview): WorldGenerationStage[]
   return stages.size ? [...stages] : ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
 }
 
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (!items.length) return []
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await worker(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {
   reportProgress(report, 3, 'concept', 'Разбираем замысел, героя и ограничения', 1, 11)
   if (request.provider.provider === 'demo') {
@@ -3329,7 +3433,6 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
   const maxRewrites = 2
 
   for (let attempt = 0; attempt <= maxRewrites; attempt += 1) {
-    reportProgress(report, 88 + attempt * 3, 'quality', attempt === 0 ? 'Проверяем полноту, канон и глубину мира' : `Перепроверяем точечно улучшенные разделы: проход ${attempt + 1}`, 10, 11)
     const reviewMessages = worldQualityCriticPrompt(request, concept, world)
     const fallbackReview: WorldQualityReview = {
       pass: true,
@@ -3340,14 +3443,14 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
       constraintAudit: [],
       rewriteInstructions: '',
     }
-    const review = await optionalStage<WorldQualityReview>('world-quality', async () => {
+    const artifactQuality = generatedWorldArtifactQuality(world)
+    const artifactItems = world.inventory.filter((item) => item.category === 'artifact' && item.artifact)
+    reportProgress(report, 88 + attempt * 3, 'quality', attempt === 0 ? 'Параллельно проверяем весь мир и каждый особый предмет' : `Параллельно перепроверяем мир и улучшенные предметы: проход ${attempt + 1}`, 10, 11, artifactItems.length ? ['Целостность мира', `Артефакты: ${artifactItems.length}`] : ['Целостность мира'])
+    const reviewPromise = optionalStage<WorldQualityReview>('world-quality', async () => {
       const rawReview = await completeJson(request.provider, reviewMessages)
       return parseWithRepair<WorldQualityReview>(rawReview, worldQualityReviewSchema, request.provider, reviewMessages)
     }, fallbackReview)
-    const artifactQuality = generatedWorldArtifactQuality(world)
-    const artifactCriticIssues = (await Promise.all(world.inventory
-      .filter((item) => item.category === 'artifact' && item.artifact)
-      .map(async (item) => {
+    const artifactCriticPromise = mapWithConcurrency(artifactItems, 3, async (item) => {
         try {
           const messages = artifactQualityCriticPrompt(
             item,
@@ -3361,7 +3464,9 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
         } catch {
           return []
         }
-      }))).flat()
+      })
+    const [review, artifactCriticGroups] = await Promise.all([reviewPromise, artifactCriticPromise])
+    const artifactCriticIssues = artifactCriticGroups.flat()
     const accessIssues = startingAccessIssues(concept, world)
     const artifactIssues = [...new Set([...artifactQuality.issues, ...artifactCriticIssues])]
     const abilityQuality = generatedWorldAbilityQuality(world)

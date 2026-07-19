@@ -1,9 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { completeJson, completeText } from './provider'
+import { completeJson, completeText, completionScopeStats, withCompletionScope } from './provider'
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('structured provider recovery', () => {
+  it('shares identical in-flight completions only inside one user operation', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const provider = { provider: 'ollama' as const, model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', apiKey: 'test', temperature: 0.8 }
+    const messages = [{ role: 'user' as const, content: 'Верни тот же JSON.' }]
+
+    const firstScope = await withCompletionScope(async () => {
+      const results = await Promise.all([
+        completeJson(provider, messages),
+        completeJson(provider, messages),
+      ])
+      return { results, stats: completionScopeStats() }
+    })
+
+    expect(firstScope.results).toEqual([{ ok: true }, { ok: true }])
+    expect(firstScope.stats).toMatchObject({ cacheHits: 1, providerCalls: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await withCompletionScope(() => completeJson(provider, messages))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('uses deterministic temperature and repairs invalid JSON syntax automatically', async () => {
     const bodies: any[] = []
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

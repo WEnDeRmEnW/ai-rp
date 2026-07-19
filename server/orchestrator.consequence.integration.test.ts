@@ -524,4 +524,37 @@ describe('runTurn consequence reconciliation', () => {
     expect(criticUser).toContain('recent-paragraph')
     expect(criticUser).toContain('В пентхаусе тихо')
   })
+
+  it('runs the independent agency and consequence audits concurrently', async () => {
+    const campaign = createDemoCampaign()
+    campaign.settings.qualityMode = 'balanced'
+    let activeAuditors = 0
+    let maximumActiveAuditors = 0
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = systemPrompt(body)
+      if (system.includes('скрытый симулятор живого мира')) return providerResponse(JSON.stringify({ signals: [], statePatch: {} }))
+      if (system.includes('режиссёр и строгий распорядитель состояния')) return providerResponse(JSON.stringify({
+        outcome: 'Мира открывает карту безопасного пути.', beats: ['На карте появляется новый маршрут.'], suggestions: ['Изучить путь', 'Спросить Миру об опасностях'], statePatch: {},
+      }))
+      if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse('Мира кладёт карту на стол и ждёт ответа героя.')
+      if (system.includes('строгий редактор непротиворечивости')) return providerResponse(JSON.stringify({ chosen: 'a', pass: true, issues: [], rewriteInstructions: '' }))
+      if (system.includes('аудитор свободы игрока') || system.includes('последний обязательный аудитор причин и последствий')) {
+        activeAuditors += 1
+        maximumActiveAuditors = Math.max(maximumActiveAuditors, activeAuditors)
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        activeAuditors -= 1
+        if (system.includes('аудитор свободы игрока')) return providerResponse(JSON.stringify({ pass: true, violations: [] }))
+        return providerResponse(JSON.stringify({ pass: true, narrativePass: true, narrativeIssues: [], verifiedDomains: consequenceDomains, omissions: [], statePatch: {} }))
+      }
+      if (system.includes('архивариус очень долгой ролевой кампании')) return providerResponse(JSON.stringify({ memories: [], archives: [] }))
+      return new Response(`Unexpected completion stage: ${system.slice(0, 120)}`, { status: 418 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await runTurn({ campaign, input: 'Смотрю на карту, пока ничего не решая.', actionType: 'do', provider })
+
+    expect(maximumActiveAuditors).toBe(2)
+  })
 })

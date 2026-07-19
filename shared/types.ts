@@ -2356,6 +2356,11 @@ export interface OperationProgress {
   detail: string
   completedSteps?: number
   totalSteps?: number
+  elapsedMs?: number
+  stageElapsedMs?: number
+  parallelTasks?: string[]
+  cacheHits?: number
+  providerCalls?: number
 }
 
 export interface CampaignEditRequest {

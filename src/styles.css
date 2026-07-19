@@ -1138,6 +1138,8 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .operation-progress__copy strong { font: 650 13px/1.2 var(--sans); color: var(--text); }
 .operation-progress__copy span { font: 700 12px/1 var(--sans); color: var(--accent); }
 .operation-progress__copy p { margin: 5px 0 8px; color: var(--muted); font: 500 12px/1.35 var(--sans); }
+.operation-progress__parallel { display: flex; flex-wrap: wrap; gap: 5px; margin: -2px 0 8px; }
+.operation-progress__parallel span { padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); color: var(--muted); font: 600 9px/1.1 var(--sans); }
 .operation-progress__copy small { display: block; margin-top: 6px; color: var(--faint); font: 500 10px/1 var(--sans); }
 .operation-progress__track { height: 4px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--border) 75%, transparent); }
 .operation-progress__track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent-strong)); transition: width .45s ease; box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent); }

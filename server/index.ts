@@ -15,6 +15,7 @@ import { OperationJobs } from './operation-jobs.js'
 import { answerWorldQuestion, editCampaign, runTurn, generateWorld } from './orchestrator.js'
 import { campaignEditRequestSchema, turnRequestSchema, worldQuestionRequestSchema, worldRequestSchema } from './schemas.js'
 import { normalizeWorld } from './world-normalizer.js'
+import { withCompletionScope } from './provider.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -134,7 +135,7 @@ app.delete('/api/jobs/question/:id', (req, res) => res.status(questionJobs.forge
 app.post('/api/turn', async (req, res, next) => {
   try {
     const parsed = turnRequestSchema.parse(req.body)
-    const result = await runTurn(parsed as any)
+    const result = await withCompletionScope(() => runTurn(parsed as any))
     res.json(result)
   } catch (error) {
     next(error)
@@ -144,7 +145,7 @@ app.post('/api/turn', async (req, res, next) => {
 app.post('/api/worlds/generate', async (req, res, next) => {
   try {
     const request = worldRequestSchema.parse(req.body)
-    const generated = await generateWorld(request)
+    const generated = await withCompletionScope(() => generateWorld(request))
     res.json(normalizeWorld(generated, request))
   } catch (error) {
     next(error)
