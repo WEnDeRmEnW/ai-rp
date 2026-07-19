@@ -11,6 +11,7 @@ import type {
   Campaign,
   TurnPatch,
 } from './types.js'
+import { grantedItemAbilities } from './effective-abilities.js'
 
 const abilitySections: AbilityProfileSection[] = [
   'identity', 'principle', 'source', 'standing', 'facets', 'availability', 'techniques', 'counterplay', 'progression', 'history',
@@ -262,6 +263,11 @@ export function abilityExecutionIssues(
   const issues: string[] = []
   const executions = receipts ?? []
   const expectedCosts = new Map<string, number>()
+  // Item powers deliberately live only in the canonical inventory record. The UI,
+  // prompts and action resolver expose them as projected abilities, so execution
+  // validation must use that same projection instead of checking player.abilities
+  // alone. This keeps an artifact upgrade/loss authoritative without duplicating it.
+  const grantedPlayerAbilities = grantedItemAbilities(campaign)
   executions.forEach((receipt, index) => {
     const addedNpc = patch.npcs?.find((mutation) => mutation.operation === 'add' && mutation.npc.id === receipt.ownerId)
     const updatedNpcAbilities = patch.npcs
@@ -281,11 +287,18 @@ export function abilityExecutionIssues(
     const plannedNpcAbilities = receipt.ownerKind === 'npc'
       ? [...(addedNpc?.npc.abilities ?? []), ...updatedNpcAbilities]
       : []
+    const grantedItemAbility = receipt.ownerKind === 'player'
+      ? grantedPlayerAbilities.find((entry) => entry.ability.id === receipt.abilityId)
+      : undefined
     const ability = owner.abilities?.find((candidate) => candidate.id === receipt.abilityId)
       ?? [...plannedPlayerAbilities, ...plannedNpcAbilities].find((candidate) => candidate.id === receipt.abilityId)
+      ?? grantedItemAbility?.ability
     if (!ability) {
       issues.push(`abilityExecutions[${index}]: способность ${receipt.abilityId} не принадлежит владельцу.`)
       return
+    }
+    if (grantedItemAbility && !grantedItemAbility.available && receipt.outcome !== 'blocked') {
+      issues.push(`abilityExecutions[${index}]: сила предмета ${ability.name} сейчас недоступна: ${grantedItemAbility.blockers.join('; ')}.`)
     }
     const technique = receipt.techniqueId ? ability.techniques?.find((candidate) => candidate.id === receipt.techniqueId) : undefined
     if (receipt.techniqueId && !technique) issues.push(`abilityExecutions[${index}]: техника ${receipt.techniqueId} не существует в ${ability.name}.`)

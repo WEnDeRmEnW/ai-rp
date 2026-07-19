@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Ability, AbilityProfile, WorldCapabilitySystem } from './types'
+import type { Ability, AbilityProfile, InventoryItem, WorldCapabilitySystem } from './types'
 import { abilityExecutionIssues, abilityNoveltyIssues, abilityProfileIssues, visibleAbilityTechniques } from './abilities'
 import { createDemoCampaign } from '../src/lib/demo'
 
@@ -94,6 +94,82 @@ describe('authorial ability mechanics', () => {
     ability.techniques![0].availability = { state: 'blocked', reasons: ['Нет прямого контакта.'] }
     const invalid = abilityExecutionIssues(campaign, [{ ownerKind: 'player', ownerId: campaign.player.id, abilityId: ability.id, techniqueId: 'tech-listen', intent: 'Развести голоса на расстоянии.', outcome: 'success', costs: [{ resource: 'focus', amount: 2 }], requirementsUsed: [], effects: ['Приём всё равно сработал.'], evidence: 'Противоречивый текст.' }], { resourceDeltas: { focus: -2 } })
     expect(invalid.join(' ')).toContain('availability=blocked')
+  })
+
+  it('accepts an equipped artifact power as belonging to the player', () => {
+    const campaign = createDemoCampaign()
+    const item: InventoryItem = {
+      id: 'artifact-execution',
+      name: 'Execution Crown',
+      description: 'A crown that projects a controlled spatial seam.',
+      category: 'artifact',
+      quantity: 1,
+      rarity: 'mythic',
+      equipped: true,
+      effects: [],
+      discoveredTurn: 1,
+      artifact: {
+        sentient: false,
+        awakened: true,
+        mastery: 70,
+        attunement: 70,
+        bond: 0,
+        requirements: [],
+        passiveEffects: [],
+        combinedEffects: [],
+        failureModes: [],
+        components: [],
+        powers: [{
+          id: 'seam-power',
+          name: 'Spatial Seam',
+          description: 'Opens a short seam between two visible points.',
+          mastery: 70,
+          costs: [{ resource: 'focus', amount: 2 }],
+          limitations: [],
+          category: 'space',
+          capabilities: ['Opens one short spatial seam.'],
+          techniques: [],
+        }],
+        drawbacks: [],
+        evolutionPaths: [],
+        secrets: [],
+      },
+    }
+    campaign.inventory = [item]
+
+    const issues = abilityExecutionIssues(campaign, [{
+      ownerKind: 'player',
+      ownerId: campaign.player.id,
+      abilityId: 'item-power:artifact-execution:seam-power',
+      intent: 'Open a seam.',
+      outcome: 'success',
+      costs: [{ resource: 'focus', amount: 2 }],
+      requirementsUsed: [],
+      effects: ['A short seam opens.'],
+      evidence: 'The seam is visible in the scene.',
+    }], { resourceDeltas: { focus: -2 } })
+
+    expect(issues).toEqual([])
+  })
+
+  it('reports an unavailable artifact power as blocked instead of foreign', () => {
+    const campaign = createDemoCampaign()
+    campaign.inventory = [{
+      id: 'sealed-artifact', name: 'Sealed Crown', description: 'A sealed artifact.', category: 'artifact', quantity: 1,
+      rarity: 'mythic', equipped: true, state: 'sealed', effects: [], discoveredTurn: 1,
+      artifact: {
+        sentient: false, awakened: true, mastery: 40, attunement: 40, bond: 0, requirements: [], passiveEffects: [], combinedEffects: [], failureModes: [], components: [],
+        powers: [{ id: 'sealed-power', name: 'Sealed Power', description: 'Cannot operate while sealed.', mastery: 40, costs: [], limitations: [], capabilities: ['Produces a visible pulse.'], techniques: [] }],
+        drawbacks: [], evolutionPaths: [], secrets: [],
+      },
+    }]
+
+    const issues = abilityExecutionIssues(campaign, [{
+      ownerKind: 'player', ownerId: campaign.player.id, abilityId: 'item-power:sealed-artifact:sealed-power', intent: 'Use it.', outcome: 'success', costs: [], requirementsUsed: [], effects: ['A pulse appears.'], evidence: 'Visible pulse.',
+    }], {})
+
+    expect(issues.join(' ')).toContain('сейчас недоступна')
+    expect(issues.join(' ')).not.toContain('не принадлежит владельцу')
   })
 
   it('blocks a near-duplicate unless a real shared lineage is declared', () => {
