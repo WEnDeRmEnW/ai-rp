@@ -1,6 +1,6 @@
 import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorkshopEventDirective, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
-import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, normalizeEventDirectorState, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
+import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, normalizeEventDirectorState, normalizeNarrativeEventProposal, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
@@ -2146,6 +2146,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     eventDecision = await optionalStage<NarrativeEventDecision>('event-director', async () => {
       const rawDecision = await completeJson(request.provider, eventMessages)
       let decision = await parseWithRepair<NarrativeEventDecision>(rawDecision, narrativeEventDecisionSchema, request.provider, eventMessages)
+      if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
       let issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
       if (decision.mode !== 'none' && issues.length) {
         const retryMessages = [
@@ -2158,6 +2159,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
         ]
         const retryRaw = await completeJson(request.provider, retryMessages)
         decision = await parseWithRepair<NarrativeEventDecision>(retryRaw, narrativeEventDecisionSchema, request.provider, retryMessages)
+        if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
         issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
       }
       if (decision.mode !== 'none' && issues.length) {
@@ -3011,6 +3013,17 @@ async function repairCampaignEditorAbilities(
   return turnPlanSchema.parse(source)
 }
 
+function normalizeWorkshopEventResponse(response: CampaignEditResponse): CampaignEditResponse {
+  if (!response.eventDirective) return response
+  return {
+    ...response,
+    eventDirective: {
+      ...response.eventDirective,
+      proposal: normalizeNarrativeEventProposal(response.eventDirective.proposal),
+    },
+  }
+}
+
 function workshopEventResponseIssues(request: CampaignEditRequest, response: CampaignEditResponse) {
   const directive = response.eventDirective
   if (request.eventOptions && !directive) return ['Режим события выбран, но eventDirective отсутствует.']
@@ -3082,22 +3095,25 @@ async function repairWorkshopEventResponse(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   initial: CampaignEditResponse,
 ) {
-  let response = initial
+  let response = normalizeWorkshopEventResponse(initial)
   let issues = workshopEventResponseIssues(request, response)
   if (!issues.length) return response
-  const repairMessages = [
-    ...messages,
-    { role: 'assistant' as const, content: JSON.stringify(response) },
-    {
-      role: 'user' as const,
-      content: `Программная проверка команды события отклонила результат:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни весь JSON ответа редактора заново. Сохрани точный выбранный delivery, масштаб и категорию. Для seed/next-turn не применяй последствия заранее; для apply-now полностью реализуй каждое mandatory-требование через настоящий statePatch. Не отвечай пояснением.`,
-    },
-  ]
-  const repairedRaw = await completeJson(request.provider, repairMessages)
-  response = await parseWithRepair<CampaignEditResponse>(repairedRaw, campaignEditResponseSchema, request.provider, repairMessages)
-  issues = workshopEventResponseIssues(request, response)
-  if (issues.length) throw new Error(`Мастерская не смогла безопасно подготовить выбранное событие: ${issues.join(' ')}`)
-  return response
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const repairMessages = [
+      ...messages,
+      { role: 'assistant' as const, content: JSON.stringify(response) },
+      {
+        role: 'user' as const,
+        content: `Программная проверка команды события отклонила результат:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни весь JSON ответа редактора заново. Сохрани точный выбранный delivery, масштаб и категорию. affectedDomains перечисли для каждого домена immediateEffects и persistentEffects. Если новая сущность участвует в sourceIds/causeIds/scopeIds/participantIds, создай её обязательным requirement с тем же стабильным targetId. Для seed/next-turn не применяй последствия заранее; для apply-now полностью реализуй каждое mandatory-требование через настоящий statePatch. Не отвечай пояснением.`,
+      },
+    ]
+    const repairedRaw = await completeJson(request.provider, repairMessages)
+    const repaired = await parseWithRepair<CampaignEditResponse>(repairedRaw, campaignEditResponseSchema, request.provider, repairMessages)
+    response = normalizeWorkshopEventResponse(repaired)
+    issues = workshopEventResponseIssues(request, response)
+    if (!issues.length) return response
+  }
+  throw new Error(`Мастерская не смогла безопасно подготовить выбранное событие после трёх точечных исправлений: ${issues.join(' ')}`)
 }
 
 export async function editCampaign(request: CampaignEditRequest, report?: ProgressReporter): Promise<CampaignEditResponse> {

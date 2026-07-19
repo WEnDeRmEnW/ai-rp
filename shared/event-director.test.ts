@@ -8,6 +8,7 @@ import {
   defaultEventDirectorState,
   forcedWorkshopEventDecision,
   narrativeEventComplianceIssues,
+  normalizeNarrativeEventProposal,
   prepareEventDirectorState,
   shouldConsultEventDirector,
   validateNarrativeEventProposal,
@@ -232,6 +233,29 @@ describe('universal narrative event director', () => {
       }],
     }
     expect(validateNarrativeEventProposal(campaign, duplicateState, proposal())).toContain('Событие слишком похоже на недавний сюжетный рисунок и не является развитием прежней линии.')
+  })
+
+  it('derives affected domains and accepts references to an entity created by the same event', () => {
+    const campaign = createDemoCampaign()
+    const state = { ...defaultEventDirectorState(0), surpriseCharge: 100 }
+    const normalized = normalizeNarrativeEventProposal(proposal({
+      mode: 'manifest',
+      lifecycleStage: 'manifested',
+      category: 'encounter',
+      originKind: 'new_npc',
+      sourceIds: ['npc-new-arrival'],
+      participantIds: ['npc-new-arrival'],
+      affectedDomains: ['scene'],
+      immediateEffects: [
+        { domain: 'npc', operation: 'create', targetId: 'npc-new-arrival', requirement: 'Создать полного нового NPC.', observable: true, mandatory: true },
+        { domain: 'scene', operation: 'update', requirement: 'Показать его причинное прибытие.', observable: true, mandatory: true },
+      ],
+    }))
+
+    expect(normalized.affectedDomains).toEqual(['scene', 'npc'])
+    const issues = validateNarrativeEventProposal(campaign, state, normalized)
+    expect(issues).not.toContain('affectedDomains не перечисляет все области, которые событие требует изменить.')
+    expect(issues).not.toContain('Событие содержит ссылку на неизвестную сущность; новые сущности должны создаваться через требования, а не притворяться существующими.')
   })
 
   it('requires a genuinely complete ability record instead of accepting a prose-only awakening', () => {

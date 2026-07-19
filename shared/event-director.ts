@@ -130,6 +130,27 @@ export function normalizeEventDirectorState(state: EventDirectorState | undefine
   }
 }
 
+/**
+ * Normalizes routing metadata that is exactly derivable from the authored event.
+ * This never invents a cause, entity or consequence: requirements remain the
+ * semantic source of truth, while affectedDomains is their complete index.
+ */
+export function normalizeNarrativeEventProposal(proposal: NarrativeEventProposal): NarrativeEventProposal {
+  const requirements = [...proposal.immediateEffects, ...proposal.persistentEffects]
+  const uniqueIds = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+  return {
+    ...proposal,
+    sourceIds: uniqueIds(proposal.sourceIds),
+    causeIds: uniqueIds(proposal.causeIds),
+    scopeIds: uniqueIds(proposal.scopeIds),
+    participantIds: uniqueIds(proposal.participantIds),
+    affectedDomains: [...new Set([
+      ...proposal.affectedDomains,
+      ...requirements.map((requirement) => requirement.domain),
+    ])],
+  }
+}
+
 const frequencyMultiplier = { rare: 0.75, balanced: 1, frequent: 1.35 } as const
 const dynamicsMultiplier = { quiet: 0.75, living: 1, volatile: 1.25 } as const
 
@@ -375,7 +396,7 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
     .filter((effect) => effect.operation === 'create' && effect.targetId)
     .map((effect) => effect.targetId as string))
   const referenceIds = [...proposal.sourceIds, ...proposal.causeIds, ...proposal.scopeIds, ...proposal.participantIds]
-  if (referenceIds.some((id) => !known.has(id))) issues.push('Событие содержит ссылку на неизвестную сущность; новые сущности должны создаваться через требования, а не притворяться существующими.')
+  if (referenceIds.some((id) => !known.has(id) && !createdTargets.has(id))) issues.push('Событие содержит ссылку на неизвестную сущность; новые сущности должны создаваться через требования, а не притворяться существующими.')
   const unknownMutationTarget = requirements.some((effect) => (
     effect.operation !== 'create'
     && effect.targetId

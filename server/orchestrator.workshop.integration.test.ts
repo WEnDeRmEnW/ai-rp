@@ -32,7 +32,7 @@ describe('campaign workshop event controls', () => {
         proposal: {
           mode: 'manifest', lifecycleStage: 'manifested', concept: 'Легендарный странник прибывает по собственной старой клятве.',
           category: 'encounter', magnitude: 'legendary', miracleKind: 'none', originKind: 'new_npc',
-          sourceIds: [], causeIds: [campaign.player.id], scopeIds: [], participantIds: [], affectedDomains: ['npc', 'scene'],
+          sourceIds: ['npc-workshop-legend'], causeIds: [campaign.player.id], scopeIds: [], participantIds: ['npc-workshop-legend'], affectedDomains: ['scene'],
           knowledgeChannel: 'Городская стража объявляет о прибытии.', trigger: 'Сегодня истёк установленный клятвой срок.',
           arrivalMethod: 'Странник добрался до города существующим караванным маршрутом.', observableSigns: ['У ворот собирается усиленная стража.'],
           immediateEffects: [
@@ -44,7 +44,8 @@ describe('campaign workshop event controls', () => {
         },
       },
     }
-    vi.stubGlobal('fetch', vi.fn(async () => providerResponse(response)))
+    const fetchMock = vi.fn(async () => providerResponse(response))
+    vi.stubGlobal('fetch', fetchMock)
 
     const result = await editCampaign({
       campaign,
@@ -65,5 +66,7 @@ describe('campaign workshop event controls', () => {
       nextEligibleTurn: campaign.turn + 1,
       workshopDirective: { requestedByOwner: true, delivery: 'next-turn' },
     })
+    expect(result.eventDirective?.proposal.affectedDomains).toEqual(['scene', 'npc'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
