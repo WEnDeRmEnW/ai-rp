@@ -799,7 +799,18 @@ const capabilityNatureKindSchema = z.preprocess((value) => {
 const abilityProfileSectionSchema = z.enum(['identity', 'principle', 'source', 'standing', 'facets', 'availability', 'techniques', 'counterplay', 'progression', 'history'])
 const abilityKnowledgeLevelSchema = z.enum(['hidden', 'hinted', 'known', 'understood'])
 const abilityPresentationLayoutSchema = z.enum(['discipline', 'protocol', 'network', 'mandate', 'mutation', 'constellation', 'arsenal', 'minimal'])
-const abilityAvailabilityStateSchema = z.enum(['ready', 'limited', 'cooldown', 'blocked', 'disabled'])
+const abilityAvailabilityStateSchema = z.preprocess(alias({
+  available: 'ready', usable: 'ready', prepared: 'ready', active: 'ready',
+  restricted: 'limited', partial: 'limited', 'partially available': 'limited',
+  cooling: 'cooldown', recharging: 'cooldown', recovering: 'cooldown',
+  locked: 'blocked', unavailable: 'blocked', inaccessible: 'blocked',
+  inactive: 'disabled', deactivated: 'disabled',
+  'готова': 'ready', 'готов': 'ready', 'доступна': 'ready', 'доступен': 'ready',
+  'ограничена': 'limited', 'ограничен': 'limited', 'частично': 'limited',
+  'откат': 'cooldown', 'восстанавливается': 'cooldown', 'перезаряжается': 'cooldown',
+  'заблокирована': 'blocked', 'заблокирован': 'blocked', 'недоступна': 'blocked', 'недоступен': 'blocked',
+  'отключена': 'disabled', 'отключен': 'disabled', 'деактивирована': 'disabled', 'деактивирован': 'disabled',
+}), z.enum(['ready', 'limited', 'cooldown', 'blocked', 'disabled']))
 const abilityAvailabilitySchema = z.object({
   state: abilityAvailabilityStateSchema,
   reasons: z.array(longText).max(16),

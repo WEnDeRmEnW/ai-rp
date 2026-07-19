@@ -9,3 +9,4 @@ dist-server/
 .vscode/
 coverage/
 .data/
+.codex-deploy/

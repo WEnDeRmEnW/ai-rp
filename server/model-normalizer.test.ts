@@ -292,6 +292,7 @@ describe('global DeepSeek output normalization', () => {
   it('normalizes decorated numbers, booleans, colors, records and Russian enums in a generated world', () => {
     const raw: any = demoWorld(worldRequest)
     raw.player.currency = '37 штормовых марок'
+    raw.player.abilities[0].profile.availability = { state: 'available', reasons: [] }
     raw.opening.scene.tension = 'опасность: 81%'
     raw.world.presentation.accent = '#abc'
     raw.world.presentation.accentStrong = '11aa77'
@@ -313,6 +314,7 @@ describe('global DeepSeek output normalization', () => {
 
     const parsed = generatedWorldSchema.parse(raw)
     expect(parsed.player.currency).toEqual({ 'штормовых марок': 37 })
+    expect(parsed.player.abilities[0].profile?.availability?.state).toBe('ready')
     expect(parsed.opening.scene.tension).toBe(81)
     expect(parsed.world.presentation).toMatchObject({ accent: '#aabbcc', accentStrong: '#11aa77', secondary: '#0c2238', surface: 'arcane' })
     expect(parsed.world.routes[0]).toMatchObject({ danger: 61, discovered: false })

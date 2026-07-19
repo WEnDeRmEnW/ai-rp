@@ -360,6 +360,18 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === 'state' && has('inventory')) return translate(itemStateAliases)
   if (key === 'category' && (has('statusEffects') || has('upsertStatusEffects'))) return translate(statusEffectCategoryAliases)
   if (key === 'kind' && (has('resources') || has('upsertResources'))) return translate(resourceKindAliases)
+  if (key === 'state' && has('availability')) return translate({
+    ready: 'ready', available: 'ready', usable: 'ready', prepared: 'ready', active: 'ready',
+    'готова': 'ready', 'готов': 'ready', 'доступна': 'ready', 'доступен': 'ready',
+    limited: 'limited', restricted: 'limited', partial: 'limited', 'partially available': 'limited',
+    'ограничена': 'limited', 'ограничен': 'limited', 'частично': 'limited',
+    cooldown: 'cooldown', cooling: 'cooldown', recharging: 'cooldown', recovering: 'cooldown',
+    'откат': 'cooldown', 'восстанавливается': 'cooldown', 'перезаряжается': 'cooldown',
+    blocked: 'blocked', locked: 'blocked', unavailable: 'blocked', inaccessible: 'blocked',
+    'заблокирована': 'blocked', 'заблокирован': 'blocked', 'недоступна': 'blocked', 'недоступен': 'blocked',
+    disabled: 'disabled', inactive: 'disabled', deactivated: 'disabled',
+    'отключена': 'disabled', 'отключен': 'disabled', 'деактивирована': 'disabled', 'деактивирован': 'disabled',
+  })
 
   if (key === 'kind' && (has('abilities') || has('addAbilities') || has('abilityChanges') || has('techniques') || has('addTechniques') || has('techniqueChanges'))) return translate({
     активная: 'active', активный: 'active', пассивная: 'passive', пассивный: 'passive',
