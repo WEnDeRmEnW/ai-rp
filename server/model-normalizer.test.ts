@@ -318,6 +318,7 @@ describe('global DeepSeek output normalization', () => {
     const raw: any = demoWorld(worldRequest)
     raw.player.currency = '37 штормовых марок'
     raw.player.abilities[0].profile.availability = { state: 'available', reasons: [] }
+    raw.player.abilities[0].profile.availability.nextReady = { turn: 0, unit: 'turn' }
     raw.player.abilities[0].profile.nature.kind = 'kekkei_genkai'
     delete raw.player.abilities[0].profile.nature.groupId
     raw.player.abilities[0].profile.presentation.sectionOrder = ['nature', 'creativeIdentity', 'ownerExpression']
@@ -348,6 +349,7 @@ describe('global DeepSeek output normalization', () => {
     const parsed = generatedWorldSchema.parse(raw)
     expect(parsed.player.currency).toEqual({ 'штормовых марок': 37 })
     expect(parsed.player.abilities[0].profile?.availability?.state).toBe('ready')
+    expect(parsed.player.abilities[0].profile?.availability?.nextReady).toEqual({ unit: 'turn', value: 0 })
     expect(parsed.player.abilities[0].profile).toMatchObject({
       nature: { kind: 'innate', groupId: 'kekkei-genkai' },
       presentation: { sectionOrder: ['source', 'principle', 'identity'] },

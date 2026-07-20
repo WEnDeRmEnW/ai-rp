@@ -1001,6 +1001,22 @@ function canonicalizePatchContainer(value: Record<string, unknown>): Record<stri
 const ABILITY_RECORD_COLLECTIONS = new Set(['abilities', 'addAbilities', 'upsertAbilities', 'abilityChanges'])
 const ABILITY_AVAILABILITY_KEYS = new Set(['state', 'reasons', 'nextReady', 'charges', 'lastUsedTurn'])
 
+function canonicalizeNextReady(value: Record<string, unknown>): Record<string, unknown> {
+  const unitAliases = [
+    ['turn', 'turn'], ['turns', 'turn'], ['scene', 'scene'], ['scenes', 'scene'],
+    ['day', 'day'], ['days', 'day'],
+  ] as const
+  const explicitUnit = typeof value.unit === 'string' ? enumToken(value.unit) : undefined
+  const aliasedUnit = unitAliases.find(([key]) => value[key] !== undefined)
+  const unit = explicitUnit || aliasedUnit?.[1] || (value.condition !== undefined ? 'condition' : undefined)
+  const amount = value.value ?? (aliasedUnit ? value[aliasedUnit[0]] : undefined)
+  const result: Record<string, unknown> = {}
+  if (unit !== undefined) result.unit = unit
+  if (amount !== undefined) result.value = amount
+  if (value.condition !== undefined) result.condition = value.condition
+  return result
+}
+
 function rawValues(value: unknown): unknown[] {
   if (value === undefined || value === null) return []
   return Array.isArray(value) ? value : [value]
@@ -1081,6 +1097,7 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
 
   if (isRecord(value)) {
     let record = canonicalizeAbilityRecord(value, path)
+    if (key === 'nextReady' && path.includes('availability')) record = canonicalizeNextReady(record)
     if (key === 'nature' && path.includes('profile') && path.includes('abilities') && !record.groupId && typeof record.kind === 'string') {
       const misplacedGroup = enumToken(record.kind).replaceAll(' ', '-')
       const technicalKinds = new Set(['innate', 'trained', 'technological', 'social', 'authority', 'access', 'economic', 'organizational', 'contractual', 'divine', 'psionic', 'magical', 'biological', 'other'])
