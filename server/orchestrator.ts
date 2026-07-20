@@ -243,12 +243,14 @@ async function parseWithRepair<T>(
   provider: WorldGenerationRequest['provider'],
   context: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   fallback?: (candidate: unknown) => T | undefined,
+  adaptCandidate?: (candidate: unknown) => unknown,
 ): Promise<T> {
   let candidate = raw
   let lastIssues = ''
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     candidate = omitNullObjectFields(normalizeModelOutput(candidate))
+    if (adaptCandidate) candidate = adaptCandidate(candidate)
     const parsed = schema.safeParse(candidate)
     if (parsed.success) return parsed.data
     lastIssues = compactIssues(parsed.error, candidate)
@@ -3713,6 +3715,69 @@ function establishedFactsForStage(sections: Partial<GeneratedWorldSections>, sta
   return Object.fromEntries(Object.entries(sections).filter(([key]) => key !== stage))
 }
 
+const WORLD_STAGE_ROOT_FIELDS: Record<WorldGenerationStage, readonly string[]> = {
+  core: ['title', 'player', 'inventory'],
+  civilization: [],
+  characters: ['npcs', 'socialLinks', 'characterArcs', 'antagonistPlans', 'worldPressures', 'influenceAssets'],
+  legends: ['lore'],
+  narrative: ['worldEvents', 'factionReputation', 'threads', 'mysteryCases', 'quests', 'opening'],
+  interface: [],
+}
+
+const WORLD_STAGE_WORLD_FIELDS: Record<WorldGenerationStage, readonly string[]> = {
+  core: ['name', 'tagline', 'inspiration', 'genre', 'tone', 'era', 'overview', 'rules', 'capabilitySystem', 'system', 'presentation'],
+  civilization: ['factions', 'locations', 'places', 'routes', 'laws', 'mechanics'],
+  characters: [],
+  legends: ['legendarium', 'legends'],
+  narrative: ['processes', 'mysteries'],
+  interface: ['interfaceModules', 'interfaceBlueprint', 'metrics'],
+}
+
+function worldGenerationRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function pickPresentFields(source: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(fields.flatMap((field) => Object.hasOwn(source, field) ? [[field, source[field]]] : []))
+}
+
+/**
+ * DeepSeek sometimes answers a section request with a complete generated world or wraps it in
+ * transport-like objects. Select only the requested ownership slice before strict validation.
+ * This changes structure only: no missing field or authored fact is fabricated.
+ */
+export function extractGeneratedWorldStageCandidate(value: unknown, stage: WorldGenerationStage): unknown {
+  let candidate = value
+  const stageWrappers = [stage, `${stage}Section`, `${stage}_section`]
+  const transportWrappers = ['section', 'data', 'result', 'response', 'payload', 'output', 'generatedWorld', 'generated_world', 'campaign']
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    const record = worldGenerationRecord(candidate)
+    if (!record) return candidate
+    const wrapperKey = [...stageWrappers, ...transportWrappers]
+      .find((key) => worldGenerationRecord(record[key]) !== undefined)
+    if (!wrapperKey) break
+    candidate = record[wrapperKey]
+  }
+
+  const record = worldGenerationRecord(candidate)
+  if (!record) return candidate
+  const world = worldGenerationRecord(record.world) ?? {}
+  const rootFields = WORLD_STAGE_ROOT_FIELDS[stage]
+  const worldFields = WORLD_STAGE_WORLD_FIELDS[stage]
+  const hasOwnedRoot = rootFields.some((field) => Object.hasOwn(record, field))
+  const hasOwnedWorld = worldFields.some((field) => Object.hasOwn(world, field))
+  const resemblesGeneratedWorld = Object.hasOwn(record, 'world')
+    && (Object.hasOwn(record, 'player') || Object.hasOwn(record, 'inventory') || Object.hasOwn(record, 'npcs') || Object.hasOwn(record, 'title'))
+  if (!hasOwnedRoot && !hasOwnedWorld && !resemblesGeneratedWorld) return candidate
+
+  const section = pickPresentFields(record, rootFields)
+  if (worldFields.length) section.world = pickPresentFields(world, worldFields)
+  return section
+}
+
 async function generateWorldSection<T>(
   request: WorldGenerationRequest,
   concept: ConceptAnalysis,
@@ -3729,7 +3794,7 @@ async function generateWorldSection<T>(
     : worldGenerationStagePrompt(request, concept, stage, establishedFacts, manifest)
   const maxOutputTokens = stage === 'characters' || stage === 'legends' ? 65_536 : 49_152
   const raw = await completeJson(request.provider, messages, { stage: 'world', maxOutputTokens })
-  return parseWithRepair<T>(raw, schema, request.provider, messages)
+  return parseWithRepair<T>(raw, schema, request.provider, messages, undefined, (candidate) => extractGeneratedWorldStageCandidate(candidate, stage))
 }
 
 async function regenerateOwnedWorldSection(

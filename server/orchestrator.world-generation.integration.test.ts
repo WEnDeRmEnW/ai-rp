@@ -135,6 +135,28 @@ describe('multi-stage world generation', () => {
     expect(generated).toEqual(completeWorld)
   })
 
+  it('extracts every requested section when DeepSeek returns a wrapped complete world', async () => {
+    const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
+    const manifest = manifestFromWorld(completeWorld)
+    const requestedStages: Stage[] = []
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
+      const stage = requestedGenerationStage(system)
+      if (stage) {
+        requestedStages.push(stage)
+        if (stage === 'manifest') return providerResponse(manifest)
+        return providerResponse({ data: { generatedWorld: completeWorld } })
+      }
+      if (system.includes('Составь coverageAudit')) return providerResponse(passedQualityReview)
+      return providerResponse(originalConcept)
+    }))
+
+    await expect(generateWorld(request)).resolves.toEqual(completeWorld)
+    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface'])
+  })
+
   it('repairs only the section that owns a broken cross-world binding', async () => {
     const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
     const sections = splitGeneratedWorldSections(completeWorld)
