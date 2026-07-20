@@ -131,6 +131,8 @@ const ID_ARRAY_KEYS = new Set([
   'relatedAbilityIds', 'removeDevelopmentSeedIds',
 ])
 
+const DISCOVERY_KNOWLEDGE_RECORDS = new Set(['techniqueKnowledge', 'powerKnowledge', 'componentKnowledge'])
+
 const ARRAY_IDENTITY: Record<string, string> = {
   factions: 'name', locations: 'name', places: 'name', processes: 'title', legends: 'name', upsertLegends: 'id', deeds: 'title', myths: 'title', legacies: 'name', thresholds: 'stage', laws: 'title', mechanics: 'name', interfaceModules: 'id', metrics: 'id', elements: 'id', tabs: 'id', upsertLaws: 'id', upsertMechanics: 'id', upsertInterfaceModules: 'id', interfaceModuleChanges: 'moduleId', upsertElements: 'id', upsertMetrics: 'id', upsertPlaces: 'id', upsertProcesses: 'id', npcs: 'name', quests: 'title', lore: 'title',
   worldEvents: 'title', knowledge: 'subject', stats: 'key', resources: 'key',
@@ -174,6 +176,26 @@ export function parseBooleanLike(value: unknown): unknown {
   if (['true', 'yes', 'да', 'истина', '1', 'включено', 'открыто'].includes(normalized)) return true
   if (['false', 'no', 'нет', 'ложь', '0', 'выключено', 'закрыто'].includes(normalized)) return false
   return value
+}
+
+function normalizeDiscoveryKnowledgeLevel(value: unknown): unknown {
+  if (typeof value === 'boolean') return value ? 'known' : 'hidden'
+  const numeric = typeof value === 'number' ? value : parseNumberLike(value)
+  if (typeof numeric === 'number' && Number.isFinite(numeric)) {
+    if (numeric <= 0) return 'hidden'
+    if (numeric < 50) return 'hinted'
+    if (numeric < 100) return 'known'
+    return 'understood'
+  }
+  if (typeof value !== 'string') return value
+  const token = enumToken(value)
+  const aliases: Record<string, string> = {
+    hidden: 'hidden', unknown: 'hidden', concealed: 'hidden', 'неизвестно': 'hidden', 'скрыто': 'hidden', 'скрыта': 'hidden',
+    hinted: 'hinted', hint: 'hinted', suspected: 'hinted', 'намек': 'hinted', 'подозревается': 'hinted',
+    known: 'known', revealed: 'known', confirmed: 'known', 'известно': 'known', 'открыто': 'known', 'подтверждено': 'known',
+    understood: 'understood', mastered: 'understood', studied: 'understood', 'изучено': 'understood', 'освоено': 'understood', 'понятно': 'understood',
+  }
+  return aliases[token] ?? value
 }
 
 export function normalizeHexColor(value: unknown): unknown {
@@ -1084,6 +1106,8 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
 
   if (key === 'abilityChanges') value = normalizeProgressionChanges(value, 'ability')
   if (key === 'artifactChanges') value = normalizeProgressionChanges(value, 'artifact')
+
+  if (parent && DISCOVERY_KNOWLEDGE_RECORDS.has(parent)) return normalizeDiscoveryKnowledgeLevel(value)
 
   const isPresentationLabel = path.includes('presentation') && path.some((segment) => ['labels', 'categoryLabels', 'rarityLabels'].includes(segment))
   const isSingularProgressionHistory = key === 'history' && (path.includes('abilityChanges') || path.includes('artifactChanges'))

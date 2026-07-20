@@ -10,6 +10,31 @@ const worldRequest = {
 }
 
 describe('global DeepSeek output normalization', () => {
+  it('converts numeric discovery knowledge maps without inventing missing techniques or powers', () => {
+    const normalized = normalizeModelOutput({
+      profile: {
+        discovery: {
+          techniqueKnowledge: { 'Цепной разрыв': 100, 'Неясный след': 25, 'Известный приём': 75, 'Скрытая форма': 0 },
+        },
+      },
+      artifact: {
+        discovery: {
+          powerKnowledge: { 'power-full': '100%', 'power-known': 80 },
+          componentKnowledge: { 'component-hidden': false, 'component-confirmed': true },
+        },
+      },
+    }) as any
+
+    expect(normalized.profile.discovery.techniqueKnowledge).toEqual({
+      'Цепной разрыв': 'understood',
+      'Неясный след': 'hinted',
+      'Известный приём': 'known',
+      'Скрытая форма': 'hidden',
+    })
+    expect(normalized.artifact.discovery.powerKnowledge).toEqual({ 'power-full': 'understood', 'power-known': 'known' })
+    expect(normalized.artifact.discovery.componentKnowledge).toEqual({ 'component-hidden': 'hidden', 'component-confirmed': 'known' })
+  })
+
   it('canonicalizes Russian artifact presentation, discovery and highest rarity enums', () => {
     const normalized = normalizeModelOutput({
       rarity: 'трансцендентный',
@@ -297,6 +322,7 @@ describe('global DeepSeek output normalization', () => {
     delete raw.player.abilities[0].profile.nature.groupId
     raw.player.abilities[0].profile.presentation.sectionOrder = ['nature', 'creativeIdentity', 'ownerExpression']
     raw.player.abilities[0].profile.discovery.revealedSections = ['nature', 'creativeIdentity', 'ownerExpression']
+    raw.player.abilities[0].profile.discovery.techniqueKnowledge = { 'Разрез грозы': 100 }
     raw.player.abilities[0].profile.discovery.evidence = [{ section: 'nature', summary: 'Пробуждение зафиксировано.', source: 'Личное наблюдение', reliability: 100 }]
     raw.player.abilities[1].profile.nature.kind = 'ninjutsu'
     delete raw.player.abilities[1].profile.nature.groupId
@@ -327,6 +353,7 @@ describe('global DeepSeek output normalization', () => {
       presentation: { sectionOrder: ['source', 'principle', 'identity'] },
       discovery: { revealedSections: ['source', 'principle', 'identity'], evidence: [{ section: 'source' }] },
     })
+    expect(parsed.player.abilities[0].profile?.discovery.techniqueKnowledge['Разрез грозы']).toBe('understood')
     expect(parsed.player.abilities[1].profile?.nature).toMatchObject({ kind: 'trained', groupId: 'ninjutsu' })
     expect(parsed.opening.scene.tension).toBe(81)
     expect(parsed.world.presentation).toMatchObject({ accent: '#aabbcc', accentStrong: '#11aa77', secondary: '#0c2238', surface: 'arcane' })
