@@ -167,4 +167,48 @@ describe('multi-stage world generation', () => {
     await expect(generateWorld(request)).resolves.toEqual(completeWorld)
     expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'interface'])
   })
+
+  it('repairs a living legend through its factual NPC before touching the legend again', async () => {
+    const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
+    const factualNpc = completeWorld.npcs.find((npc) => npc.threatProfile?.tier === 'elite')
+    const legend = completeWorld.world.legends.find((entry) => entry.stage === 'legendary' && entry.powerStanding.classification === 'elite')
+    expect(factualNpc?.threatProfile).toBeDefined()
+    expect(legend).toBeDefined()
+    if (!factualNpc?.threatProfile || !legend) return
+    legend.lifeStatus = 'living'
+    legend.characterName = factualNpc.name
+    const sections = splitGeneratedWorldSections(completeWorld)
+    const manifest = manifestFromWorld(completeWorld)
+    const brokenCharacters = structuredClone(sections.characters)
+    const linkedNpc = brokenCharacters.npcs.find((npc) => npc.name === factualNpc.name)
+    expect(linkedNpc?.threatProfile).toBeDefined()
+    if (!linkedNpc?.threatProfile) return
+    linkedNpc.threatProfile.tier = 'capable'
+
+    let characterCalls = 0
+    let legendCalls = 0
+    const requestedStages: Stage[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
+      const stage = requestedGenerationStage(system)
+      if (stage) {
+        requestedStages.push(stage)
+        if (stage === 'manifest') return providerResponse(manifest)
+        if (stage === 'characters') {
+          characterCalls += 1
+          return providerResponse(characterCalls === 1 ? brokenCharacters : sections.characters)
+        }
+        if (stage === 'legends') legendCalls += 1
+        return providerResponse(sections[stage])
+      }
+      if (system.includes('Составь coverageAudit')) return providerResponse(passedQualityReview)
+      return providerResponse(originalConcept)
+    }))
+
+    await expect(generateWorld(request)).resolves.toEqual(completeWorld)
+    expect(characterCalls).toBe(2)
+    expect(legendCalls).toBe(1)
+    expect(requestedStages.slice(-1)).toEqual(['characters'])
+  })
 })

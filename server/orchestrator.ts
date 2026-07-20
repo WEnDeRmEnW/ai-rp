@@ -3612,6 +3612,19 @@ function worldStageForIssue(path: PropertyKey[]): WorldGenerationStage {
   return 'core'
 }
 
+type WorldIntegrityIssue = { path: PropertyKey[]; message: string }
+
+function worldStagesForIssue(issue: WorldIntegrityIssue, world: GeneratedWorld, includeCrossSectionOwner = true): WorldGenerationStage[] {
+  const primary = worldStageForIssue(issue.path)
+  if (!includeCrossSectionOwner || primary !== 'legends') return [primary]
+  const [root, child, rawIndex] = issue.path.map(String)
+  if (root !== 'world' || child !== 'legends') return [primary]
+  const legend = world.world.legends[Number(rawIndex)]
+  if (!legend || !/(?:NPC threat profile|fully authored, unique ability|backed by the simulated player or an NPC|Legend character must exactly match)/iu.test(issue.message)) return [primary]
+  const linkedToPlayer = legend.characterName?.trim().toLocaleLowerCase('ru-RU') === world.player.name.trim().toLocaleLowerCase('ru-RU')
+  return [...new Set<WorldGenerationStage>([linkedToPlayer ? 'core' : 'characters', primary])]
+}
+
 /**
  * Request identity and an already-established place name are facts, not model-authored content.
  * Canonicalizing those references avoids spending a full repair pass on "Акира" vs "Акира " or
@@ -3745,22 +3758,26 @@ async function ensureGeneratedWorldIntegrity(
   manifest?: WorldGenerationManifest,
 ): Promise<{ world: GeneratedWorld; sections: GeneratedWorldSections }> {
   let sections = source
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
-    sections = splitGeneratedWorldSections(world)
-    const strict = generatedWorldSchema.safeParse(world)
-    if (strict.success) return { world: strict.data, sections: splitGeneratedWorldSections(strict.data) }
+  const orderedStages: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
 
-    const grouped = new Map<WorldGenerationStage, typeof strict.error.issues>()
-    strict.error.issues.forEach((issue) => {
-      const stage = worldStageForIssue(issue.path)
-      grouped.set(stage, [...(grouped.get(stage) ?? []), issue])
+  const groupIssues = (issues: WorldIntegrityIssue[], world: GeneratedWorld, includeCrossSectionOwner: boolean) => {
+    const grouped = new Map<WorldGenerationStage, WorldIntegrityIssue[]>()
+    issues.forEach((issue) => {
+      worldStagesForIssue(issue, world, includeCrossSectionOwner).forEach((stage) => {
+        grouped.set(stage, [...(grouped.get(stage) ?? []), issue])
+      })
     })
-    const orderedStages: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
-    const brokenStages = orderedStages.filter((entry) => grouped.has(entry))
-    const repairedSections = await mapWithConcurrency(brokenStages, 3, async (stage) => {
+    return grouped
+  }
+
+  const repairWave = async (
+    stages: WorldGenerationStage[],
+    grouped: Map<WorldGenerationStage, WorldIntegrityIssue[]>,
+    attempt: number,
+  ) => {
+    const repairedSections = await mapWithConcurrency(stages, 3, async (stage) => {
       const ownedIssues = grouped.get(stage) ?? []
-      reportProgress(report, 80 + attempt * 2, 'world-integrity', `Исправляем только раздел «${stage}», не пересоздавая остальной мир`, 9, 11)
+      reportProgress(report, 80 + attempt * 2, 'world-integrity', `Согласуем раздел «${stage}» с остальными частями мира`, 9, 11)
       const repaired = await regenerateOwnedWorldSection(
         stage,
         sections,
@@ -3772,6 +3789,34 @@ async function ensureGeneratedWorldIntegrity(
       return [stage, repaired[stage]] as const
     })
     sections = { ...sections, ...Object.fromEntries(repairedSections) }
+  }
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
+    sections = splitGeneratedWorldSections(world)
+    const strict = generatedWorldSchema.safeParse(world)
+    if (strict.success) return { world: strict.data, sections: splitGeneratedWorldSections(strict.data) }
+
+    const grouped = groupIssues(strict.error.issues, world, true)
+    const brokenStages = orderedStages.filter((entry) => grouped.has(entry))
+    const foundationStages = brokenStages.filter((stage) => ['core', 'civilization', 'characters'].includes(stage))
+    await repairWave(foundationStages.length ? foundationStages : brokenStages, grouped, attempt)
+
+    // Cross-section failures such as a living elite legend backed by a weaker NPC are owned by
+    // both sides. Repair the factual character first, revalidate, and touch the legend only if a
+    // real legend-owned inconsistency remains. This prevents four parallel passes from repeatedly
+    // lowering one side while the other side still contains stale data.
+    if (foundationStages.length) {
+      const linkedWorld = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
+      sections = splitGeneratedWorldSections(linkedWorld)
+      const linkedCheck = generatedWorldSchema.safeParse(linkedWorld)
+      if (linkedCheck.success) return { world: linkedCheck.data, sections: splitGeneratedWorldSections(linkedCheck.data) }
+      const dependentGrouped = groupIssues(linkedCheck.error.issues, linkedWorld, false)
+      const dependentStages = orderedStages.filter((stage) => (
+        !['core', 'civilization', 'characters'].includes(stage) && dependentGrouped.has(stage)
+      ))
+      if (dependentStages.length) await repairWave(dependentStages, dependentGrouped, attempt)
+    }
   }
 
   const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
