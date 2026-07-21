@@ -11,7 +11,7 @@ interface NewWorldDialogProps {
   providerName: string
   isDemo: boolean
   onClose: () => void
-  onCreate: (request: Omit<WorldGenerationRequest, 'provider'>) => Promise<unknown>
+  onCreate: (request: Omit<WorldGenerationRequest, 'provider' | 'noveltyReferences' | 'creativeSeed'>) => Promise<unknown>
 }
 
 const inspirationSeeds = [

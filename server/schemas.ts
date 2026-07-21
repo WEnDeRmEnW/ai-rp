@@ -2302,6 +2302,12 @@ export const worldRequestSchema = z.object({
   opening: z.string().trim().max(4000),
   canonMode: z.enum(['faithful', 'flexible', 'original']),
   contentBoundaries: z.string().trim().max(2000),
+  noveltyReferences: z.array(z.object({
+    name: shortText,
+    tagline: shortText,
+    premise: z.string().trim().min(1).max(1200),
+    signatureTerms: z.array(z.string().trim().min(1).max(240)).max(16),
+  }).strict()).max(12).optional(),
   provider: providerSchema,
 })
 

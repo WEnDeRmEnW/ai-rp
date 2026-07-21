@@ -8,6 +8,7 @@ import { createDemoCampaign } from '../lib/demo'
 import { applyPatch, commitTurn, rewindLastTurn } from '../lib/engine'
 import { loadProviderConfig, persistProviderConfig } from '../lib/provider-settings'
 import { syncApi } from '../lib/auth-api'
+import { buildWorldNoveltyReferences } from '../lib/world-novelty'
 import { claimGuestCampaigns, deleteCampaign as deleteStoredCampaign, getCampaignsForOwner, readCampaignFile, saveCampaign } from '../lib/storage'
 import { useAuth } from './AuthContext'
 
@@ -37,7 +38,7 @@ interface AppContextValue {
   retryLastTurn: () => Promise<void>
   retryFailedTurn: () => Promise<boolean>
   canRetryFailedTurn: boolean
-  createCampaign: (request: Omit<WorldGenerationRequest, 'provider'>) => Promise<Campaign | undefined>
+  createCampaign: (request: Omit<WorldGenerationRequest, 'provider' | 'noveltyReferences' | 'creativeSeed'>) => Promise<Campaign | undefined>
   aiEditCampaign: (instruction: string, eventOptions?: WorkshopEventOptions) => Promise<string | undefined>
   updateActiveCampaign: (updater: (campaign: Campaign) => Campaign) => Promise<void>
   undoLastEdit: () => Promise<void>
@@ -321,7 +322,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [activeCampaign, generating, provider, upsert])
 
-  const createCampaign = useCallback(async (request: Omit<WorldGenerationRequest, 'provider'>) => {
+  const createCampaign = useCallback(async (request: Omit<WorldGenerationRequest, 'provider' | 'noveltyReferences' | 'creativeSeed'>) => {
     setGenerating(true)
     setErrorTitle('Мир не создан')
     setError(undefined)
@@ -329,7 +330,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     abortRef.current = controller
     try {
       setOperationProgress({ percent: 1, stage: 'connecting', detail: 'Передаём замысел архитектору мира' })
-      const campaign = await generateCampaign({ ...request, provider }, controller.signal, setOperationProgress)
+      const campaign = await generateCampaign({
+        ...request,
+        noveltyReferences: buildWorldNoveltyReferences(campaigns),
+        provider,
+      }, controller.signal, setOperationProgress)
       const saved = await upsert(ensureCampaignIdentity(campaign))
       setActiveCampaignId(saved.id)
       return saved
@@ -342,7 +347,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (abortRef.current === controller) abortRef.current = undefined
       setGenerating(false)
     }
-  }, [provider, setActiveCampaignId, upsert])
+  }, [campaigns, provider, setActiveCampaignId, upsert])
 
   const aiEditCampaign = useCallback(async (instruction: string, eventOptions?: WorkshopEventOptions) => {
     const campaign = campaigns.find((candidate) => candidate.id === activeCampaignId)

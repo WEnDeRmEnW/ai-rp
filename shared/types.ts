@@ -2434,6 +2434,13 @@ export interface ProviderConfig {
 
 export type PersistentProviderConfig = Omit<ProviderConfig, 'apiKey'>
 
+export interface WorldNoveltyReference {
+  name: string
+  tagline: string
+  premise: string
+  signatureTerms: string[]
+}
+
 export interface WorldGenerationRequest {
   inspiration: string
   genre: string
@@ -2443,6 +2450,10 @@ export interface WorldGenerationRequest {
   opening: string
   canonMode: CampaignSettings['canonMode']
   contentBoundaries: string
+  /** Compact fingerprints of the user's existing worlds; never includes story messages or secrets. */
+  noveltyReferences?: WorldNoveltyReference[]
+  /** Server-generated tie breaker shared by every stage of one generation run. */
+  creativeSeed?: string
   provider: ProviderConfig
 }
 

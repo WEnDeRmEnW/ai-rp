@@ -4,7 +4,7 @@ import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventD
 import { demoTurn, demoWorld } from './demo.js'
 import { completeAuxiliaryJson, completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestOriginalityRepairPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
 import { abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
@@ -15,6 +15,7 @@ import { findNarrativeRepetitionIssues, narrativeRepetitionScore, removeNarrativ
 import { abilityExecutionIssues, abilityNoveltyIssues, abilityNoveltyScore, abilityProfileIssues, reconcileAbilityExecutionCosts, updateAbilityRegistry } from '../shared/abilities.js'
 import { grantedItemAbilities } from '../shared/effective-abilities.js'
 import { workshopStateResponseIssues } from './workshop-intent.js'
+import { generatedWorldOriginalityIssues, worldManifestOriginalityIssues } from './world-originality.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
 
@@ -4158,6 +4159,7 @@ async function generateParallelWorldStage(
 }
 
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {
+  request = { ...request, creativeSeed: randomUUID() }
   reportProgress(report, 3, 'concept', 'Разбираем замысел, героя и ограничения', 1, 11)
   if (request.provider.provider === 'demo') {
     reportProgress(report, 96, 'assembling', 'Собираем адаптивный демонстрационный мир', 10, 11)
@@ -4178,7 +4180,26 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
   reportProgress(report, 15, 'world-manifest', 'Фиксируем единый паспорт имён, сил и причинных связей', 3, 11)
   const manifestMessages = worldGenerationManifestPrompt(request, concept)
   const rawManifest = await completeJson(request.provider, manifestMessages, { stage: 'world', maxOutputTokens: 24_576 })
-  const manifest = await parseWithRepair<WorldGenerationManifest>(rawManifest, worldGenerationManifestSchema, request.provider, manifestMessages)
+  let manifest = await parseWithRepair<WorldGenerationManifest>(rawManifest, worldGenerationManifestSchema, request.provider, manifestMessages)
+  let bestManifest = manifest
+  let bestManifestIssues = worldManifestOriginalityIssues(manifest, request)
+  for (let attempt = 0; bestManifestIssues.length && attempt < 2; attempt += 1) {
+    reportProgress(report, 19 + attempt * 2, 'world-originality', 'Убираем повторяющиеся основы и отделяем мир от способностей героя', 3, 11)
+    const repairMessages = worldGenerationManifestOriginalityRepairPrompt(request, concept, bestManifest, bestManifestIssues)
+    const repairedRaw = await completeJson(request.provider, repairMessages, { stage: 'world', maxOutputTokens: 24_576 })
+    const repaired = await parseWithRepair<WorldGenerationManifest>(repairedRaw, worldGenerationManifestSchema, request.provider, repairMessages)
+    const repairedIssues = worldManifestOriginalityIssues(repaired, request)
+    if (repairedIssues.length < bestManifestIssues.length) {
+      bestManifest = repaired
+      bestManifestIssues = repairedIssues
+    }
+    if (!repairedIssues.length) {
+      bestManifest = repaired
+      bestManifestIssues = []
+      break
+    }
+  }
+  manifest = bestManifest
 
   reportProgress(report, 24, 'parallel-world', 'Одновременно создаём шесть полных разделов мира', 4, 11, ['Герой и предметы', 'Цивилизации', 'Персонажи', 'Легендарий', 'Сюжет', 'Интерфейс'])
   const generatedSections = await mapWithConcurrency(
@@ -4254,17 +4275,27 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     const artifactIssues = [...new Set([...artifactQuality.issues, ...artifactCriticIssues])]
     const abilityQuality = generatedWorldAbilityQuality(world)
     const abilityIssues = abilityQuality.issues
+    const originalityIssues = generatedWorldOriginalityIssues(world, request)
     const mechanicalIssues = [...accessIssues, ...artifactIssues, ...abilityIssues]
-    const effectiveReview: WorldQualityReview = mechanicalIssues.length ? {
+    const effectiveReview: WorldQualityReview = mechanicalIssues.length || originalityIssues.length ? {
       ...review,
       pass: false,
-      issues: [...review.issues, {
-        type: 'mechanics',
-        entity: abilityIssues.length ? 'Система способностей мира' : artifactIssues.length ? 'Стартовые артефакты мира' : world.player.name,
-        detail: mechanicalIssues.join(' '),
-        severity: 'high',
-      }],
-      rewriteInstructions: `${review.rewriteInstructions} Исправь startingAccess, артефакты и способности без изменения пользовательского замысла: ${mechanicalIssues.join(' ')}`.trim(),
+      issues: [
+        ...review.issues,
+        ...(mechanicalIssues.length ? [{
+          type: 'mechanics' as const,
+          entity: abilityIssues.length ? 'Система способностей мира' : artifactIssues.length ? 'Стартовые артефакты мира' : world.player.name,
+          detail: mechanicalIssues.join(' '),
+          severity: 'high' as const,
+        }] : []),
+        ...originalityIssues.map((issue) => ({
+          type: 'originality' as const,
+          entity: `Мир: ${issue.stage}`,
+          detail: issue.message,
+          severity: 'high' as const,
+        })),
+      ],
+      rewriteInstructions: `${review.rewriteInstructions} ${mechanicalIssues.length ? `Исправь startingAccess, артефакты и способности без изменения пользовательского замысла: ${mechanicalIssues.join(' ')}` : ''} ${originalityIssues.length ? `Пересобери повторяющуюся или герой-центричную основу без переименования тех же клише: ${originalityIssues.map((issue) => issue.message).join(' ')}` : ''}`.trim(),
     } : review
     const hasBlockingIssue = effectiveReview.issues.some((issue) => issue.severity === 'high' && ['canon', 'completeness', 'mechanics', 'consistency'].includes(issue.type))
       || effectiveReview.coverageAudit.some((entry) => entry.importance !== 'minor' && entry.status !== 'covered')
@@ -4284,7 +4315,7 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     }
 
     const repairSummary = JSON.stringify(effectiveReview)
-    const repairStages = qualityRepairStages(effectiveReview)
+    const repairStages = [...new Set([...qualityRepairStages(effectiveReview), ...originalityIssues.map((issue) => issue.stage)])]
     let optionalRewriteFailed = false
     const repairedEntries = await mapWithConcurrency(repairStages, 3, async (stage) => {
       reportProgress(report, 90 + attempt * 3, 'world-section-rewrite', `Улучшаем только раздел «${stage}» по замечаниям редактора`, 10, 11)
