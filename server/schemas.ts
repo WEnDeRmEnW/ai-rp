@@ -1683,6 +1683,8 @@ export const providerSchema = z.object({
   baseUrl: z.string().trim().max(500),
   apiKey: z.string().max(1000).optional(),
   temperature: z.number().min(0).max(2),
+  useAuxiliaryModel: z.boolean().optional(),
+  auxiliaryModel: z.string().trim().min(1).max(200).optional(),
 })
 
 const inventoryItemPatchSchema = z.object({

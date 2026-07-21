@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findNarrativeRepetitionIssues, findRepeatedNarrativePhrases } from './narrative-repetition'
+import { findNarrativeRepetitionIssues, findRepeatedNarrativePhrases, removeNarrativeRepetitionParagraphs } from './narrative-repetition'
 import type { StoryMessage } from './types'
 
 const penthouseParagraph = 'В пентхаусе тихо. Только гул систем жизнеобеспечения — вентиляция, фильтры, терморегуляция — и ровный свет голографических панелей на стенах. За панорамным окном — тёмные провалы Машинного Пояса, редкие огни аварийных генераторов, силуэты заброшенных кранов на фоне тусклого зарева Центрального Купола.'
@@ -46,5 +46,12 @@ describe('narrative repetition guard', () => {
     const candidate = 'Из Машинного Пояса приходит подписанный аварийный пакет: шлюз девятого дока откроется через шесть минут, а одноразовый код уже записан на ключ-карту Эллиры.'
 
     expect(findNarrativeRepetitionIssues(candidate, messages)).toEqual([])
+  })
+
+  it('can prune a rejected repeated paragraph while preserving new scene information', () => {
+    const candidate = `${penthouseParagraph}\n\nЭллира кладёт на стол ключ-карту и называет номер закрытого ангара.`
+    const issues = findNarrativeRepetitionIssues(candidate, [assistantMessage(51, penthouseParagraph)])
+
+    expect(removeNarrativeRepetitionParagraphs(candidate, issues)).toBe('Эллира кладёт на стол ключ-карту и называет номер закрытого ангара.')
   })
 })

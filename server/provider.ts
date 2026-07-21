@@ -12,7 +12,15 @@ export type CompletionStage = 'service' | 'turn' | 'world' | 'narrative'
 export interface CompletionOptions {
   stage?: CompletionStage
   maxOutputTokens?: number
+  /** Number of syntax-repair attempts for a structured response. */
+  maxAttempts?: number
+  /** Number of HTTP retries for this bounded completion. */
+  transportAttempts?: number
+  /** Per-request timeout. Optional reviews use a shorter timeout than core generation. */
+  timeoutMs?: number
 }
+
+export const DEFAULT_OLLAMA_AUXILIARY_MODEL = 'gpt-oss:20b'
 
 interface CompletionResult {
   content: string
@@ -115,6 +123,23 @@ function resolveConfig(input: ProviderConfig): ProviderConfig {
   return input
 }
 
+function isOllamaCloud(config: ProviderConfig): boolean {
+  if (config.provider !== 'ollama') return false
+  try {
+    return new URL(config.baseUrl).hostname.toLocaleLowerCase('en-US') === 'ollama.com'
+  } catch {
+    return false
+  }
+}
+
+/** Produces a same-account config for optional, non-authoritative Ollama Cloud reviews. */
+export function auxiliaryProviderConfig(config: ProviderConfig): ProviderConfig | undefined {
+  if (!isOllamaCloud(config) || config.useAuxiliaryModel === false) return undefined
+  const model = config.auxiliaryModel?.trim() || DEFAULT_OLLAMA_AUXILIARY_MODEL
+  if (model.toLocaleLowerCase('en-US') === config.model.trim().toLocaleLowerCase('en-US')) return undefined
+  return { ...config, model, temperature: 0 }
+}
+
 function endpointFor(baseUrl: string): string {
   const normalized = baseUrl.replace(/\/+$/, '')
   return normalized.endsWith('/chat/completions') ? normalized : `${normalized}/chat/completions`
@@ -139,14 +164,20 @@ function assertSafeEndpoint(rawUrl: string) {
 const transientStatuses = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526])
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
-async function fetchProvider(endpoint: string, init: Omit<RequestInit, 'signal'>): Promise<Response> {
+async function fetchProvider(
+  endpoint: string,
+  init: Omit<RequestInit, 'signal'>,
+  attempts = 3,
+  timeoutMs = 300_000,
+): Promise<Response> {
   let lastNetworkError: unknown
-  const attempts = 3
+  const safeAttempts = Math.max(1, Math.min(3, Math.round(attempts)))
+  const safeTimeoutMs = Math.max(5_000, Math.min(300_000, Math.round(timeoutMs)))
 
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+  for (let attempt = 0; attempt < safeAttempts; attempt += 1) {
     try {
-      const response = await fetch(endpoint, { ...init, signal: AbortSignal.timeout(300_000) })
-      const shouldRetry = transientStatuses.has(response.status) && attempt < attempts - 1
+      const response = await fetch(endpoint, { ...init, signal: AbortSignal.timeout(safeTimeoutMs) })
+      const shouldRetry = transientStatuses.has(response.status) && attempt < safeAttempts - 1
       if (!shouldRetry) return response
 
       const retryAfter = Number(response.headers.get('retry-after'))
@@ -157,7 +188,7 @@ async function fetchProvider(endpoint: string, init: Omit<RequestInit, 'signal'>
       await wait(delay)
     } catch (error) {
       lastNetworkError = error
-      if (attempt < attempts - 1) {
+      if (attempt < safeAttempts - 1) {
         await wait(750 * (attempt + 1))
         continue
       }
@@ -165,9 +196,10 @@ async function fetchProvider(endpoint: string, init: Omit<RequestInit, 'signal'>
   }
 
   const detail = lastNetworkError instanceof Error && lastNetworkError.name === 'TimeoutError'
-    ? 'Провайдер не ответил за пять минут.'
+    ? `Провайдер не ответил за ${Math.round(safeTimeoutMs / 1000)} сек.`
     : 'Соединение с провайдером оборвалось.'
-  throw new Error(`${detail} Выполнены три автоматические попытки; повторите ход, когда связь стабилизируется.`)
+  const attemptLabel = safeAttempts === 1 ? 'Выполнена одна попытка.' : `Выполнено попыток: ${safeAttempts}.`
+  throw new Error(`${detail} ${attemptLabel} Повторите ход, когда связь стабилизируется.`)
 }
 
 async function requestCompletion(
@@ -177,6 +209,8 @@ async function requestCompletion(
   maxOutputTokens: number | undefined,
   retryWithoutJson = true,
   tokenLimitFallback: TokenLimitFallback = 'reduce',
+  transportAttempts = 3,
+  timeoutMs = 300_000,
 ): Promise<CompletionResult> {
   const config = resolveConfig(configInput)
   const endpoint = endpointFor(config.baseUrl)
@@ -203,7 +237,7 @@ async function requestCompletion(
       ...(config.provider === 'openrouter' ? { 'HTTP-Referer': 'http://localhost:5173', 'X-Title': 'Letopis AI RP' } : {}),
     },
     body: JSON.stringify(body),
-  })
+  }, transportAttempts, timeoutMs)
 
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 800)
@@ -211,13 +245,13 @@ async function requestCompletion(
     if (response.status === 400 && explicitlyTokenRelated && tokenLimitFallback !== 'none') {
       const unsupportedParameter = /not supported|unsupported|unknown (?:field|parameter)|unrecognized|not permitted|extra inputs?/i.test(detail)
       if (unsupportedParameter || maxOutputTokens === undefined || tokenLimitFallback === 'omit') {
-        return requestCompletion(config, messages, jsonMode, undefined, retryWithoutJson, 'none')
+        return requestCompletion(config, messages, jsonMode, undefined, retryWithoutJson, 'none', transportAttempts, timeoutMs)
       }
       const reduced = reducedProviderLimit(detail, maxOutputTokens)
-      return requestCompletion(config, messages, jsonMode, reduced, retryWithoutJson, 'omit')
+      return requestCompletion(config, messages, jsonMode, reduced, retryWithoutJson, 'omit', transportAttempts, timeoutMs)
     }
     if (jsonMode && retryWithoutJson && response.status === 400 && /response_format|json/i.test(detail)) {
-      return requestCompletion({ ...config, temperature: 0 }, messages, false, maxOutputTokens, false, tokenLimitFallback)
+      return requestCompletion({ ...config, temperature: 0 }, messages, false, maxOutputTokens, false, tokenLimitFallback, transportAttempts, timeoutMs)
     }
     if (response.status === 401 || response.status === 403) throw new Error('API отклонил ключ. Проверьте ключ и выбранного провайдера.')
     if (response.status === 429) throw new Error('Провайдер временно ограничил частоту запросов. Попробуйте чуть позже.')
@@ -244,6 +278,8 @@ function completionCacheKey(
   maxOutputTokens: number | undefined,
   retryWithoutJson: boolean,
   tokenLimitFallback: TokenLimitFallback,
+  transportAttempts: number,
+  timeoutMs: number,
 ) {
   const config = resolveConfig(configInput)
   return createHash('sha256').update(JSON.stringify({
@@ -256,6 +292,8 @@ function completionCacheKey(
     maxOutputTokens,
     retryWithoutJson,
     tokenLimitFallback,
+    transportAttempts,
+    timeoutMs,
   })).digest('hex')
 }
 
@@ -266,10 +304,12 @@ async function scopedRequestCompletion(
   maxOutputTokens: number | undefined,
   retryWithoutJson = true,
   tokenLimitFallback: TokenLimitFallback = 'reduce',
+  transportAttempts = 3,
+  timeoutMs = 300_000,
 ): Promise<CompletionResult> {
   const scope = completionScopes.getStore()
-  if (!scope) return requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback)
-  const key = completionCacheKey(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback)
+  if (!scope) return requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs)
+  const key = completionCacheKey(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs)
   const cached = scope.cache.get(key)
   if (cached) {
     scope.cacheHits += 1
@@ -280,7 +320,7 @@ async function scopedRequestCompletion(
   scope.activeProviderCalls += 1
   scope.peakProviderConcurrency = Math.max(scope.peakProviderConcurrency, scope.activeProviderCalls)
   scope.firstProviderStartedAt ??= startedAt
-  const pending = requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback)
+  const pending = requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs)
     .finally(() => {
       const finishedAt = performance.now()
       scope.providerTimeMs += Math.round(finishedAt - startedAt)
@@ -311,9 +351,12 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   let repairMessages = messages
   let lastError: unknown
   let maxOutputTokens = outputLimit(messages, true, options)
+  const maxAttempts = Math.max(1, Math.min(3, Math.round(options?.maxAttempts ?? 3)))
+  const transportAttempts = Math.max(1, Math.min(3, Math.round(options?.transportAttempts ?? 3)))
+  const timeoutMs = Math.max(5_000, Math.min(300_000, Math.round(options?.timeoutMs ?? 300_000)))
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await scopedRequestCompletion(config, repairMessages, true, maxOutputTokens)
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const completion = await scopedRequestCompletion(config, repairMessages, true, maxOutputTokens, true, 'reduce', transportAttempts, timeoutMs)
     const raw = completion.content
     if (completion.truncated) {
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
@@ -346,13 +389,61 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   throw lastError instanceof Error ? lastError : new Error('Модель не вернула корректный JSON после автоматического восстановления.')
 }
 
+const auxiliaryUnavailableUntil = new Map<string, number>()
+
+function auxiliaryCircuitKey(config: ProviderConfig): string {
+  const account = createHash('sha256').update(config.apiKey || 'anonymous').digest('hex').slice(0, 12)
+  return `${config.baseUrl}|${config.auxiliaryModel || DEFAULT_OLLAMA_AUXILIARY_MODEL}|${account}`
+}
+
+/**
+ * Runs a compact optional review on the configured small Ollama Cloud model. Transport, JSON,
+ * and caller-contract failures fall back to the primary model. The primary creative path never
+ * passes through this function.
+ */
+export async function completeAuxiliaryJson(
+  config: ProviderConfig,
+  messages: ChatMessage[],
+  options?: CompletionOptions,
+  validate?: (value: unknown) => boolean,
+): Promise<unknown> {
+  const auxiliary = auxiliaryProviderConfig(config)
+  if (!auxiliary) return completeJson(config, messages, options)
+
+  const circuitKey = auxiliaryCircuitKey(config)
+  if ((auxiliaryUnavailableUntil.get(circuitKey) ?? 0) > Date.now()) {
+    return completeJson(config, messages, options)
+  }
+
+  try {
+    const value = await completeJson(auxiliary, messages, {
+      ...options,
+      stage: 'service',
+      maxOutputTokens: Math.min(options?.maxOutputTokens ?? 4_096, 8_192),
+      maxAttempts: 1,
+      transportAttempts: 1,
+      timeoutMs: Math.min(options?.timeoutMs ?? 45_000, 45_000),
+    })
+    if (validate && !validate(value)) throw new Error('Быстрая модель не прошла контракт служебной проверки.')
+    auxiliaryUnavailableUntil.delete(circuitKey)
+    return value
+  } catch (error) {
+    auxiliaryUnavailableUntil.set(circuitKey, Date.now() + 5 * 60_000)
+    console.warn(`[provider] Auxiliary model ${auxiliary.model} skipped; primary fallback engaged: ${error instanceof Error ? error.message : String(error)}`)
+    return completeJson(config, messages, options)
+  }
+}
+
 export async function completeText(config: ProviderConfig, messages: ChatMessage[], options?: CompletionOptions): Promise<string> {
   let retryMessages = messages
   let maxOutputTokens = outputLimit(messages, false, options)
   let finishReason = 'length'
+  const maxAttempts = Math.max(1, Math.min(3, Math.round(options?.maxAttempts ?? 3)))
+  const transportAttempts = Math.max(1, Math.min(3, Math.round(options?.transportAttempts ?? 3)))
+  const timeoutMs = Math.max(5_000, Math.min(300_000, Math.round(options?.timeoutMs ?? 300_000)))
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await scopedRequestCompletion(config, retryMessages, false, maxOutputTokens)
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const completion = await scopedRequestCompletion(config, retryMessages, false, maxOutputTokens, true, 'reduce', transportAttempts, timeoutMs)
     if (!completion.truncated) return completion.content
     finishReason = completion.finishReason ?? finishReason
     maxOutputTokens = expandedOutputLimit(maxOutputTokens)

@@ -1089,6 +1089,9 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .settings-note strong { color: var(--gold); font-size: 10px; }
 .settings-note span { color: var(--muted); font-size: 9px; line-height: 1.4; }
 .compact-form { overflow: visible; padding: 14px 0 0; }
+.auxiliary-model-settings { display: grid; gap: 10px; padding-top: 2px; }
+.auxiliary-model-settings .interface-toggle-list { margin-top: 0; }
+.auxiliary-model-settings .settings-note { margin-top: 0; }
 .settings-selects { margin-top: 13px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .event-director-settings { position: relative; }
 .event-director-settings::before { content: ""; position: absolute; top: 17px; right: 4px; width: 86px; height: 86px; border: 1px solid color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 50%; pointer-events: none; }

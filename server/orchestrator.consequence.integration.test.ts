@@ -141,8 +141,49 @@ describe('runTurn consequence reconciliation', () => {
     expect(auditUser).toContain(finalNarrative)
 
     expect(requestBodies.filter((body) => systemPrompt(body).includes('выдающийся ведущий'))).toHaveLength(2)
-    expect(requestBodies.some((body) => systemPrompt(body).includes('строгий редактор'))).toBe(true)
+    expect(requestBodies.some((body) => systemPrompt(body).includes('аудитор свободы игрока'))).toBe(false)
     expect(requestBodies.some((body) => systemPrompt(body).includes('архивариус'))).toBe(true)
+  })
+
+  it('returns the turn while deterministically removing decisions invented for the player', async () => {
+    const campaign = createDemoCampaign()
+    campaign.settings.qualityMode = 'balanced'
+    const playerName = campaign.player.name
+    const requestedNarrative = `Мира кладёт на стол ключ от северных ворот и ждёт ответа.\n\n${playerName} решает принять её предложение, благодарит Миру и сразу выходит из комнаты.\n\nЗа дверью слышны быстрые шаги дозорного.`
+    const requestBodies: CompletionBody[] = []
+
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      requestBodies.push(body)
+      const system = systemPrompt(body)
+      if (system.includes('скрытый симулятор живого мира')) return providerResponse(JSON.stringify({ signals: [], statePatch: {} }))
+      if (system.includes('режиссёр и строгий распорядитель состояния')) return providerResponse(JSON.stringify({
+        outcome: 'Мира предлагает герою ключ от северных ворот.',
+        beats: ['Мира оставляет ключ на столе.', 'За дверью приближается дозорный.'],
+        suggestions: ['Изучить ключ', 'Спросить Миру о дозорном'],
+        statePatch: {},
+      }))
+      if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse(requestedNarrative)
+      if (system.includes('последний обязательный аудитор причин и последствий')) return providerResponse(JSON.stringify({
+        pass: true,
+        narrativePass: true,
+        narrativeIssues: [],
+        verifiedDomains: consequenceDomains,
+        omissions: [],
+        statePatch: {},
+      }))
+      if (system.includes('архивариус очень долгой ролевой кампании')) return providerResponse(JSON.stringify({ memories: [], archives: [] }))
+      return new Response(`Unexpected completion stage: ${system.slice(0, 120)}`, { status: 418 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runTurn({ campaign, input: 'Я молча смотрю на ключ.', actionType: 'do', provider })
+
+    expect(result.narrative).toContain('Мира кладёт на стол ключ')
+    expect(result.narrative).toContain('слышны быстрые шаги дозорного')
+    expect(result.narrative).not.toContain('решает принять')
+    expect(result.narrative).not.toContain('благодарит Миру')
+    expect(requestBodies.some((body) => systemPrompt(body).includes('аудитор свободы игрока'))).toBe(false)
   })
 
   it('rewrites a scene that replaced a binding story direction, then audits the corrected prose again', async () => {
@@ -519,13 +560,10 @@ describe('runTurn consequence reconciliation', () => {
     expect(repetitionRevisionCalls).toBe(1)
     expect(result.narrative).toBe(repairedNarrative)
     expect(findNarrativeRepetitionIssues(result.narrative, campaign.messages)).toEqual([])
-    const criticUser = criticBody?.messages.find((message) => message.role === 'user')?.content ?? ''
-    expect(criticUser).toContain('ПРОГРАММНАЯ ПРОВЕРКА ПОВТОРОВ A:')
-    expect(criticUser).toContain('recent-paragraph')
-    expect(criticUser).toContain('В пентхаусе тихо')
+    expect(criticBody).toBeUndefined()
   })
 
-  it('runs the critic and independent final audits concurrently', async () => {
+  it('runs only necessary final audits concurrently and skips redundant balanced-mode critics', async () => {
     const campaign = createDemoCampaign()
     campaign.settings.qualityMode = 'balanced'
     let activeAuditors = 0
@@ -587,8 +625,8 @@ describe('runTurn consequence reconciliation', () => {
 
     await runTurn({ campaign, input: `Осматриваю карту с помощью ${campaign.player.abilities[0].name}, пока ничего больше не решая.`, actionType: 'do', provider })
 
-    expect(maximumActiveAuditors).toBe(2)
-    expect(maximumActiveLatencyStages).toBe(4)
+    expect(maximumActiveAuditors).toBe(1)
+    expect(maximumActiveLatencyStages).toBe(2)
     expect(maximumActiveEarlyStages).toBe(2)
     expect(maximumActivePlanAndProseStages).toBe(2)
   })

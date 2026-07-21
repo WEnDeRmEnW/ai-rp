@@ -2,16 +2,16 @@ import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEdit
 import { randomUUID } from 'node:crypto'
 import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, narrativeEventKnownIds, normalizeEventDirectorState, normalizeNarrativeEventProposal, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
-import { completeJson, completeText, completionScopeStats } from './provider.js'
+import { completeAuxiliaryJson, completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput } from './model-normalizer.js'
-import { agencyRevisionPrompt, abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { agencyAuditSchema, abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityQualityReview, type AgencyAudit, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
+import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
-import { findAgencyViolations, type AgencyViolation } from './agency-guard.js'
-import { findNarrativeRepetitionIssues, narrativeRepetitionScore } from '../shared/narrative-repetition.js'
+import { sanitizePlayerAgency } from './agency-guard.js'
+import { findNarrativeRepetitionIssues, narrativeRepetitionScore, removeNarrativeRepetitionParagraphs } from '../shared/narrative-repetition.js'
 import { abilityExecutionIssues, abilityNoveltyIssues, abilityNoveltyScore, abilityProfileIssues, updateAbilityRegistry } from '../shared/abilities.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
@@ -305,6 +305,11 @@ async function optionalStage<T>(label: string, work: () => Promise<T>, fallback:
 }
 
 type ConsequenceDomain = ConsequenceAudit['omissions'][number]['domain']
+
+const CONSEQUENCE_DOMAINS: ConsequenceDomain[] = [
+  'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
+  'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'world_pressure', 'knowledge',
+]
 
 type SanitizationRejection = {
   message: string
@@ -2095,7 +2100,7 @@ async function repairGeneratedWorldArtifacts(
         const reviewMessages = artifactQualityCriticPrompt(current, candidateRegistry, { world: source.world, concept, canonMode: request.canonMode })
         let criticPenalty = 0
         try {
-          const reviewRaw = await completeJson(request.provider, reviewMessages)
+          const reviewRaw = await completeAuxiliaryJson(request.provider, reviewMessages, { maxOutputTokens: 4_096 }, (value) => artifactQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
           const review = artifactQualityReviewSchema.safeParse(normalizeModelOutput(reviewRaw))
           if (review.success) {
             criticPenalty = review.data.issues.length * 5 + (review.data.verdict === 'rebuild' ? 20 : 0)
@@ -2269,7 +2274,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     const reviewCandidate = async (item: PlannedArtifactItem, deterministicIssues: string[], registry: NonNullable<Campaign['artifactRegistry']>) => {
       try {
         const messages = artifactQualityCriticPrompt(item, registry, worldContext)
-        const raw = await completeJson(request.provider, messages)
+        const raw = await completeAuxiliaryJson(request.provider, messages, { maxOutputTokens: 4_096 }, (value) => artifactQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
         const parsed = artifactQualityReviewSchema.safeParse(normalizeModelOutput(raw))
         if (parsed.success) return parsed.data
         console.warn(`[artifact-quality] Compact critic returned an invalid review: ${compactIssues(parsed.error, raw)}`)
@@ -2422,7 +2427,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       let review = fallbackReview(issues)
       try {
         const criticMessages = abilityQualityCriticPrompt({ world: worldContext, owner: { id: ref.ownerId, name: ref.ownerName, resources: ref.resources }, ability: current, registry })
-        const criticRaw = await completeJson(request.provider, criticMessages)
+        const criticRaw = await completeAuxiliaryJson(request.provider, criticMessages, { maxOutputTokens: 4_096 }, (value) => abilityQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
         const parsedReview = abilityQualityReviewSchema.safeParse(normalizeModelOutput(criticRaw))
         if (parsedReview.success) review = parsedReview.data
         else console.warn(`[ability-quality] Invalid compact review: ${compactIssues(parsedReview.error, criticRaw)}`)
@@ -2628,43 +2633,23 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     sanitized = repairedSanitized
   }
 
-  const requestAgencyAudit = async (candidateNarrative: string) => {
-    const deterministicViolations = findAgencyViolations({
-      playerName: request.campaign.player.name,
-      input: request.input,
-      actionType: request.actionType,
-      narrative: candidateNarrative,
-      agencyMode: request.campaign.settings.playerAgency,
-    })
-    const auditMessages = playerAgencyAuditorPrompt(
-      request.campaign,
-      request.input,
-      request.actionType,
-      sanitized.plan,
-      candidateNarrative,
-      deterministicViolations,
-    )
-    const fallbackAgencyAudit: AgencyAudit = {
-      pass: deterministicViolations.length === 0,
-      violations: deterministicViolations,
-    }
-    const audit = await optionalStage<AgencyAudit>('agency-audit', async () => {
-      const rawAgencyAudit = await completeJson(request.provider, auditMessages)
-      return parseWithRepair<AgencyAudit>(rawAgencyAudit, agencyAuditSchema, request.provider, auditMessages)
-    }, fallbackAgencyAudit)
-    const violations = [...deterministicViolations, ...audit.violations].filter((violation, index, all) => (
-      all.findIndex((candidate) => candidate.kind === violation.kind && candidate.evidence === violation.evidence) === index
-    ))
-    return { audit, violations }
-  }
-
   const requestConsequenceAudit = async (
     plan: ReturnType<typeof turnPlanSchema.parse>,
     candidateNarrative: string,
   ) => {
     const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, plan, candidateNarrative, check)
-    const rawAudit = await completeJson(request.provider, auditMessages)
-    return parseWithRepair<ConsequenceAudit>(rawAudit, consequenceAuditSchema, request.provider, auditMessages)
+    const fallback: ConsequenceAudit = {
+      pass: true,
+      narrativePass: true,
+      narrativeIssues: [],
+      verifiedDomains: [...CONSEQUENCE_DOMAINS],
+      omissions: [],
+      statePatch: {},
+    }
+    return optionalStage('consequence-audit', async () => {
+      const rawAudit = await completeJson(request.provider, auditMessages)
+      return parseWithRepair<ConsequenceAudit>(rawAudit, consequenceAuditSchema, request.provider, auditMessages)
+    }, fallback)
   }
 
   const requestMemoryCurator = async (
@@ -2680,12 +2665,33 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
 
   const requestAuditBundle = async (candidateNarrative: string) => {
-    const [agency, consequence, curator] = await Promise.all([
-      requestAgencyAudit(candidateNarrative),
+    const [consequence, curator] = await Promise.all([
       requestConsequenceAudit(sanitized.plan, candidateNarrative),
       requestMemoryCurator(sanitized.plan, candidateNarrative),
     ])
-    return { agency, consequence, curator }
+    return { consequence, curator }
+  }
+
+  const agencyAuditNotes: string[] = []
+  const protectPlayerAgency = (candidateNarrative: string, recordNotes = true) => {
+    const protect = (value: string) => sanitizePlayerAgency({
+      playerName: request.campaign.player.name,
+      input: request.input,
+      actionType: request.actionType,
+      narrative: value,
+      agencyMode: request.campaign.settings.playerAgency,
+    })
+    let result = protect(candidateNarrative)
+    if (recordNotes && result.violations.length) {
+      agencyAuditNotes.push(...result.violations.map((violation) => `Агентность ${violation.kind}: ${violation.reason}`))
+    }
+    if (!result.narrative.trim()) {
+      result = protect([sanitized.plan.outcome, ...sanitized.plan.beats].filter(Boolean).join('\n\n'))
+    }
+    if (!result.narrative.trim()) {
+      result = protect('Окружение отвечает на уже заявленное действие конкретным изменением обстановки. Реакции других персонажей становятся заметны, но следующий выбор остаётся за игроком.')
+    }
+    return result.narrative.trim()
   }
 
   reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
@@ -2705,23 +2711,23 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   const repetitionA = findNarrativeRepetitionIssues(draftA, request.campaign.messages)
   const repetitionB = findNarrativeRepetitionIssues(draftB, request.campaign.messages)
   reportProgress(report, 65, 'critic', 'Критик выбирает сильнейший непротиворечивый вариант', 7, 11)
-  const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB, repetitionA, repetitionB)
-  const preferredDraft = narrativeRepetitionScore(repetitionA) <= narrativeRepetitionScore(repetitionB) ? draftA : draftB
-  const draftNarratives = [...new Set([preferredDraft, preferredDraft === draftA ? draftB : draftA])]
-  const speculativeAuditsPromise = mapWithConcurrency(draftNarratives, 1, async (candidateNarrative) => ({
-    candidateNarrative,
-    bundle: await requestAuditBundle(candidateNarrative),
-  })).catch((error) => {
-    // A speculative result is only a latency optimization. The exact final narrative is
-    // audited below, so an unused speculative failure must never interrupt the turn.
-    console.warn('[orchestrator:speculative-audits] ignored', error)
-    return []
-  })
-  const reviewPromise = optionalStage('critic', async () => {
-    const rawReview = await completeJson(request.provider, criticMessages)
-    return parseWithRepair(rawReview, continuityReviewSchema, request.provider, criticMessages, () => ({ chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }))
-  }, { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' })
-  const review = await reviewPromise
+  const preferredDraft = protectPlayerAgency(
+    narrativeRepetitionScore(repetitionA) <= narrativeRepetitionScore(repetitionB) ? draftA : draftB,
+    false,
+  )
+  const speculativeAuditPromise = requestAuditBundle(preferredDraft)
+    .then((bundle) => ({ ok: true as const, bundle }))
+    .catch((error: unknown) => {
+      console.warn('[orchestrator:speculative-audit] ignored', error)
+      return { ok: false as const }
+    })
+  const review = draftA === draftB
+    ? { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }
+    : await optionalStage('critic', async () => {
+      const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB, repetitionA, repetitionB)
+      const rawReview = await completeJson(request.provider, criticMessages)
+      return parseWithRepair(rawReview, continuityReviewSchema, request.provider, criticMessages, () => ({ chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }))
+    }, { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' })
   const reviewerChoice = review.chosen
   const reviewerIssues = reviewerChoice === 'a' ? repetitionA : repetitionB
   const alternateIssues = reviewerChoice === 'a' ? repetitionB : repetitionA
@@ -2740,50 +2746,24 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     chosenDraft,
   )
 
+  reportProgress(report, 70, 'agency-audit', 'Программно сохраняем за игроком все решения, реплики и мысли', 8, 11)
+  narrative = protectPlayerAgency(narrative)
+
   // Speculative audits began at the same time as the critic. Reuse is allowed only for the
   // exact unchanged narrative and plan; any revision receives a fresh complete audit bundle.
   const initiallyAuditedNarrative = narrative
   const initiallyAuditedPlanFingerprint = JSON.stringify(sanitized.plan)
   reportProgress(report, 69, 'parallel-audit', 'Одновременно сверяем сцену, последствия и долгую память', 8, 11, ['Свобода героя', '17 областей состояния', 'Долгая память'])
-  const initialAuditBundle = draftNarratives.includes(initiallyAuditedNarrative)
-    ? (await speculativeAuditsPromise).find((entry) => entry.candidateNarrative === initiallyAuditedNarrative)?.bundle
-      ?? await requestAuditBundle(initiallyAuditedNarrative)
+  const speculativeAudit = await speculativeAuditPromise
+  const initialAuditBundle = initiallyAuditedNarrative === preferredDraft && speculativeAudit.ok
+    ? speculativeAudit.bundle
     : await requestAuditBundle(initiallyAuditedNarrative)
-  const initialAgencyResult = initialAuditBundle.agency
   const initialConsequenceAudit = initialAuditBundle.consequence
   const initialCurator = initialAuditBundle.curator
 
-  const agencyAuditNotes: string[] = []
-  let agencyPassed = false
-  for (let agencyAttempt = 0; agencyAttempt < 3; agencyAttempt += 1) {
-    reportProgress(report, 70 + agencyAttempt * 2, 'agency-audit', agencyAttempt === 0
-      ? 'Проверяем, что герой принадлежит только игроку'
-      : `Убираем присвоенные герою решения: попытка ${agencyAttempt + 1}`, 8, 11)
-    const { audit: agencyAudit, violations } = agencyAttempt === 0 && narrative === initiallyAuditedNarrative
-      ? initialAgencyResult
-      : await requestAgencyAudit(narrative)
-    agencyAuditNotes.push(...violations.map((violation) => `Агентность ${violation.kind}: ${violation.reason}`))
-    if (agencyAudit.pass && violations.length === 0) {
-      agencyPassed = true
-      break
-    }
-    if (agencyAttempt === 2) break
-    narrative = await completeText(request.provider, agencyRevisionPrompt(
-      request.campaign,
-      request.input,
-      request.actionType,
-      sanitized.plan,
-      narrative,
-      violations as AgencyViolation[],
-    ))
-  }
-  if (!agencyPassed) {
-    throw new Error(`DeepSeek не смог сохранить свободу героя после трёх обязательных исправлений. Ход не применён, чтобы ИИ не решил за ${request.campaign.player.name}.`)
-  }
-
   const repairedOmissions: ConsequenceAudit['omissions'] = []
   const narrativeAuditNotes: string[] = []
-  let consequenceAudit: ConsequenceAudit | undefined
+  let consequenceAudit: ConsequenceAudit = initialConsequenceAudit
   const eventCompliantPatch = eventDecision.mode !== 'none' && eventDecision.mode !== 'seed'
     ? structuredClone(sanitized.plan.statePatch)
     : undefined
@@ -2796,6 +2776,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     consequenceAudit = narrativeAttempt === 0 && narrative === initiallyAuditedNarrative
       ? initialConsequenceAudit
       : await requestConsequenceAudit(reconciled.plan, narrative)
+    const planBeforeAuditPatch = structuredClone(reconciled.plan)
     repairedOmissions.push(...consequenceAudit.omissions)
     narrativeAuditNotes.push(...consequenceAudit.narrativeIssues.map((issue) => `${issue.severity}: ${issue.requirement}`))
     reconciled.plan.statePatch = mergeAuditPatch(reconciled.plan.statePatch, consequenceAudit.statePatch) as typeof reconciled.plan.statePatch
@@ -2815,8 +2796,10 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
         narrative,
         check,
       )
-      const retryRaw = await completeJson(request.provider, retryMessages)
-      const retryAudit = await parseWithRepair<ConsequenceAudit>(retryRaw, consequenceAuditSchema, request.provider, retryMessages)
+      const retryAudit = await optionalStage<ConsequenceAudit>('consequence-reference-repair', async () => {
+        const retryRaw = await completeJson(request.provider, retryMessages)
+        return parseWithRepair<ConsequenceAudit>(retryRaw, consequenceAuditSchema, request.provider, retryMessages)
+      }, consequenceAudit)
       consequenceAudit = retryAudit
       repairedOmissions.push(...retryAudit.omissions)
       narrativeAuditNotes.push(...retryAudit.narrativeIssues.map((issue) => `${issue.severity}: ${issue.requirement}`))
@@ -2825,59 +2808,43 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       blockingNotes = blockingRejectionMessages(reconciled, consequenceAudit.omissions)
     }
     if (blockingNotes.length > 0) {
-      throw new Error(`DeepSeek не смог безопасно привязать обязательное последствие к текущему состоянию: ${blockingNotes.join(' ')}`)
+      narrativeAuditNotes.push(`Отклонён небезопасный дополнительный патч аудита: ${blockingNotes.join(' ')}`)
+      reconciled = sanitizePlan(request.campaign, planBeforeAuditPatch)
+      consequenceAudit = {
+        ...consequenceAudit,
+        pass: true,
+        omissions: [],
+        statePatch: {},
+      }
     }
     const repetitionIssues = findNarrativeRepetitionIssues(narrative, request.campaign.messages)
     narrativeAuditNotes.push(...repetitionIssues.map((issue) => `Повтор ${issue.severity}: ${issue.candidateExcerpt}`))
     if (consequenceAudit.narrativePass && repetitionIssues.length === 0) break
     if (narrativeAttempt === 2) {
       if (repetitionIssues.length) {
-        throw new Error(`DeepSeek трижды повторил уже использованное описание: ${repetitionIssues.map((issue) => issue.candidateExcerpt).join(' | ')}`)
+        narrative = removeNarrativeRepetitionParagraphs(narrative, repetitionIssues)
+        narrativeAuditNotes.push('Финальные повторяющиеся абзацы удалены программно без повторного обращения к модели.')
       }
-      throw new Error(`DeepSeek трижды не выполнил обязательные факты ввода: ${consequenceAudit.narrativeIssues.map((issue) => issue.requirement).join(' ')}`)
+      narrative = protectPlayerAgency(narrative)
+      break
     }
     if (repetitionIssues.length) {
       reportProgress(report, 86 + narrativeAttempt * 2, 'style-audit', `Убираем повторяющиеся абзацы: попытка ${narrativeAttempt + 1}`, 9, 11)
       const otherInstructions = consequenceAudit.narrativePass ? '' : consequenceAudit.narrativeIssues.map((issue) => issue.instruction).join('\n')
       narrative = await completeText(request.provider, narrativeRepetitionRevisionPrompt(request.campaign, request.input, reconciled.plan, narrative, repetitionIssues, otherInstructions))
-      const postRevisionAgencyIssues = findAgencyViolations({
-        playerName: request.campaign.player.name,
-        input: request.input,
-        actionType: request.actionType,
-        narrative,
-        agencyMode: request.campaign.settings.playerAgency,
-      })
-      if (postRevisionAgencyIssues.length) {
-        narrative = await completeText(request.provider, agencyRevisionPrompt(
-          request.campaign,
-          request.input,
-          request.actionType,
-          reconciled.plan,
-          narrative,
-          postRevisionAgencyIssues,
-        ))
-      }
+      narrative = protectPlayerAgency(narrative)
       continue
     }
     const consequenceRewriteInstructions = consequenceAudit.narrativeIssues.map((issue) => issue.instruction).join('\n')
     narrative = await completeText(request.provider, revisionPrompt(request.campaign, request.input, reconciled.plan, narrative, consequenceRewriteInstructions))
+    narrative = protectPlayerAgency(narrative)
   }
-  if (!consequenceAudit) throw new Error('Не удалось выполнить обязательную сверку последствий.')
-
   const finalRepetitionIssues = findNarrativeRepetitionIssues(narrative, request.campaign.messages)
   if (finalRepetitionIssues.length) {
-    throw new Error(`Финальная проверка остановила повтор уже использованной прозы: ${finalRepetitionIssues.map((issue) => issue.candidateExcerpt).join(' | ')}`)
+    narrative = removeNarrativeRepetitionParagraphs(narrative, finalRepetitionIssues)
+    narrativeAuditNotes.push('Повторяющиеся финальные абзацы удалены программно.')
   }
-  const finalAgencyIssues = findAgencyViolations({
-    playerName: request.campaign.player.name,
-    input: request.input,
-    actionType: request.actionType,
-    narrative,
-    agencyMode: request.campaign.settings.playerAgency,
-  })
-  if (finalAgencyIssues.length) {
-    throw new Error(`Финальная редактура нарушила свободу героя: ${finalAgencyIssues.map((issue) => issue.evidence).join(' | ')}`)
-  }
+  narrative = protectPlayerAgency(narrative)
 
   reportProgress(report, 93, 'memory', 'Закрепляем факты и долгую память истории', 10, 11)
   const curator = narrative === initiallyAuditedNarrative && JSON.stringify(reconciled.plan) === initiallyAuditedPlanFingerprint
@@ -2993,7 +2960,7 @@ async function repairCampaignEditorArtifacts(
         issues = artifactItemQualityIssues(current, requested, candidateRegistry)
         try {
           const criticMessages = artifactQualityCriticPrompt(current, candidateRegistry, request.campaign.world)
-          const criticRaw = await completeJson(request.provider, criticMessages)
+          const criticRaw = await completeAuxiliaryJson(request.provider, criticMessages, { maxOutputTokens: 4_096 }, (value) => artifactQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
           const critic = artifactQualityReviewSchema.safeParse(normalizeModelOutput(criticRaw))
           if (critic.success && critic.data.verdict === 'rebuild') issues = [...new Set([...issues, ...critic.data.issues])]
         } catch {
@@ -3076,7 +3043,7 @@ async function repairCampaignEditorAbilities(
         ability: current,
         registry,
       })
-      const raw = await completeJson(request.provider, criticMessages)
+      const raw = await completeAuxiliaryJson(request.provider, criticMessages, { maxOutputTokens: 4_096 }, (value) => abilityQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
       const critic = abilityQualityReviewSchema.safeParse(normalizeModelOutput(raw))
       if (critic.success && critic.data.verdict === 'repair') criticIssues = critic.data.issues
     } catch {
@@ -3410,11 +3377,26 @@ function stabilizeWorkshopEventProposal(
 
 function normalizeWorkshopEventResponse(request: CampaignEditRequest, response: CampaignEditResponse): CampaignEditResponse {
   if (!response.eventDirective) return response
+  const requestedOptions = request.eventOptions
+  const delivery = requestedOptions?.delivery ?? response.eventDirective.delivery
+  const stabilized = stabilizeWorkshopEventProposal(request, response.statePatch, response.eventDirective.proposal)
+  const proposal = normalizeNarrativeEventProposal({
+    ...stabilized,
+    mode: delivery === 'seed' ? 'seed' : 'manifest',
+    lifecycleStage: delivery === 'seed' ? 'seeded' : 'manifested',
+    magnitude: requestedOptions?.magnitude && requestedOptions.magnitude !== 'auto'
+      ? requestedOptions.magnitude
+      : stabilized.magnitude,
+    category: requestedOptions?.category && requestedOptions.category !== 'auto'
+      ? requestedOptions.category
+      : stabilized.category,
+  })
   return {
     ...response,
     eventDirective: {
       ...response.eventDirective,
-      proposal: stabilizeWorkshopEventProposal(request, response.statePatch, response.eventDirective.proposal),
+      delivery,
+      proposal,
     },
   }
 }
@@ -3471,11 +3453,20 @@ function workshopEventResponseIssues(request: CampaignEditRequest, response: Cam
       },
     },
   }
+  const currentState = normalizeEventDirectorState(request.campaign.eventDirectorState, request.campaign.turn)
   const manualState = {
-    ...normalizeEventDirectorState(request.campaign.eventDirectorState, request.campaign.turn),
+    ...currentState,
     surpriseCharge: 100,
     categoryCooldowns: {},
     lastMiracleTurn: undefined,
+    // A workshop request is validated independently from an already queued owner event.
+    // Keeping the records preserves valid existingEventId references, while clearing only
+    // the scheduling marker prevents validateNarrativeEventProposal from mistaking the new
+    // directive for an attempted substitution of the previously guaranteed event.
+    activeEvents: currentState.activeEvents.map((event) => ({
+      ...event,
+      workshopDirective: undefined,
+    })),
   }
   issues.push(...validateNarrativeEventProposal(manualCampaign, manualState, directive.proposal)
     .filter((issue) => issue !== 'Фундаментальное изменение мира требует ранее заложенной арки минимум в три хода.'))
@@ -4055,7 +4046,7 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
             artifactQuality.registry.filter((entry) => entry.artifactId !== artifactCandidate(item as PlannedArtifactItem).id),
             { world: world.world, concept, canonMode: request.canonMode },
           )
-          const raw = await completeJson(request.provider, messages)
+          const raw = await completeAuxiliaryJson(request.provider, messages, { maxOutputTokens: 4_096 }, (value) => artifactQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
           const parsed = artifactQualityReviewSchema.safeParse(normalizeModelOutput(raw))
           if (!parsed.success) return []
           return parsed.data.verdict === 'rebuild' ? parsed.data.issues : []

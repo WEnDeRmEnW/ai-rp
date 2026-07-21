@@ -17,6 +17,31 @@ const provider: ProviderConfig = {
 }
 
 describe('unexpected event settings', () => {
+  it('shows the Ollama fast-review route and saves its real model setting', () => {
+    const onProvider = vi.fn()
+    render(<SettingsDialog
+      open
+      provider={provider}
+      theme="dark"
+      interfacePreferences={defaultInterfacePreferences}
+      onClose={vi.fn()}
+      onProvider={onProvider}
+      onTheme={vi.fn()}
+      onInterface={vi.fn()}
+      onCampaign={vi.fn(async () => undefined)}
+    />)
+
+    const route = screen.getByRole('switch', { name: 'Быстрые служебные проверки' })
+    expect(route.getAttribute('aria-checked')).toBe('true')
+    fireEvent.change(screen.getByLabelText('Быстрая модель'), { target: { value: 'nemotron-3-nano:30b' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить настройки' }))
+
+    expect(onProvider).toHaveBeenCalledWith(expect.objectContaining({
+      useAuxiliaryModel: true,
+      auxiliaryModel: 'nemotron-3-nano:30b',
+    }))
+  })
+
   it('renders every real control in Russian and saves nested permissions without losing defaults', async () => {
     const campaign = createDemoCampaign()
     let savedCampaign: Campaign | undefined

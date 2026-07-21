@@ -1,9 +1,64 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { completeJson, completeText, completionScopeStats, withCompletionScope } from './provider'
+import { auxiliaryProviderConfig, completeAuxiliaryJson, completeJson, completeText, completionScopeStats, withCompletionScope } from './provider'
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('structured provider recovery', () => {
+  it('routes only explicit optional reviews to the smallest configured Ollama Cloud model', async () => {
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"ok"}' }, finish_reason: 'stop' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+    const provider = {
+      provider: 'ollama' as const,
+      model: 'deepseek-v4-flash:cloud',
+      baseUrl: 'https://ollama.com/v1',
+      apiKey: 'aux-route-test',
+      temperature: 0.8,
+      useAuxiliaryModel: true,
+      auxiliaryModel: 'gpt-oss:20b',
+    }
+
+    await expect(completeAuxiliaryJson(provider, [{ role: 'user', content: 'Проверь кратко.' }], undefined, (value) => Boolean((value as any)?.verdict))).resolves.toEqual({ verdict: 'ok' })
+    await expect(completeJson(provider, [{ role: 'user', content: 'Создай основное состояние.' }])).resolves.toEqual({ verdict: 'ok' })
+
+    expect(bodies.map((body) => body.model)).toEqual(['gpt-oss:20b', 'deepseek-v4-flash:cloud'])
+    expect(bodies[0].max_tokens).toBe(4_096)
+  })
+
+  it('falls back to the primary model when the fast review fails its compact contract', async () => {
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      bodies.push(body)
+      const content = body.model === 'gpt-oss:20b' ? '{"unexpected":true}' : '{"verdict":"ok"}'
+      return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+    const provider = {
+      provider: 'ollama' as const,
+      model: 'deepseek-v4-flash:cloud',
+      baseUrl: 'https://ollama.com/v1',
+      apiKey: 'aux-fallback-test',
+      temperature: 0.8,
+      useAuxiliaryModel: true,
+    }
+
+    await expect(completeAuxiliaryJson(provider, [{ role: 'user', content: 'Проверь кратко.' }], undefined, (value) => typeof (value as any)?.verdict === 'string')).resolves.toEqual({ verdict: 'ok' })
+    expect(bodies.map((body) => body.model)).toEqual(['gpt-oss:20b', 'deepseek-v4-flash:cloud'])
+  })
+
+  it('never redirects local Ollama or a disabled configuration to Ollama Cloud', () => {
+    expect(auxiliaryProviderConfig({ provider: 'ollama', model: 'local-model', baseUrl: 'http://127.0.0.1:11434/v1', temperature: 0.8 })).toBeUndefined()
+    expect(auxiliaryProviderConfig({ provider: 'ollama', model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', temperature: 0.8, useAuxiliaryModel: false })).toBeUndefined()
+  })
+
   it('shares identical in-flight completions only inside one user operation', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],

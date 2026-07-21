@@ -274,6 +274,17 @@ export function narrativeRepetitionScore(issues: NarrativeRepetitionIssue[]): nu
   return issues.reduce((score, issue) => score + (issue.severity === 'high' ? 5 : 2) + issue.similarity, 0)
 }
 
+/** Removes already identified repeated paragraphs without asking the model to rewrite the scene. */
+export function removeNarrativeRepetitionParagraphs(candidateText: string, issues: NarrativeRepetitionIssue[]): string {
+  if (!issues.length) return candidateText.trim()
+  const rejected = new Set(issues.map((issue) => issue.candidateParagraph))
+  return candidateText.replace(/\r/gu, '').trim().split(/\n[\t ]*\n+/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .filter((_, index) => !rejected.has(index))
+    .join('\n\n')
+}
+
 export function summarizeRepeatedNarrativeParagraphs(messages: StoryMessage[], limit = 12): RepeatedNarrativeParagraph[] {
   const recent = assistantTail(messages, 8)
   const prior: HistoricalParagraph[] = []

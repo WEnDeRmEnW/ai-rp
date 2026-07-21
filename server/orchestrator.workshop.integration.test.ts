@@ -20,6 +20,95 @@ function providerResponse(value: unknown) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('campaign workshop event controls', () => {
+  it('validates a new workshop event independently when another owner event is already queued', async () => {
+    const campaign = createDemoCampaign()
+    campaign.eventDirectorState = {
+      surpriseCharge: 100,
+      lastSeedTurn: 0,
+      lastManifestedTurn: 0,
+      lastLegendaryTurn: 0,
+      lastMiracleTurn: undefined,
+      miracleCount: 0,
+      categoryCooldowns: {},
+      recentSignatures: [],
+      history: [],
+      nextEvaluationTurn: campaign.turn + 1,
+      lastEvaluatedTurn: campaign.turn,
+      activeEvents: [{
+        id: 'event-already-queued',
+        concept: 'Ранее назначенный визит посланника.',
+        category: 'revelation',
+        magnitude: 'notable',
+        miracleKind: 'none',
+        originKind: 'existing_npc',
+        sourceIds: [],
+        causeIds: [campaign.player.id],
+        scopeIds: [],
+        participantIds: [],
+        affectedDomains: ['scene'],
+        knowledgeChannel: 'Посланник объявил о визите заранее.',
+        trigger: 'Наступил назначенный день.',
+        arrivalMethod: 'Посланник прибывает по обычной дороге.',
+        observableSigns: ['У ворот появился герб посланника.'],
+        immediateEffects: [{ domain: 'scene', operation: 'update', requirement: 'Показать прибытие посланника.', observable: true, mandatory: true }],
+        persistentEffects: [],
+        counterplay: [],
+        cancellationConditions: [],
+        canonReasoning: 'Событие опирается на установленный мир.',
+        pacingReasoning: 'Визит был назначен заранее.',
+        noveltyReasoning: 'Это продолжение прежней линии.',
+        minimumDelay: 0,
+        stage: 'imminent',
+        signature: 'queued-owner-event',
+        createdTurn: campaign.turn,
+        lastAdvancedTurn: campaign.turn,
+        nextEligibleTurn: campaign.turn + 1,
+        workshopDirective: { requestedByOwner: true, delivery: 'next-turn', requestedTurn: campaign.turn },
+      }],
+    }
+    const response = {
+      summary: 'Новая встреча также назначена. ',
+      campaignPatch: {},
+      settingsPatch: {},
+      statePatch: {},
+      eventDirective: {
+        delivery: 'seed',
+        proposal: {
+          mode: 'foreshadow', lifecycleStage: 'foreshadowed', concept: 'Новая охотница прибывает вслед за собственной целью.',
+          category: 'revelation', magnitude: 'subtle', miracleKind: 'none', originKind: 'new_npc',
+          sourceIds: ['npc-second-owner-event'], causeIds: [campaign.player.id], scopeIds: [], participantIds: ['npc-second-owner-event'], affectedDomains: ['scene'],
+          knowledgeChannel: 'Герой замечает прибытие.', trigger: 'Охотница завершила долгий путь.',
+          arrivalMethod: 'Она приходит по существующей дороге.', observableSigns: ['У дороги видны свежие следы.'],
+          immediateEffects: [
+            { domain: 'npc', operation: 'create', targetId: 'npc-second-owner-event', requirement: 'Создать полную самостоятельную охотницу.', observable: true, mandatory: true },
+            { domain: 'scene', operation: 'update', requirement: 'Показать её прибытие без решения за героя.', observable: true, mandatory: true },
+          ],
+          persistentEffects: [], counterplay: ['Не вступать в контакт.'], cancellationConditions: [],
+          canonReasoning: 'Новая жительница допустима.', pacingReasoning: 'Событие открывает новую линию.', noveltyReasoning: 'Не повторяет визит посланника.', minimumDelay: 0,
+        },
+      },
+    }
+    const fetchMock = vi.fn(async () => providerResponse(response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await editCampaign({
+      campaign,
+      instruction: 'На следующем ходу пусть появится новая охотница.',
+      eventOptions: { delivery: 'next-turn', magnitude: 'major', category: 'encounter' },
+      provider,
+    })
+
+    expect(result.eventDirective).toMatchObject({
+      delivery: 'next-turn',
+      proposal: { mode: 'manifest', lifecycleStage: 'manifested', magnitude: 'major', category: 'encounter' },
+    })
+    expect(result.statePatch.eventDirectorState?.activeEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'event-already-queued', workshopDirective: expect.objectContaining({ requestedByOwner: true }) }),
+      expect.objectContaining({ concept: 'Новая охотница прибывает вслед за собственной целью.', workshopDirective: expect.objectContaining({ requestedByOwner: true }) }),
+    ]))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('queues the exact requested legendary event for the next RP turn without applying it early', async () => {
     const campaign = createDemoCampaign()
     const response = {

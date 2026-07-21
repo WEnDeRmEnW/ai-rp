@@ -95,7 +95,11 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
   }, [open, provider, campaign, interfacePreferences, theme])
 
   const save = async () => {
-    onProvider(draft)
+    onProvider(draft.provider === 'ollama' ? {
+      ...draft,
+      useAuxiliaryModel: draft.useAuxiliaryModel !== false,
+      auxiliaryModel: draft.auxiliaryModel?.trim() || 'gpt-oss:20b',
+    } : draft)
     onTheme(themeDraft)
     onInterface(interfaceDraft)
     if (campaign) await onCampaign((next) => {
@@ -133,6 +137,15 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
           <label className="field"><span>Базовый URL</span><input value={draft.baseUrl} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} placeholder={providerDefaults[draft.provider].baseUrl} /></label>
           <label className="field"><span>API-ключ {draft.provider === 'ollama' && <i>для локальной Ollama не нужен</i>}</span><div className="secret-field"><KeyRound size={15} /><input type={showKey ? 'text' : 'password'} value={draft.apiKey ?? ''} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} placeholder={draft.provider === 'ollama' ? 'Обязателен для https://ollama.com/v1' : 'Можно оставить пустым, если ключ задан в .env'} autoComplete="off" /><button type="button" onClick={() => setShowKey(!showKey)} aria-label={showKey ? 'Скрыть ключ' : 'Показать ключ'}>{showKey ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>
           <label className="field"><span>Творческая свобода: {draft.temperature.toFixed(2)}</span><input type="range" min={0.2} max={1.4} step={0.05} value={draft.temperature} onChange={(event) => setDraft({ ...draft, temperature: Number(event.target.value) })} /></label>
+          {draft.provider === 'ollama' && <div className="auxiliary-model-settings">
+            <div className="interface-toggle-list">
+              <button type="button" role="switch" aria-label="Быстрые служебные проверки" aria-checked={draft.useAuxiliaryModel !== false} className={draft.useAuxiliaryModel !== false ? 'is-on' : ''} onClick={() => setDraft({ ...draft, useAuxiliaryModel: draft.useAuxiliaryModel === false })}>
+                <span><strong>Быстрые служебные проверки</strong><small>Только необязательная оценка новых сил и артефактов. Мир, сюжет, состояние и исправления по-прежнему создаёт основная модель.</small></span><i />
+              </button>
+            </div>
+            {draft.useAuxiliaryModel !== false && <label className="field"><span>Быстрая модель</span><input value={draft.auxiliaryModel ?? 'gpt-oss:20b'} onChange={(event) => setDraft({ ...draft, auxiliaryModel: event.target.value })} placeholder="gpt-oss:20b" /></label>}
+            <div className="settings-note settings-note--real"><strong>Без потери обязательных проверок</strong><span>Если быстрая модель недоступна, возвращает неверный JSON или не проходит контракт, запрос автоматически повторяется на основной модели. Программная проверка данных никогда не отключается.</span></div>
+          </div>}
         </div>}
       </section>
 

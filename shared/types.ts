@@ -2414,6 +2414,10 @@ export interface ProviderConfig {
   baseUrl: string
   apiKey?: string
   temperature: number
+  /** Uses a smaller model only for optional, non-authoritative quality reviews. */
+  useAuxiliaryModel?: boolean
+  /** Model name on the same Ollama Cloud account used for optional reviews. */
+  auxiliaryModel?: string
 }
 
 export type PersistentProviderConfig = Omit<ProviderConfig, 'apiKey'>

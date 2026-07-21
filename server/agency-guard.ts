@@ -18,6 +18,12 @@ type AgencyGuardInput = {
   agencyMode: 'strict' | 'cinematic'
 }
 
+export interface AgencySanitizationResult {
+  narrative: string
+  violations: AgencyViolation[]
+  removedParagraphs: number
+}
+
 const attributionVerbs = [
   'говорит', 'отвечает', 'продолжает', 'спрашивает', 'произносит', 'шепчет', 'кричит',
   'добавляет', 'возражает', 'соглашается', 'отказывается', 'обещает',
@@ -197,4 +203,57 @@ export function findAgencyViolations({
   })
 
   return violations
+}
+
+function narrativeBlocks(narrative: string): string[] {
+  return narrative.replace(/\r/gu, '').trim().split(/\n[\t ]*\n+/u).map((block) => block.trim()).filter(Boolean)
+}
+
+/**
+ * Deterministically removes only paragraphs that assign new speech, choices, thoughts or
+ * voluntary actions to the player. This is a final safety filter, not a prose rewrite: NPC
+ * reactions, environment and already valid consequences remain byte-for-byte unchanged.
+ */
+export function sanitizePlayerAgency(input: AgencyGuardInput): AgencySanitizationResult {
+  let narrative = input.narrative.trim()
+  let removedParagraphs = 0
+  const collected: AgencyViolation[] = []
+  let restoredSubmittedSpeech = false
+
+  for (let pass = 0; pass < 4 && narrative; pass += 1) {
+    const violations = findAgencyViolations({ ...input, narrative })
+    if (!violations.length) return { narrative, violations: collected, removedParagraphs }
+    violations.forEach((violation) => pushUnique(collected, violation))
+
+    const rejected = new Set(violations.map((violation) => violation.evidence.trim()))
+    const blocks = narrativeBlocks(narrative)
+    const kept = blocks.filter((block) => {
+      if (!rejected.has(block)) return true
+      removedParagraphs += 1
+      return false
+    })
+    if (kept.length === blocks.length) break
+    narrative = kept.join('\n\n')
+
+    if (!restoredSubmittedSpeech && input.actionType === 'say' && violations.some((violation) => violation.kind === 'speech')) {
+      const submitted = input.input.replace(/\r?\n+/gu, ' ').replace(/^\s*[—–-]\s*/u, '').trim()
+      if (submitted) narrative = [`— ${submitted}`, narrative].filter(Boolean).join('\n\n')
+      restoredSubmittedSpeech = true
+    }
+  }
+
+  // A second exact pass handles a paragraph that became attributable only after its neighbour
+  // was removed. If anything exotic remains, discard its exact paragraph instead of failing the turn.
+  const remaining = findAgencyViolations({ ...input, narrative })
+  if (remaining.length) {
+    remaining.forEach((violation) => pushUnique(collected, violation))
+    const rejected = new Set(remaining.map((violation) => violation.evidence.trim()))
+    narrative = narrativeBlocks(narrative).filter((block) => {
+      if (!rejected.has(block)) return true
+      removedParagraphs += 1
+      return false
+    }).join('\n\n')
+  }
+
+  return { narrative, violations: collected, removedParagraphs }
 }
