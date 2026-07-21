@@ -1,6 +1,7 @@
 import { Bot, Braces, Check, PencilLine, RotateCcw, Save, Sparkles, WandSparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Campaign, OperationProgress, WorkshopEventOptions } from '../../shared/types'
+import { narrativeEventMagnitudeContracts } from '../../shared/event-magnitude'
 import { migrateCampaign } from '../lib/storage'
 import { Modal } from './Modal'
 import { OperationProgressPanel } from './OperationProgressPanel'
@@ -43,10 +44,13 @@ const eventDeliveryLabels: Record<WorkshopEventOptions['delivery'], string> = {
 const eventMagnitudeLabels: Record<WorkshopEventOptions['magnitude'], string> = {
   auto: 'ИИ определит по замыслу',
   subtle: 'Едва заметное',
-  notable: 'Заметное',
+  notable: 'Примечательное',
+  rare: 'Редкое',
   major: 'Крупное',
+  epic: 'Эпическое',
   legendary: 'Легендарное',
   mythic: 'Мифическое',
+  transcendent: 'Трансцендентное',
 }
 
 const eventCategoryLabels: Record<WorkshopEventOptions['category'], string> = {
@@ -101,6 +105,9 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
   const [eventDelivery, setEventDelivery] = useState<WorkshopEventOptions['delivery']>('next-turn')
   const [eventMagnitude, setEventMagnitude] = useState<WorkshopEventOptions['magnitude']>('auto')
   const [eventCategory, setEventCategory] = useState<WorkshopEventOptions['category']>('auto')
+  const selectedMagnitudeContract = eventMagnitude === 'auto'
+    ? undefined
+    : narrativeEventMagnitudeContracts[eventMagnitude]
   const bodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -233,6 +240,11 @@ export function CampaignEditorDialog({ open, campaign, generating, progress, onC
           <label className="field"><span>Когда</span><select value={eventDelivery} onChange={(event) => setEventDelivery(event.target.value as WorkshopEventOptions['delivery'])}>{Object.entries(eventDeliveryLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
           <label className="field"><span>Масштаб</span><select value={eventMagnitude} onChange={(event) => setEventMagnitude(event.target.value as WorkshopEventOptions['magnitude'])}>{Object.entries(eventMagnitudeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
           <label className="field"><span>Вид события</span><select value={eventCategory} onChange={(event) => setEventCategory(event.target.value as WorkshopEventOptions['category'])}>{Object.entries(eventCategoryLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+          {selectedMagnitudeContract && <div className="editor-event-magnitude-promise">
+            <strong>{selectedMagnitudeContract.label}</strong>
+            <span>{selectedMagnitudeContract.promise}</span>
+            <small>{selectedMagnitudeContract.minMandatoryEffects} обязательных последствий · {selectedMagnitudeContract.minDomains} областей мира · {selectedMagnitudeContract.minPersistentEffects} длительных изменений</small>
+          </div>}
         </div>}
         <label className="field field--large"><span>{scope === 'event' ? 'Какое событие создать' : 'Что изменить'}</span><textarea autoFocus rows={7} value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={scope === 'event' ? 'Например: незнакомый охотник за реликвиями прибывает в город по следу украденного артефакта. Он не знает героя лично и действует по собственной цели…' : 'Например: Нунобоко должен быть каноничным оружием из мира Naruto. Перепроверь его силы, ограничения и связь со способностью героя, сохрани уже произошедшие сцены…'} /></label>
         <div className="editor-ai-seeds">{(scope === 'event' ? [

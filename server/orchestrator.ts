@@ -2574,10 +2574,10 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   }
 
   const requestNarrativeDrafts = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
-    const grounded = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'grounded'))
+    const grounded = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'grounded', eventDecision))
     const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
       ? await grounded.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
-      : await Promise.allSettled([grounded, completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'dramatic'))])
+      : await Promise.allSettled([grounded, completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'dramatic', eventDecision))])
     if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
     const draftA = draftAResult.status === 'fulfilled' ? draftAResult.value : (draftBResult as PromiseFulfilledResult<string>).value
     const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
@@ -2596,6 +2596,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     speculativeNarrativeSanitized,
     check,
     'grounded',
+    eventDecision,
   ))
   const speculativeNarrativesPromise = requestNarrativeDrafts(speculativeNarrativeSanitized)
     .then((drafts) => ({ ok: true as const, drafts }))
@@ -2838,6 +2839,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     sanitized.plan,
     check,
     'grounded',
+    eventDecision,
   )) === speculativeNarrativeFingerprint
   const speculativeNarratives = exactSpeculativeNarrative ? await speculativeNarrativesPromise : undefined
   if (speculativeNarratives && !speculativeNarratives.ok) throw speculativeNarratives.error
@@ -3579,7 +3581,7 @@ function workshopEventResponseIssues(request: CampaignEditRequest, response: Cam
       eventDirector: {
         ...defaultEventDirectorSettings,
         enabled: true,
-        maxMagnitude: 'mythic',
+        maxMagnitude: 'transcendent',
         lethality: 'ruthless',
         miraclePolicy: 'rare',
         canonPolicy: 'free',

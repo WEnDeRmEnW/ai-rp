@@ -76,14 +76,16 @@ describe('campaign workshop event controls', () => {
         proposal: {
           mode: 'foreshadow', lifecycleStage: 'foreshadowed', concept: 'Новая охотница прибывает вслед за собственной целью.',
           category: 'revelation', magnitude: 'subtle', miracleKind: 'none', originKind: 'new_npc',
-          sourceIds: ['npc-second-owner-event'], causeIds: [campaign.player.id], scopeIds: [], participantIds: ['npc-second-owner-event'], affectedDomains: ['scene'],
+          sourceIds: ['npc-second-owner-event'], causeIds: [campaign.player.id], scopeIds: ['npc-second-owner-event'], participantIds: ['npc-second-owner-event'], affectedDomains: ['scene', 'npc', 'world-event'],
           knowledgeChannel: 'Герой замечает прибытие.', trigger: 'Охотница завершила долгий путь.',
-          arrivalMethod: 'Она приходит по существующей дороге.', observableSigns: ['У дороги видны свежие следы.'],
+          arrivalMethod: 'Она приходит по существующей дороге.', observableSigns: ['У дороги видны свежие следы.', 'Дозорные передают её точное описание.'],
           immediateEffects: [
             { domain: 'npc', operation: 'create', targetId: 'npc-second-owner-event', requirement: 'Создать полную самостоятельную охотницу.', observable: true, mandatory: true },
             { domain: 'scene', operation: 'update', requirement: 'Показать её прибытие без решения за героя.', observable: true, mandatory: true },
           ],
-          persistentEffects: [], counterplay: ['Не вступать в контакт.'], cancellationConditions: [],
+          persistentEffects: [
+            { domain: 'world-event', operation: 'create', targetId: 'world-event-second-huntress', requirement: 'Сохранить прибытие охотницы как действующее событие мира.', observable: true, mandatory: true },
+          ], counterplay: ['Не вступать в контакт.'], cancellationConditions: [],
           canonReasoning: 'Новая жительница допустима.', pacingReasoning: 'Событие открывает новую линию.', noveltyReasoning: 'Не повторяет визит посланника.', minimumDelay: 0,
         },
       },
@@ -121,14 +123,18 @@ describe('campaign workshop event controls', () => {
         proposal: {
           mode: 'manifest', lifecycleStage: 'manifested', concept: 'Легендарный странник прибывает по собственной старой клятве.',
           category: 'encounter', magnitude: 'legendary', miracleKind: 'none', originKind: 'new_npc',
-          sourceIds: ['npc-workshop-legend'], causeIds: [campaign.player.id], scopeIds: [], participantIds: ['npc-workshop-legend'], affectedDomains: ['scene'],
+          sourceIds: ['npc-workshop-legend'], causeIds: [campaign.player.id], scopeIds: ['npc-workshop-legend', 'world-event-legend-arrival'], participantIds: ['npc-workshop-legend'], affectedDomains: ['scene', 'npc', 'world-event', 'world-pressure', 'legend'],
           knowledgeChannel: 'Городская стража объявляет о прибытии.', trigger: 'Сегодня истёк установленный клятвой срок.',
-          arrivalMethod: 'Странник добрался до города существующим караванным маршрутом.', observableSigns: ['У ворот собирается усиленная стража.'],
+          arrivalMethod: 'Странник добрался до города существующим караванным маршрутом.', observableSigns: ['У ворот собирается усиленная стража.', 'Старые клятвенные печати одновременно начинают светиться.', 'В городе узнают знак давно исчезнувшего ордена.'],
           immediateEffects: [
             { domain: 'npc', operation: 'create', targetId: 'npc-workshop-legend', requirement: 'Создать полного уникального легендарного NPC.', observable: true, mandatory: true },
             { domain: 'scene', operation: 'update', requirement: 'Причинно показать прибытие странника.', observable: true, mandatory: true },
           ],
-          persistentEffects: [], counterplay: ['Не выходить к воротам.', 'Узнать цель странника через посредника.'], cancellationConditions: ['Клятва будет достоверно признана исполненной.'],
+          persistentEffects: [
+            { domain: 'world-event', operation: 'create', targetId: 'world-event-legend-arrival', requirement: 'Зафиксировать прибытие как историческое событие, на которое реагирует город.', observable: true, mandatory: true },
+            { domain: 'world-pressure', operation: 'create', targetId: 'world-pressure-old-oath', requirement: 'Сохранить давление неисполненной древней клятвы на связанные силы мира.', observable: false, mandatory: true },
+            { domain: 'legend', operation: 'create', targetId: 'legend-workshop-stranger', requirement: 'Создать причинно связанную запись живой легенды и её наследия.', observable: false, mandatory: true },
+          ], counterplay: ['Не выходить к воротам.', 'Узнать цель странника через посредника.'], cancellationConditions: ['Клятва будет достоверно признана исполненной.'],
           canonReasoning: 'Клятва связана с уже установленным героем.', pacingReasoning: 'Встреча открывает подготовленную линию.', noveltyReasoning: 'Способ появления и цель не повторяют недавние события.', minimumDelay: 0,
         },
       },
@@ -155,7 +161,7 @@ describe('campaign workshop event controls', () => {
       nextEligibleTurn: campaign.turn + 1,
       workshopDirective: { requestedByOwner: true, delivery: 'next-turn' },
     })
-    expect(result.eventDirective?.proposal.affectedDomains).toEqual(['scene', 'npc'])
+    expect(result.eventDirective?.proposal.affectedDomains).toEqual(['scene', 'npc', 'world-event', 'world-pressure', 'legend'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 

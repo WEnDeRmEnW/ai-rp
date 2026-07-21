@@ -9,6 +9,7 @@ import { assessItemRarity } from '../../shared/rarity'
 import { grantedItemAbilities, type GrantedItemAbility } from '../../shared/effective-abilities'
 import { artifactComponentKnowledge, artifactPowerKnowledge, artifactSectionKnown } from '../../shared/artifacts'
 import { abilitySectionKnown, visibleAbilityTechniques } from '../../shared/abilities'
+import { narrativeEventMagnitudeContracts } from '../../shared/event-magnitude'
 import { readCanonDocument } from '../lib/canon'
 import { localizeTechnicalText, resourceUiLabel, uiLabel } from '../lib/ui-labels'
 import { getWorldInterfaceBlueprint, getWorldPresentation, getWorldSystem } from '../lib/world-customization'
@@ -693,7 +694,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
               {eventRevealMode === 'indicator'
                 ? <p>Вы замечаете признаки необычного развития событий. Полная причина откроется только через наблюдение, слухи и последствия.</p>
                 : <div className="event-omen-list">{visibleDirectedEvents.map((event) => <article key={event.id}>
-                  <div><strong>{event.concept}</strong><span>{narrativeEventStageLabels[event.stage]}</span></div>
+                  <div><strong>{event.concept}</strong><span><em className={`event-magnitude event-magnitude--${event.magnitude}`}>{narrativeEventMagnitudeContracts[event.magnitude].shortLabel}</em>{narrativeEventStageLabels[event.stage]}</span></div>
                   {event.observableSigns.length > 0 && <ul>{event.observableSigns.map((sign) => <li key={sign}>{sign}</li>)}</ul>}
                 </article>)}</div>}
             </section>}

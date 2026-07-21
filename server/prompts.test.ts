@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoCampaign } from '../src/lib/demo'
+import type { NarrativeEventDecision } from '../shared/types'
 import { artifactFocusedRepairPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narratorPrompt, playerAgencyAuditorPrompt, progressionAuditPrompt, worldArchitectPrompt, worldQualityCriticPrompt, worldQuestionPrompt } from './prompts'
 import { demoWorld } from './demo'
 
@@ -140,6 +141,47 @@ describe('world architect prompt', () => {
     expect(critic).toContain('Структура живого мира соразмерна замыслу, а не квоте')
     expect(critic).toContain('не является ошибкой')
     expect(critic).not.toContain('places-атлас содержит минимум 8')
+  })
+})
+
+describe('event magnitude narration', () => {
+  it('requires a mythic event to read as an irreversible world-scale break rather than spectacle', () => {
+    const campaign = createDemoCampaign()
+    const event: NarrativeEventDecision = {
+      mode: 'manifest',
+      lifecycleStage: 'manifested',
+      concept: 'Граница между памятью и материей исчезает.',
+      category: 'law_change',
+      magnitude: 'mythic',
+      miracleKind: 'none',
+      originKind: 'multiple',
+      sourceIds: ['source-a'],
+      causeIds: ['cause-a', 'cause-b'],
+      scopeIds: ['scope-a', 'scope-b'],
+      participantIds: [],
+      affectedDomains: ['world-event', 'world-pressure', 'law', 'faction', 'place', 'lore'],
+      knowledgeChannel: 'Наблюдаемые последствия',
+      trigger: 'Накопившийся разрыв достиг предела',
+      arrivalMethod: 'Через установленную аномалию',
+      observableSigns: ['Первый знак', 'Второй знак', 'Третий знак', 'Четвёртый знак'],
+      immediateEffects: [],
+      persistentEffects: [],
+      counterplay: ['Отступить', 'Изолировать источник', 'Найти якорь'],
+      cancellationConditions: [],
+      canonReasoning: 'Следует законам мира',
+      pacingReasoning: 'Завершает подготовленную арку',
+      noveltyReasoning: 'Такого перелома ещё не было',
+      minimumDelay: 0,
+    }
+
+    const system = narratorPrompt(campaign, 'Наблюдаю.', 'do', {
+      outcome: 'Мир пересекает необратимую границу.', beats: [], suggestions: [], statePatch: {},
+    }, undefined, 'grounded', event)[0].content
+
+    expect(system).toContain('МАСШТАБ ПРОЯВЛЯЮЩЕГОСЯ СОБЫТИЯ — МИФИЧЕСКИЙ')
+    expect(system).toContain('необратимый разлом эпохи')
+    expect(system).toContain('Один враг, дар, взрыв, портал')
+    expect(system).toContain('минимум 6 затронутых областей')
   })
 })
 

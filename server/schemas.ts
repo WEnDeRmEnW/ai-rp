@@ -145,7 +145,16 @@ const worldPressureStageSchema = z.preprocess(alias({ наблюдает: 'watch
 const worldPressureMeasureStatusSchema = z.preprocess(alias({ рассматривается: 'considered', задумано: 'considered', готовится: 'preparing', подготовка: 'preparing', активно: 'active', действует: 'active', использовано: 'spent', израсходовано: 'spent', сорвано: 'foiled', провалено: 'foiled' }), z.enum(['considered', 'preparing', 'active', 'spent', 'foiled']))
 const narrativeEventModeSchema = z.preprocess(alias({ нет: 'none', пропустить: 'none', зерно: 'seed', заложить: 'seed', предвестник: 'foreshadow', предзнаменование: 'foreshadow', продвинуть: 'advance', развитие: 'advance', проявить: 'manifest', событие: 'manifest' }), z.enum(['seed', 'foreshadow', 'advance', 'manifest']))
 const narrativeEventStageSchema = z.preprocess(alias({ заложено: 'seeded', зерно: 'seeded', предвестники: 'foreshadowed', предзнаменовано: 'foreshadowed', формируется: 'forming', готовится: 'forming', неизбежно: 'imminent', назрело: 'imminent', проявилось: 'manifested', произошло: 'manifested', последствия: 'aftermath', завершено: 'resolved', разрешено: 'resolved', отменено: 'cancelled' }), z.enum(['seeded', 'foreshadowed', 'forming', 'imminent', 'manifested', 'aftermath', 'resolved', 'cancelled']))
-const narrativeEventMagnitudeSchema = z.preprocess(alias({ едва_заметное: 'subtle', тонкое: 'subtle', малое: 'subtle', заметное: 'notable', значимое: 'notable', крупное: 'major', большое: 'major', легендарное: 'legendary', мифическое: 'mythic', космическое: 'mythic' }), z.enum(['subtle', 'notable', 'major', 'legendary', 'mythic']))
+const narrativeEventMagnitudeSchema = z.preprocess(alias({
+  едва_заметное: 'subtle', тонкое: 'subtle', тонкий: 'subtle', малое: 'subtle', незначительное: 'subtle',
+  заметное: 'notable', заметный: 'notable', значимое: 'notable', примечательное: 'notable', примечательный: 'notable',
+  редкое: 'rare', редкий: 'rare', необычное: 'rare',
+  крупное: 'major', крупный: 'major', большое: 'major',
+  эпическое: 'epic', эпический: 'epic', эпохальное: 'epic', epochal: 'epic',
+  легендарное: 'legendary', легендарный: 'legendary',
+  мифическое: 'mythic', мифический: 'mythic', божественное: 'mythic', космическое: 'mythic', godlike: 'mythic',
+  трансцендентное: 'transcendent', трансцендентный: 'transcendent', запредельное: 'transcendent', фундаментальное: 'transcendent', transcendental: 'transcendent',
+}), z.enum(['subtle', 'notable', 'rare', 'major', 'epic', 'legendary', 'mythic', 'transcendent']))
 const narrativeEventMiracleKindSchema = z.preprocess(alias({
   нет: 'none', обычное: 'none', none: 'none',
   знак: 'sign', предзнаменование: 'sign', sign: 'sign',

@@ -2,6 +2,7 @@ import type { Campaign, ActionCheck, ActionType, EventDirectorState, LegendaryFi
 import { buildContextSelection, tokenize } from '../shared/context.js'
 import type { NarrativeRepetitionIssue } from '../shared/narrative-repetition.js'
 import { normalizeEventDirectorSettings } from '../shared/event-director.js'
+import { narrativeEventMagnitudeContracts, narrativeEventMagnitudePromptContract } from '../shared/event-magnitude.js'
 import { grantedItemAbilities } from '../shared/effective-abilities.js'
 import { artifactPlayerView } from '../shared/artifacts.js'
 import type { ConceptAnalysis, GeneratedWorld, WorldGenerationManifest, WorldQualityReview } from './schemas.js'
@@ -99,6 +100,12 @@ const cleanupPatchShape = `Очистка активного состояния 
 Сначала доведи сущность до терминального статуса обычной мутацией: thread resolve/break, worldEvent resolve/cancel, quest complete/fail, antagonistPlan completed/failed/abandoned, worldPressure stage=resolved. Только после этого добавляй её точный id в cleanup. Очистка убирает запись из активных панелей, но движок переносит её итог в хронологию. Активное, спорное, незавершённое или просто давно не упоминавшееся не удаляй. Закреплённые memories не удаляй.`
 
 const narrativeEventContract = `УНИВЕРСАЛЬНЫЙ РЕЖИССЁР НЕОБЫЧНЫХ СОБЫТИЙ:
+РЕАЛЬНЫЙ МАСШТАБ СОБЫТИЯ (НЕ ДЕКОРАТИВНАЯ МЕТКА):
+${narrativeEventMagnitudePromptContract()}
+- Считай эти минимумы строгим техническим контрактом. Не выбирай высокий класс, если замысел не заслуживает и не материализует такой след.
+- Мифическое событие необратимо меняет эпоху или устройство мира, получает мировой event/pressure, затрагивает несколько независимых сил и создаёт наследие. Один сильный враг, взрыв, подарок или эффект сцены сам по себе не мифичен.
+- Трансцендентное событие реально изменяет law/mechanic/world-rule, создаёт world-event и постоянные последствия во многих областях. Это граница истории «до/после», а не более громкое мифическое событие.
+- Каждое observable=true обязательное последствие manifest-события должно быть показано в beats и художественном ответе; скрытое последствие остаётся только в состоянии.
 - Не выбирай происшествие из готового каталога. Создавай конкретный причинный поворот этого мира через источник, форму, область воздействия, масштаб и продолжительность.
 - Возможны новое лицо, открытие или потеря силы, изменение артефакта, личная встреча, возможность, политика, война, аномалия, катастрофа, легенда, временной/пространственный сдвиг, новый закон либо принципиально иной поворот. Не своди систему к нападениям.
 - mode=none допустим и предпочтителен, если ничего достаточно сильного и причинного не созрело.
@@ -1087,8 +1094,9 @@ ${narrativeEventContract}
 
 Верни только один из двух строгих JSON-вариантов:
 1) {"mode":"none","reason":"конкретная причина, почему сейчас лучше не вводить событие"}
-2) {"mode":"seed|foreshadow|advance|manifest","existingEventId"?:string,"lifecycleStage":"seeded|foreshadowed|forming|imminent|manifested|aftermath|resolved|cancelled","concept":"уникальный замысел","category":"encounter|consequence|opportunity|revelation|transformation|power_shift|artifact_shift|faction_move|social_reversal|environmental|anomaly|disaster|legend|divine|temporal|dimensional|law_change|other","magnitude":"subtle|notable|major|legendary|mythic","miracleKind":"none|sign|intervention","originKind":"player|npc|new_npc|party|antagonist|legend|faction|state|artifact|ability|technology|environment|deity|cosmic|dimension|unknown|multiple","sourceIds":[],"causeIds":[],"scopeIds":[],"participantIds":[],"affectedDomains":["player|npc|stat|resource|currency|condition|status-effect|ability|artifact|inventory|relationship|social-link|party|quest|thread|character-arc|mystery|antagonist-plan|influence|memory|conflict|scene|pacing|faction|faction-reputation|place|route|process|world-rule|world-profile|law|mechanic|legend|lore|world-event|world-pressure|time|metric|interface"],"knowledgeChannel":"как информация или влияние дошло","trigger":"проверяемая причина именно сейчас","arrivalMethod":"как событие достигает сцены/мира без телепортации","observableSigns":[],"immediateEffects":[{"domain":"...","operation":"create|update|remove|transform|reveal","targetId"?:string,"requirement":"точный обязательный результат","observable":true,"mandatory":true}],"persistentEffects":[],"counterplay":[],"cancellationConditions":[],"canonReasoning":"почему не ломает канон","pacingReasoning":"почему подходит текущему ритму","noveltyReasoning":"чем не повторяет недавние события","minimumDelay":number}.
+2) {"mode":"seed|foreshadow|advance|manifest","existingEventId"?:string,"lifecycleStage":"seeded|foreshadowed|forming|imminent|manifested|aftermath|resolved|cancelled","concept":"уникальный замысел","category":"encounter|consequence|opportunity|revelation|transformation|power_shift|artifact_shift|faction_move|social_reversal|environmental|anomaly|disaster|legend|divine|temporal|dimensional|law_change|other","magnitude":"subtle|notable|rare|major|epic|legendary|mythic|transcendent","miracleKind":"none|sign|intervention","originKind":"player|npc|new_npc|party|antagonist|legend|faction|state|artifact|ability|technology|environment|deity|cosmic|dimension|unknown|multiple","sourceIds":[],"causeIds":[],"scopeIds":[],"participantIds":[],"affectedDomains":["player|npc|stat|resource|currency|condition|status-effect|ability|artifact|inventory|relationship|social-link|party|quest|thread|character-arc|mystery|antagonist-plan|influence|memory|conflict|scene|pacing|faction|faction-reputation|place|route|process|world-rule|world-profile|law|mechanic|legend|lore|world-event|world-pressure|time|metric|interface"],"knowledgeChannel":"как информация или влияние дошло","trigger":"проверяемая причина именно сейчас","arrivalMethod":"как событие достигает сцены/мира без телепортации","observableSigns":[],"immediateEffects":[{"domain":"...","operation":"create|update|remove|transform|reveal","targetId"?:string,"requirement":"точный обязательный результат","observable":true,"mandatory":true}],"persistentEffects":[],"counterplay":[],"cancellationConditions":[],"canonReasoning":"почему не ломает канон","pacingReasoning":"почему подходит текущему ритму","noveltyReasoning":"чем не повторяет недавние события","minimumDelay":number}.
 
+ВАЖНО: в поле magnitude допустимы только subtle|notable|rare|major|epic|legendary|mythic|transcendent. Используй эту полную расширенную шкалу без синонимов в готовом JSON.
 Числа возвращай числами, boolean — true/false, массивы — массивами. Не используй null.`,
     },
     {
@@ -1577,7 +1585,26 @@ ${techniquePatchShapes}
   ]
 }
 
-export function narratorPrompt(campaign: Campaign, input: string, actionType: ActionType, plan: unknown, check?: ActionCheck, variant: 'grounded' | 'dramatic' = 'grounded') {
+function manifestedEventNarrativeContract(eventDecision?: NarrativeEventDecision) {
+  if (!eventDecision || eventDecision.mode !== 'manifest') return ''
+  const contract = narrativeEventMagnitudeContracts[eventDecision.magnitude]
+  const factualMinimum = `Покажи все наблюдаемые последствия утверждённого плана и сделай различимыми минимум ${contract.minDomains} затронутых областей, не перечисляя их как технический отчёт.`
+  if (contract.rank < narrativeEventMagnitudeContracts.epic.rank) {
+    return `МАСШТАБ ПРОЯВЛЯЮЩЕГОСЯ СОБЫТИЯ — ${contract.label.toUpperCase()}: ${contract.promise} ${factualMinimum} Не раздувай событие выше его класса пустой патетикой.`
+  }
+  if (eventDecision.magnitude === 'epic') {
+    return `МАСШТАБ ПРОЯВЛЯЮЩЕГОСЯ СОБЫТИЯ — ЭПИЧЕСКИЙ: ${contract.promise} ${factualMinimum} Покажи независимые реакции нескольких сил мира, изменение возможностей участников и ясный поворот большой арки. Масштаб выражается причинными действиями и последствиями, а не словами «эпический» или «невероятный».`
+  }
+  if (eventDecision.magnitude === 'legendary') {
+    return `МАСШТАБ ПРОЯВЛЯЮЩЕГОСЯ СОБЫТИЯ — ЛЕГЕНДАРНЫЙ: ${contract.promise} ${factualMinimum} В сцене должна возникнуть историческая веха: крупные силы мира вынуждены изменить планы, а случившееся получает наблюдаемое наследие. Не заменяй это одним сильным врагом, взрывом или эффектной репликой.`
+  }
+  if (eventDecision.magnitude === 'mythic') {
+    return `МАСШТАБ ПРОЯВЛЯЮЩЕГОСЯ СОБЫТИЯ — МИФИЧЕСКИЙ: ${contract.promise} ${factualMinimum} Сделай видимым необратимый разлом эпохи: несколько независимых систем, обществ или сил одновременно сталкиваются с новым порядком; покажи конкретный причинный феномен этого мира, немедленную цену, дальний отголосок и рождение наследия или легенды. Один враг, дар, взрыв, портал или громкое заявление сами по себе не являются мифическим событием. Не называй событие мифическим внутри прозы и не компенсируй недостаток фактов пафосом.`
+  }
+  return `МАСШТАБ ПРОЯВЛЯЮЩЕГОСЯ СОБЫТИЯ — ТРАНСЦЕНДЕНТНЫЙ: ${contract.promise} ${factualMinimum} Покажи точный фундаментальный закон, который перестал действовать, и новый принцип прямо через последствия на нескольких масштабах — от текущей сцены до устройства мира. Читатель должен увидеть границу «до/после», немедленную цену, реакцию независимых сил и необратимое наследие. Космический свет, разрушение или всемогущий враг без реального изменения закона недостаточны.`
+}
+
+export function narratorPrompt(campaign: Campaign, input: string, actionType: ActionType, plan: unknown, check?: ActionCheck, variant: 'grounded' | 'dramatic' = 'grounded', eventDecision?: NarrativeEventDecision) {
   const observedPlan = narrativePlanView(plan, campaign)
   const context = compactCampaign(campaign, `${input}\n${JSON.stringify(observedPlan)}`, 'narrative')
   const playerName = campaign.player.name
@@ -1598,6 +1625,7 @@ export function narratorPrompt(campaign: Campaign, input: string, actionType: Ac
       : campaign.settings.scenePace === 'montage'
         ? 'Используй ясный монтаж нескольких коротких эпизодов, сожми рутину и остановись у следующего решения героя.'
         : 'Сохраняй сбалансированный темп полноценной сцены.'
+  const eventNarrativeContract = manifestedEventNarrativeContract(eventDecision)
   return [
     {
       role: 'system' as const,
@@ -1606,6 +1634,7 @@ export function narratorPrompt(campaign: Campaign, input: string, actionType: Ac
 Правила качества:
 - При actionType=story все явно заданные пользователем события, числа и условия считаются уже произошедшими обязательными фактами. Покажи их в сцене и не заменяй другой завязкой, даже если фоновая линия кажется интереснее. При противоречии с планом сохрани обязательный факт ввода.
 - Темп: ${pace}
+- ${eventNarrativeContract || 'Отдельное режиссёрское событие в этом ходу не проявляется: не изображай обычное развитие сцены как редкое, легендарное или мифическое событие.'}
 - ${runtimeSettingsPrompt(campaign)}
 - narrativeFingerprint во входном контексте — отрицательный референс, а не материал для цитирования. Не повторяй recentOpenings, recentClosings, repeatedParagraphs, repeatedPhrases, одинаковый ритм абзацев и перечисленные repeatedMotifs. Особенно не используй по привычке «на мгновение», очередной взгляд/глаза вместо поступка, дрогнувшую руку/сжатый кулак, гром или мигание ламп как искусственную пунктуацию и финал «все смотрят/ждут героя». Любая такая деталь допустима лишь когда физически причинна и не стала повторяющимся жестом. Описание неизменившейся локации не обязано повторяться: возвращайся к среде только ради нового наблюдаемого факта, помехи, действия или последствия.
 - Не устраивай хор реакций, где каждый присутствующий NPC по очереди поворачивается, оценивает героя и произносит одну реплику. В фокусе только те, у кого есть причина вмешаться; остальные продолжают работу, спор между собой, охрану, путь, лечение, торговлю или иной собственный процесс. Мир в комнате существовал до прихода героя и продолжит существовать после его ответа.

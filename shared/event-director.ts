@@ -12,11 +12,15 @@ import type {
   TurnPatch,
   WorkshopEventDirective,
 } from './types.js'
+import {
+  narrativeEventMagnitudeAtLeast,
+  narrativeEventMagnitudeContracts,
+} from './event-magnitude.js'
 
 export const defaultEventDirectorSettings: EventDirectorSettings = {
   enabled: true,
   frequency: 'rare',
-  maxMagnitude: 'mythic',
+  maxMagnitude: 'transcendent',
   lethality: 'fair',
   miraclePolicy: 'rare',
   canonPolicy: 'follow-campaign',
@@ -203,13 +207,12 @@ export function shouldConsultEventDirector(campaign: Campaign, state: EventDirec
   return state.surpriseCharge >= 30
 }
 
-const magnitudeRank: Record<NarrativeEventMagnitude, number> = {
-  subtle: 0,
-  notable: 1,
-  major: 2,
-  legendary: 3,
-  mythic: 4,
-}
+const magnitudeContracts = Object.entries(narrativeEventMagnitudeContracts) as Array<
+  [NarrativeEventMagnitude, { rank: number }]
+>
+const magnitudeRank = Object.fromEntries(
+  magnitudeContracts.map(([magnitude, contract]) => [magnitude, contract.rank]),
+) as Record<NarrativeEventMagnitude, number>
 
 const stageRank: Record<NarrativeEventRecord['stage'], number> = {
   seeded: 0,
@@ -321,6 +324,50 @@ function permissionIssues(settings: EventDirectorSettings, proposal: NarrativeEv
 
 const agencyViolation = /(?:^|[\s,.;:!?])(?:герой\s+)?(?:решил|решила|согласил(?:ся|ась)|полюбил|полюбила|возненавидел|возненавидела|простил|простила|почувствовал(?:а)?\s+(?:любовь|ненависть)|выбрал(?:а)?\s+сторону)(?=$|[\s,.;:!?])/iu
 
+/**
+ * Enforces the actual state footprint promised by a rarity tier. This deliberately
+ * checks semantic requirements instead of prose: a "mythic" adjective cannot pass
+ * unless the resulting patch must change the world at mythic scale.
+ */
+export function narrativeEventMagnitudeIssues(proposal: NarrativeEventProposal) {
+  if (proposal.mode !== 'manifest' || proposal.lifecycleStage !== 'manifested') return []
+  const contract = narrativeEventMagnitudeContracts[proposal.magnitude]
+  const mandatory = [...proposal.immediateEffects, ...proposal.persistentEffects]
+    .filter((effect) => effect.mandatory)
+  const persistent = proposal.persistentEffects.filter((effect) => effect.mandatory)
+  const mandatoryDomains = new Set(mandatory.map((effect) => effect.domain))
+  const issues: string[] = []
+
+  if (mandatoryDomains.size < contract.minDomains) {
+    issues.push(`${contract.label} требует фактически изменить не менее ${contract.minDomains} разных областей состояния; обязательные последствия покрывают ${mandatoryDomains.size}.`)
+  }
+  if (mandatory.length < contract.minMandatoryEffects) {
+    issues.push(`${contract.label} требует не менее ${contract.minMandatoryEffects} обязательных фактических последствий; получено ${mandatory.length}.`)
+  }
+  if (persistent.length < contract.minPersistentEffects) {
+    issues.push(`${contract.label} требует не менее ${contract.minPersistentEffects} постоянных обязательных последствий; получено ${persistent.length}.`)
+  }
+  if (proposal.observableSigns.length < contract.minObservableSigns) {
+    issues.push(`${contract.label} требует не менее ${contract.minObservableSigns} разных наблюдаемых проявлений; получено ${proposal.observableSigns.length}.`)
+  }
+  if (proposal.counterplay.length < contract.minCounterplay) {
+    issues.push(`${contract.label} требует не менее ${contract.minCounterplay} содержательных способов реагировать или противодействовать; получено ${proposal.counterplay.length}.`)
+  }
+  if (proposal.scopeIds.length < contract.minScopes) {
+    issues.push(`${contract.label} требует не менее ${contract.minScopes} реально затронутых существующих или создаваемых сущностей в scopeIds; получено ${proposal.scopeIds.length}.`)
+  }
+  if (proposal.causeIds.length < contract.minCauses) {
+    issues.push(`${contract.label} требует не менее ${contract.minCauses} существующих причинных опор в causeIds; получено ${proposal.causeIds.length}.`)
+  }
+  contract.requiredDomainGroups.forEach((group) => {
+    if (!group.some((domain) => mandatoryDomains.has(domain))) {
+      issues.push(`${contract.label} обязано фактически изменить хотя бы одну область из группы: ${group.join(', ')}.`)
+    }
+  })
+
+  return issues
+}
+
 export function validateNarrativeEventProposal(campaign: Campaign, state: EventDirectorState, proposal: NarrativeEventDecision) {
   const turn = campaign.turn + 1
   if (proposal.mode === 'none') return forcedWorkshopEventDecision(state, turn)
@@ -337,6 +384,7 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
     issues.push('На этот ход назначено конкретное событие владельца; оно обязано проявиться через mode=manifest и lifecycleStage=manifested без переноса или подмены.')
   }
   const requirements = [...proposal.immediateEffects, ...proposal.persistentEffects]
+  issues.push(...narrativeEventMagnitudeIssues(proposal))
   const active = proposal.existingEventId ? state.activeEvents.find((event) => event.id === proposal.existingEventId) : undefined
   if (proposal.existingEventId && !active) issues.push('Указано неизвестное внутреннее событие.')
   if (active && active.nextEligibleTurn > turn) issues.push('Выбранная скрытая линия ещё не достигла срока следующего причинного этапа.')
@@ -447,7 +495,7 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
     : proposal.mode === 'foreshadow'
       ? 45
       : proposal.mode === 'manifest'
-        ? proposal.magnitude === 'mythic' ? 98 : proposal.magnitude === 'legendary' ? 90 : proposal.magnitude === 'major' ? 75 : proposal.magnitude === 'notable' ? 60 : 45
+        ? narrativeEventMagnitudeContracts[proposal.magnitude].surpriseThreshold
         : 0
   if (!proposal.existingEventId && state.surpriseCharge < threshold) issues.push('История ещё не накопила готовность к событию такого масштаба.')
   return [...new Set(issues)]
@@ -494,24 +542,10 @@ const stageForMode = {
   manifest: 'manifested',
 } as const
 
-const chargeCost: Record<NarrativeEventModeCostKey, number> = {
+const preparationChargeCost: Record<Exclude<NarrativeEventProposal['mode'], 'manifest'>, number> = {
   seed: 8,
   foreshadow: 15,
   advance: 10,
-  subtle: 28,
-  notable: 40,
-  major: 65,
-  legendary: 85,
-  mythic: 100,
-}
-type NarrativeEventModeCostKey = Exclude<NarrativeEventProposal['mode'], 'manifest'> | NarrativeEventMagnitude
-
-const aftermathDelay: Record<NarrativeEventMagnitude, number> = {
-  subtle: 3,
-  notable: 4,
-  major: 6,
-  legendary: 10,
-  mythic: 14,
 }
 
 function toRecord(proposal: NarrativeEventProposal, id: string, createdTurn: number, currentTurn: number): NarrativeEventRecord {
@@ -577,7 +611,7 @@ export function applyNarrativeEventProposal(
   }
   const stage = proposal.lifecycleStage ?? nextRecord.stage
   if (proposal.mode === 'manifest' || stage === 'manifested') {
-    nextRecord.nextEligibleTurn = turn + Math.max(aftermathDelay[proposal.magnitude], proposal.minimumDelay)
+    nextRecord.nextEligibleTurn = turn + Math.max(narrativeEventMagnitudeContracts[proposal.magnitude].aftermathDelay, proposal.minimumDelay)
   }
   const terminal = stage === 'resolved' || stage === 'cancelled'
   const activeEvents = [...state.activeEvents]
@@ -618,16 +652,17 @@ export function applyNarrativeEventProposal(
     if (previousIndex >= 0) history[previousIndex] = compactHistoryEntry
     else history.push(compactHistoryEntry)
   }
-  const costKey: NarrativeEventModeCostKey = manifested ? proposal.magnitude : proposal.mode as NarrativeEventModeCostKey
-  const categoryDelay = manifested
-    ? proposal.magnitude === 'mythic' ? 40 : proposal.magnitude === 'legendary' ? 18 : 10
-    : 4
+  const eventContract = narrativeEventMagnitudeContracts[proposal.magnitude]
+  const spentCharge = manifested
+    ? eventContract.chargeCost
+    : preparationChargeCost[proposal.mode as Exclude<NarrativeEventProposal['mode'], 'manifest'>]
+  const categoryDelay = manifested ? eventContract.categoryCooldown : 4
   return {
     ...state,
-    surpriseCharge: clamp(state.surpriseCharge - chargeCost[costKey], 0, 100),
+    surpriseCharge: clamp(state.surpriseCharge - spentCharge, 0, 100),
     lastSeedTurn: proposal.mode === 'seed' ? turn : state.lastSeedTurn,
     lastManifestedTurn: manifested ? turn : state.lastManifestedTurn,
-    lastLegendaryTurn: manifested && (proposal.magnitude === 'legendary' || proposal.magnitude === 'mythic') ? turn : state.lastLegendaryTurn,
+    lastLegendaryTurn: manifested && narrativeEventMagnitudeAtLeast(proposal.magnitude, 'legendary') ? turn : state.lastLegendaryTurn,
     lastMiracleTurn: manifested && proposal.miracleKind === 'intervention' ? turn : state.lastMiracleTurn,
     miracleCount: state.miracleCount + (manifested && proposal.miracleKind === 'intervention' ? 1 : 0),
     categoryCooldowns: {
@@ -640,14 +675,6 @@ export function applyNarrativeEventProposal(
     nextEvaluationTurn: turn + (proposal.mode === 'seed' ? 2 : 1),
     lastEvaluatedTurn: turn,
   }
-}
-
-const workshopChargeFloor: Record<NarrativeEventMagnitude, number> = {
-  subtle: 45,
-  notable: 60,
-  major: 75,
-  legendary: 90,
-  mythic: 100,
 }
 
 /**
@@ -709,7 +736,7 @@ export function applyWorkshopEventDirective(
     else activeEvents.push(record)
     return {
       ...state,
-      surpriseCharge: Math.max(state.surpriseCharge, workshopChargeFloor[proposal.magnitude]),
+      surpriseCharge: Math.max(state.surpriseCharge, narrativeEventMagnitudeContracts[proposal.magnitude].surpriseThreshold),
       nextEvaluationTurn: currentTurn + 1,
       activeEvents: activeEvents.slice(-12),
     }
@@ -718,7 +745,7 @@ export function applyWorkshopEventDirective(
   const record: NarrativeEventRecord = {
     ...baseRecord,
     stage: 'manifested',
-    nextEligibleTurn: currentTurn + Math.max(aftermathDelay[proposal.magnitude], proposal.minimumDelay),
+    nextEligibleTurn: currentTurn + Math.max(narrativeEventMagnitudeContracts[proposal.magnitude].aftermathDelay, proposal.minimumDelay),
     workshopDirective: undefined,
   }
   if (existingIndex >= 0) activeEvents[existingIndex] = record
@@ -754,12 +781,12 @@ export function applyWorkshopEventDirective(
     ...state,
     surpriseCharge: 0,
     lastManifestedTurn: currentTurn,
-    lastLegendaryTurn: ['legendary', 'mythic'].includes(proposal.magnitude) ? currentTurn : state.lastLegendaryTurn,
+    lastLegendaryTurn: narrativeEventMagnitudeAtLeast(proposal.magnitude, 'legendary') ? currentTurn : state.lastLegendaryTurn,
     lastMiracleTurn: proposal.miracleKind === 'intervention' ? currentTurn : state.lastMiracleTurn,
     miracleCount: state.miracleCount + (proposal.miracleKind === 'intervention' ? 1 : 0),
     categoryCooldowns: {
       ...state.categoryCooldowns,
-      [proposal.category]: currentTurn + (proposal.magnitude === 'mythic' ? 40 : proposal.magnitude === 'legendary' ? 18 : 10),
+      [proposal.category]: currentTurn + narrativeEventMagnitudeContracts[proposal.magnitude].categoryCooldown,
     },
     recentSignatures: [...state.recentSignatures, signature].slice(-24),
     history: history.slice(-160),
@@ -1112,7 +1139,7 @@ export function narrativeEventComplianceIssues(proposal: NarrativeEventDecision,
   if (
     proposal.mode === 'manifest'
     && proposal.category === 'encounter'
-    && ['major', 'legendary', 'mythic'].includes(proposal.magnitude)
+    && narrativeEventMagnitudeAtLeast(proposal.magnitude, 'major')
     && proposal.immediateEffects.some((effect) => effect.domain === 'npc' && effect.operation === 'create')
   ) {
     const strongNpcIds = proposal.immediateEffects

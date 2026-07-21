@@ -80,6 +80,8 @@ describe('universal narrative event contract', () => {
       persistentEffects: [{ domain: 'route', operation: 'create' }],
       minimumDelay: 3,
     })
+    expect(narrativeEventDecisionSchema.parse({ ...parsed, magnitude: 'эпический' })).toMatchObject({ magnitude: 'epic' })
+    expect(narrativeEventDecisionSchema.parse({ ...parsed, magnitude: 'трансцендентный' })).toMatchObject({ magnitude: 'transcendent' })
   })
 
   it('accepts an honest no-event decision but rejects an incomplete proposal instead of filling placeholders', () => {

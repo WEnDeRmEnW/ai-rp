@@ -8,6 +8,7 @@ import {
   defaultEventDirectorState,
   forcedWorkshopEventDecision,
   narrativeEventComplianceIssues,
+  narrativeEventMagnitudeIssues,
   normalizeNarrativeEventProposal,
   prepareEventDirectorState,
   shouldConsultEventDirector,
@@ -74,6 +75,58 @@ function completeAbility(id = 'ability-event'): AbilityDraft {
 }
 
 describe('universal narrative event director', () => {
+  it('makes mythic and transcendent rarity a factual state contract instead of a label', () => {
+    const base = proposal({
+      mode: 'manifest',
+      lifecycleStage: 'manifested',
+      magnitude: 'mythic',
+      affectedDomains: ['scene', 'world-event', 'world-pressure', 'process', 'faction', 'legend'],
+      causeIds: ['cause-a', 'cause-b'],
+      scopeIds: ['scope-a', 'scope-b'],
+      observableSigns: ['Знак 1', 'Знак 2', 'Знак 3', 'Знак 4'],
+      counterplay: ['Ответ 1', 'Ответ 2', 'Ответ 3'],
+      immediateEffects: [
+        { domain: 'scene', operation: 'update', requirement: 'Сцена меняется.', observable: true, mandatory: true },
+        { domain: 'world-event', operation: 'create', targetId: 'event-mythic', requirement: 'Начинается мировое событие.', observable: true, mandatory: true },
+        { domain: 'faction', operation: 'update', targetId: 'faction-a', requirement: 'Фракция меняет курс.', observable: true, mandatory: true },
+        { domain: 'legend', operation: 'create', targetId: 'legend-a', requirement: 'Рождается новая легенда.', observable: true, mandatory: true },
+      ],
+      persistentEffects: [
+        { domain: 'world-pressure', operation: 'create', targetId: 'pressure-a', requirement: 'Возникает мировое давление.', observable: false, mandatory: true },
+        { domain: 'process', operation: 'create', targetId: 'process-a', requirement: 'Начинается долгий процесс.', observable: false, mandatory: true },
+        { domain: 'scene', operation: 'update', requirement: 'Последствия остаются наблюдаемыми.', observable: true, mandatory: true },
+      ],
+    })
+    expect(narrativeEventMagnitudeIssues(base)).toEqual([])
+
+    const mislabeled = { ...base, immediateEffects: base.immediateEffects.slice(0, 1), persistentEffects: [] }
+    expect(narrativeEventMagnitudeIssues(mislabeled).join(' ')).toContain('7 обязательных фактических последствий')
+
+    const transcendent = proposal({
+      ...base,
+      magnitude: 'transcendent',
+      affectedDomains: ['scene', 'law', 'mechanic', 'world-event', 'world-pressure', 'process', 'faction', 'legend'],
+      scopeIds: ['scope-a', 'scope-b', 'scope-c'],
+      observableSigns: ['Знак 1', 'Знак 2', 'Знак 3', 'Знак 4', 'Знак 5'],
+      counterplay: ['Ответ 1', 'Ответ 2', 'Ответ 3', 'Ответ 4'],
+      immediateEffects: [
+        { domain: 'scene', operation: 'update', requirement: 'Перелом виден в сцене.', observable: true, mandatory: true },
+        { domain: 'law', operation: 'transform', targetId: 'law-a', requirement: 'Фундаментальный закон меняется.', observable: true, mandatory: true },
+        { domain: 'mechanic', operation: 'update', targetId: 'mechanic-a', requirement: 'Механика начинает исполнять новый закон.', observable: true, mandatory: true },
+        { domain: 'world-event', operation: 'create', targetId: 'event-transcendent', requirement: 'Мир фиксирует точку перелома.', observable: true, mandatory: true },
+        { domain: 'faction', operation: 'update', targetId: 'faction-a', requirement: 'Крупная сила немедленно реагирует.', observable: true, mandatory: true },
+      ],
+      persistentEffects: [
+        { domain: 'world-pressure', operation: 'create', targetId: 'pressure-a', requirement: 'Новое давление остаётся в мире.', observable: false, mandatory: true },
+        { domain: 'process', operation: 'create', targetId: 'process-a', requirement: 'Начинается перестройка эпохи.', observable: false, mandatory: true },
+        { domain: 'legend', operation: 'create', targetId: 'legend-a', requirement: 'Перелом получает легендарное наследие.', observable: false, mandatory: true },
+        { domain: 'law', operation: 'update', targetId: 'law-b', requirement: 'Связанный закон адаптируется.', observable: false, mandatory: true },
+        { domain: 'mechanic', operation: 'update', targetId: 'mechanic-b', requirement: 'Связанная механика сохраняет последствия.', observable: false, mandatory: true },
+      ],
+    })
+    expect(narrativeEventMagnitudeIssues(transcendent)).toEqual([])
+  })
+
   it('accumulates readiness deterministically and keeps the hidden clock compact', () => {
     const campaign = createDemoCampaign()
     campaign.eventDirectorState = defaultEventDirectorState(0)
@@ -108,10 +161,16 @@ describe('universal narrative event director', () => {
       existingEventId: 'event-hidden-1',
       lifecycleStage: 'manifested',
       magnitude: 'major',
-      affectedDomains: ['scene'],
+      causeIds: [campaign.player.id],
+      scopeIds: [campaign.player.id],
+      affectedDomains: ['scene', 'world-event', 'world-pressure'],
       arrivalMethod: 'Наблюдаемый эффект достигает текущего места по установленному маршруту.',
-      observableSigns: ['На поверхности предметов проступает одинаковый остаточный рисунок.'],
-      immediateEffects: [{ domain: 'scene', operation: 'update', requirement: 'Напряжение и наблюдаемая обстановка сцены отражают проявление аномалии.', observable: true, mandatory: true }],
+      observableSigns: ['На поверхности предметов проступает одинаковый остаточный рисунок.', 'Удалённые датчики одновременно фиксируют тот же ритм.'],
+      immediateEffects: [
+        { domain: 'scene', operation: 'update', requirement: 'Напряжение и наблюдаемая обстановка сцены отражают проявление аномалии.', observable: true, mandatory: true },
+        { domain: 'world-event', operation: 'create', targetId: 'event-anomaly-manifested', requirement: 'Зафиксировать проявившуюся аномалию как самостоятельное событие мира.', observable: true, mandatory: true },
+      ],
+      persistentEffects: [{ domain: 'world-pressure', operation: 'create', targetId: 'pressure-anomaly-trace', requirement: 'Сохранить устойчивое давление аномалии после завершения сцены.', observable: false, mandatory: true }],
       counterplay: ['Покинуть область устойчивого следа.', 'Изолировать предмет-носитель.'],
     })
     expect(validateNarrativeEventProposal(campaign, seeded, manifested)).toEqual([])
@@ -121,9 +180,13 @@ describe('universal narrative event director', () => {
     expect(next.recentSignatures[0]).toMatchObject({ category: 'anomaly', magnitude: 'major', outcome: 'manifested', turn: 5 })
     expect(next.history[0]).toMatchObject({
       id: 'event-hidden-1',
-      causeIds: [],
+      causeIds: [campaign.player.id],
       participantIds: [],
-      keyConsequences: ['Напряжение и наблюдаемая обстановка сцены отражают проявление аномалии.'],
+      keyConsequences: [
+        'Напряжение и наблюдаемая обстановка сцены отражают проявление аномалии.',
+        'Зафиксировать проявившуюся аномалию как самостоятельное событие мира.',
+        'Сохранить устойчивое давление аномалии после завершения сцены.',
+      ],
       outcome: 'manifested',
     })
   })
@@ -186,7 +249,7 @@ describe('universal narrative event director', () => {
       id: 'event-workshop-1',
       stage: 'manifested',
       workshopDirective: undefined,
-      nextEligibleTurn: campaign.turn + 11,
+      nextEligibleTurn: campaign.turn + 13,
     })
 
     const staleCampaign = structuredClone(campaign)

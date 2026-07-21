@@ -1721,7 +1721,15 @@ export type StoryPacingUpdate = Pick<StoryPacingState, 'beat' | 'intensity' | 'c
 
 export type NarrativeEventMode = 'none' | 'seed' | 'foreshadow' | 'advance' | 'manifest'
 export type NarrativeEventStage = 'seeded' | 'foreshadowed' | 'forming' | 'imminent' | 'manifested' | 'aftermath' | 'resolved' | 'cancelled'
-export type NarrativeEventMagnitude = 'subtle' | 'notable' | 'major' | 'legendary' | 'mythic'
+export type NarrativeEventMagnitude =
+  | 'subtle'
+  | 'notable'
+  | 'rare'
+  | 'major'
+  | 'epic'
+  | 'legendary'
+  | 'mythic'
+  | 'transcendent'
 export type NarrativeEventMiracleKind = 'none' | 'sign' | 'intervention'
 export type NarrativeEventCategory =
   | 'encounter'
