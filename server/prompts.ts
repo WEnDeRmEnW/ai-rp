@@ -6,6 +6,7 @@ import { narrativeEventMagnitudeContracts, narrativeEventMagnitudePromptContract
 import { grantedItemAbilities } from '../shared/effective-abilities.js'
 import { artifactPlayerView } from '../shared/artifacts.js'
 import type { ConceptAnalysis, GeneratedWorld, WorldGenerationManifest, WorldQualityReview } from './schemas.js'
+import { detectWorkshopResurrectionIntent } from './workshop-intent.js'
 
 export type WorldGenerationStage = 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
 
@@ -985,6 +986,9 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
 function campaignEditorContext(campaign: Campaign, input: string) {
   const selected = buildContextSelection(campaign, input)
   const focused = compactCampaign(campaign, input, 'background')
+  const resurrectionIntent = detectWorkshopResurrectionIntent(campaign, input)
+  const needsRecentConversation = Boolean(resurrectionIntent)
+    || /(?:\bего\b|\bеё\b|\bее\b|\bэто\b|последн\p{L}*)/iu.test(input)
   return finalizeContext({
     ...focused,
     world: campaign.world,
@@ -1025,6 +1029,15 @@ function campaignEditorContext(campaign: Campaign, input: string) {
       chunks: document.chunks.map((chunk) => ({ id: chunk.id, keys: chunk.keys, characterCount: chunk.text.length })),
     })),
     recentMessageIndex: campaign.messages.slice(-24).map(({ id, role, actionType, turn, createdAt }) => ({ id, role, actionType, turn, createdAt })),
+    recentConversation: needsRecentConversation
+      ? campaign.messages.slice(-10).map(({ role, actionType, turn, content }) => ({
+        role,
+        actionType,
+        turn,
+        content: content.slice(0, 3_000),
+      }))
+      : undefined,
+    ownerIntentHints: resurrectionIntent ? { resurrection: resurrectionIntent } : undefined,
   }, selected, { enforceBudget: false })
 }
 
@@ -2397,7 +2410,9 @@ ${workshopEventRules}
 
 Социальные связи NPC создавай и полностью обновляй через socialLinks с прежним стабильным id, а удаляй только через removeSocialLinkIds. Для новых/изменённых арок, тайн, планов антагонистов, давлений и ресурсов влияния возвращай полные upsert-объекты; завершение отражай терминальным status/stage и cleanup там, где он поддерживается. Не подменяй фактическое редактирование записью в summary.
 
-В контексте редактора переданы ВСЕ структурированные lore, memories, archives, threads и worldEvents, полный npcDirectory, а также documentCatalog с id/keys/размером частей. recentMessageIndex содержит только метаданные последних сообщений: полного массива художественной прозы здесь намеренно нет. Используй весь структурированный канон для проверки ссылок и противоречий. archives и documentCatalog являются справочным каталогом: не выдумывай неподдерживаемые statePatch-ключи для прямого редактирования документов или архивов; корректируй доступные первичные сущности, lore, memories, threads и worldEvents.
+В контексте редактора переданы ВСЕ структурированные lore, memories, archives, threads и worldEvents, полный npcDirectory, а также documentCatalog с id/keys/размером частей. При ссылочной формулировке recentConversation содержит последние реплики и нужен для разрешения слов «он», «она», «его», «её»; ownerIntentHints содержит только программно найденную точную цель, а не новое содержание. Используй весь структурированный канон для проверки ссылок и противоречий. archives и documentCatalog являются справочным каталогом: не выдумывай неподдерживаемые statePatch-ключи для прямого редактирования документов или архивов; корректируй доступные первичные сущности, lore, memories, threads и worldEvents.
+
+Если ownerIntentHints.resurrection.mode=apply, владелец требует уже состоявшегося успешного воскрешения указанного targetNpcId. Обязательно одним патчем: обнови этого NPC до status=active, восстанови его существующий health-ресурс выше нуля, обнови lastSeen, добавь его в текущую scene.presentNpcIds и сохрани новую фактическую memory об успехе. Прежние неудачные попытки остаются историей и не удаляются. Если mode=enable, не воскрешай автоматически, но действительно измени способность, артефакт или механику так, чтобы запрошенная возможность существовала в постоянных данных. В обоих случаях одного summary, ресурсов героя или художественного обещания недостаточно.
 
 Если пользователь просит спроектировать или полностью переделать интерфейс, сначала изучи фактические world.rules/laws/mechanics/system/metrics/interfaceBlueprint, player resources/stats/abilities, inventory/artifacts, factions/reputation, тайны, связи и открытые процессы. Для полной информационной архитектуры верни interfaceBlueprint со всеми шестью обязательными видимыми вкладками и полные upsertInterfaceModules; для локальной правки существующего модуля используй granular interfaceModuleChanges с точными id. Сама выбери 2–6 действительно нужных модулей без жанрового пресета, при необходимости используй dashboard/cards, pinned/density/emphasis и числовые stateRules. Не дублируй обычный HUD, используй живые bindings к точным данным. Постоянную новую числовую величину оформи world.metric с полными source/updatePolicy, а custom оставь нечисловому состоянию без канонического поля. Внесюжетное проектирование не должно менять устройство мира, чтобы оправдать виджет.
 

@@ -14,6 +14,7 @@ import { sanitizePlayerAgency } from './agency-guard.js'
 import { findNarrativeRepetitionIssues, narrativeRepetitionScore, removeNarrativeRepetitionParagraphs } from '../shared/narrative-repetition.js'
 import { abilityExecutionIssues, abilityNoveltyIssues, abilityNoveltyScore, abilityProfileIssues, reconcileAbilityExecutionCosts, updateAbilityRegistry } from '../shared/abilities.js'
 import { grantedItemAbilities } from '../shared/effective-abilities.js'
+import { workshopStateResponseIssues } from './workshop-intent.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
 
@@ -780,6 +781,11 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     const livingIds = new Set([
       ...campaign.npcs.filter((npc) => npc.status !== 'dead' && npc.status !== 'missing').map((npc) => npc.id),
       ...addedNpcIds,
+      ...(plan.statePatch.npcs ?? []).flatMap((mutation) => (
+        mutation.operation === 'update' && mutation.npc.status && !['dead', 'missing'].includes(mutation.npc.status)
+          ? [mutation.targetId]
+          : []
+      )),
     ])
     plan.statePatch.scene.presentNpcIds = plan.statePatch.scene.presentNpcIds.filter((npcId) => livingIds.has(npcId))
     if (plan.statePatch.scene.presentNpcIds.length < before) reject('Убрано невозможное присутствие персонажа в сцене.', ['characters', 'scene_time'])
@@ -3642,6 +3648,32 @@ async function repairWorkshopEventResponse(
   throw new Error(`Мастерская не смогла безопасно подготовить выбранное событие после трёх точечных исправлений: ${issues.join(' ')}`)
 }
 
+async function repairWorkshopStateResponse(
+  request: CampaignEditRequest,
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  initial: CampaignEditResponse,
+) {
+  let response = initial
+  let issues = workshopStateResponseIssues(request.campaign, request.instruction, response)
+  if (!issues.length) return response
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const repairMessages = [
+      ...messages,
+      { role: 'assistant' as const, content: JSON.stringify(response) },
+      {
+        role: 'user' as const,
+        content: `Программная проверка смысла корректировки установила, что главный запрос владельца фактически не выполнен:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни весь JSON ответа редактора заново. Исправь именно постоянное состояние через точные существующие id. Не заменяй обязательное изменение summary, ресурсами другого персонажа, обещанием будущего события или записью в прозе. Сохрани уже правильные части ответа и не удаляй исторически верные записи о прежних событиях.`,
+      },
+    ]
+    const repairedRaw = await completeJson(request.provider, repairMessages)
+    const repaired = await parseWithRepair<CampaignEditResponse>(repairedRaw, campaignEditResponseSchema, request.provider, repairMessages)
+    response = normalizeWorkshopEventResponse(request, repaired)
+    issues = workshopStateResponseIssues(request.campaign, request.instruction, response)
+    if (!issues.length) return response
+  }
+  throw new Error(`Мастерская не выполнила обязательный смысл корректировки после трёх точечных исправлений: ${issues.join(' ')}`)
+}
+
 export async function editCampaign(request: CampaignEditRequest, report?: ProgressReporter): Promise<CampaignEditResponse> {
   if (request.provider.provider === 'demo') throw new Error('ИИ-корректор требует подключённую модель. Выберите DeepSeek V4 Flash в настройках.')
   reportProgress(report, 8, 'reading-state', 'Изучаем выбранную кампанию и точные идентификаторы', 1, 4)
@@ -3650,7 +3682,9 @@ export async function editCampaign(request: CampaignEditRequest, report?: Progre
   const raw = await completeJson(request.provider, messages)
   reportProgress(report, 68, 'validating-edit', 'Проверяем структуру, ссылки и допустимые изменения', 3, 4)
   const parsedInitial = await parseWithRepair<CampaignEditResponse>(raw, campaignEditResponseSchema, request.provider, messages)
-  const parsed = await repairWorkshopEventResponse(request, messages, parsedInitial)
+  const eventSafe = await repairWorkshopEventResponse(request, messages, parsedInitial)
+  const stateSafe = await repairWorkshopStateResponse(request, messages, eventSafe)
+  const parsed = await repairWorkshopEventResponse(request, messages, stateSafe)
   const plan = turnPlanSchema.parse({ outcome: parsed.summary, beats: [parsed.summary], suggestions: ['Продолжить', 'Осмотреть изменения'], statePatch: parsed.statePatch })
   const sanitized = sanitizePlan(request.campaign, plan)
   const repairedPlan = await repairCampaignEditorArtifacts(request, messages, sanitized.plan, report)
@@ -3664,6 +3698,8 @@ export async function editCampaign(request: CampaignEditRequest, report?: Progre
   }
   const finalEventIssues = workshopEventResponseIssues(request, finalResponse)
   if (finalEventIssues.length) throw new Error(`Финальная проверка события остановила неполное изменение: ${finalEventIssues.join(' ')}`)
+  const finalStateIssues = workshopStateResponseIssues(request.campaign, request.instruction, finalResponse)
+  if (finalStateIssues.length) throw new Error(`Финальная проверка смысла остановила неполную корректировку: ${finalStateIssues.join(' ')}`)
   if (parsed.eventDirective) {
     finalResponse.statePatch.eventDirectorState = applyWorkshopEventDirective(
       request.campaign,

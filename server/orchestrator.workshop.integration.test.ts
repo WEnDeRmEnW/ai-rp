@@ -20,6 +20,47 @@ function providerResponse(value: unknown) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('campaign workshop event controls', () => {
+  it('repairs a resource-only answer until the requested NPC is actually resurrected', async () => {
+    const campaign = createDemoCampaign()
+    const target = campaign.npcs[0]
+    target.name = 'Элиан'
+    target.status = 'dead'
+    target.resources = [{ key: 'lifeEnergy', label: 'Жизненная энергия', value: 0, max: 100, kind: 'health', aliases: [] }]
+    campaign.scene.presentNpcIds = []
+    campaign.messages.push({
+      id: 'failed-resurrection', role: 'assistant', turn: campaign.turn, createdAt: new Date().toISOString(),
+      content: 'Элиан остался мёртв после неудачной попытки воскрешения.',
+    })
+    const incomplete = {
+      summary: 'Ресурс героя восстановлен.', campaignPatch: {}, settingsPatch: {},
+      statePatch: { upsertResources: [{ key: 'lifeEnergy', label: 'Жизненная энергия', value: 100, max: 100, kind: 'health', aliases: [] }] },
+    }
+    const complete = {
+      summary: 'Последняя попытка действительно воскресила Элиана.', campaignPatch: {}, settingsPatch: {},
+      statePatch: {
+        npcs: [{ operation: 'update', targetId: target.id, npc: { status: 'active', lastSeen: campaign.scene.location, resourceDeltas: { lifeEnergy: 30 } } }],
+        scene: { presentNpcIds: [target.id] },
+        memories: [{ kind: 'fact', content: 'Акира успешно воскресил Элиана, и тот вернулся к жизни.', tags: ['Акира', 'Элиан', 'воскрешение'], importance: 95 }],
+      },
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(providerResponse(incomplete))
+      .mockResolvedValueOnce(providerResponse(complete))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await editCampaign({
+      campaign,
+      instruction: 'Сделай так, чтобы у меня получилось воскресить его.',
+      provider,
+    })
+
+    expect(result.statePatch.npcs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operation: 'update', targetId: target.id, npc: expect.objectContaining({ status: 'active' }) }),
+    ]))
+    expect(result.statePatch.memories?.[0].content).toContain('воскресил Элиана')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('validates a new workshop event independently when another owner event is already queued', async () => {
     const campaign = createDemoCampaign()
     campaign.eventDirectorState = {
