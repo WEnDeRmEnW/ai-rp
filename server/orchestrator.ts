@@ -2161,7 +2161,8 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     return parseWithRepair(rawBackground, backgroundSimulationSchema, request.provider, backgroundMessages, () => ({ signals: [], statePatch: {} }))
   }, emptyBackground)
   const quietEventDecision: NarrativeEventDecision = { mode: 'none', reason: 'История ещё не накопила готовность к отдельному повороту.' }
-  const eventConsultationNeeded = shouldConsultEventDirector(request.campaign, preparedEventState)
+  const forcedWorkshopEvent = forcedWorkshopEventDecision(preparedEventState, request.campaign.turn + 1)
+  const eventConsultationNeeded = Boolean(forcedWorkshopEvent) || shouldConsultEventDirector(request.campaign, preparedEventState)
   const requestEventDecision = async (eventMessages: ReturnType<typeof eventDirectorPrompt>) => optionalStage<NarrativeEventDecision>('event-director', async () => {
     const rawDecision = await completeJson(request.provider, eventMessages)
     let decision = await parseWithRepair<NarrativeEventDecision>(rawDecision, narrativeEventDecisionSchema, request.provider, eventMessages)
@@ -2194,7 +2195,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   // Empty background + no unusual event is the common path. Begin both optional decisions and
   // the exact plan for that path immediately. A result is reusable only when later inputs are
   // byte-for-byte equivalent; otherwise the authoritative request still runs with full context.
-  const speculativeEventMessages = eventConsultationNeeded
+  const speculativeEventMessages = eventConsultationNeeded && !forcedWorkshopEvent
     ? eventDirectorPrompt(request.campaign, request.input, emptyBackground, preparedEventState)
     : undefined
   const speculativeEventPromise = speculativeEventMessages
@@ -2208,9 +2209,9 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     .catch((error: unknown) => ({ ok: false as const, error }))
   const background = await backgroundPromise
   const exactEmptyBackground = background.signals.length === 0 && Object.keys(background.statePatch).length === 0
-  let eventDecision: NarrativeEventDecision = quietEventDecision
-  let eventDirectorConsulted = false
-  if (eventConsultationNeeded) {
+  let eventDecision: NarrativeEventDecision = forcedWorkshopEvent ?? quietEventDecision
+  let eventDirectorConsulted = Boolean(forcedWorkshopEvent)
+  if (eventConsultationNeeded && !forcedWorkshopEvent) {
     eventDirectorConsulted = true
     reportProgress(report, 17, 'event-director', 'Проверяем, созрело ли редкое необычное событие', 3, 11)
     const speculativeEvent = exactEmptyBackground ? await speculativeEventPromise : undefined
@@ -2219,15 +2220,6 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       ? speculativeEvent.decision
       : await requestEventDecision(eventDirectorPrompt(request.campaign, request.input, background, preparedEventState))
   }
-  const forcedWorkshopEvent = forcedWorkshopEventDecision(preparedEventState, request.campaign.turn + 1)
-  if (forcedWorkshopEvent && (
-    eventDecision.mode === 'none'
-    || eventDecision.existingEventId !== forcedWorkshopEvent.existingEventId
-  )) {
-    eventDecision = forcedWorkshopEvent
-    eventDirectorConsulted = true
-  }
-
   reportProgress(report, 26, 'directing', 'Режиссёр строит причинный план и последствия', 4, 11)
   let director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
   const speculativeResult = exactEmptyBackground && eventDecision.mode === 'none' ? await speculativePlanPromise : undefined

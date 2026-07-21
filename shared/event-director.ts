@@ -311,8 +311,12 @@ export function validateNarrativeEventProposal(campaign: Campaign, state: EventD
   const settings = normalizeEventDirectorSettings(campaign.settings.eventDirector)
   const issues = permissionIssues(settings, proposal)
   const forcedWorkshopEvent = forcedWorkshopEventDecision(state, turn)
-  if (forcedWorkshopEvent && proposal.existingEventId !== forcedWorkshopEvent.existingEventId) {
-    issues.push('На этот ход назначено конкретное событие владельца; нельзя подменить его другим событием.')
+  if (forcedWorkshopEvent && (
+    proposal.existingEventId !== forcedWorkshopEvent.existingEventId
+    || proposal.mode !== 'manifest'
+    || proposal.lifecycleStage !== 'manifested'
+  )) {
+    issues.push('На этот ход назначено конкретное событие владельца; оно обязано проявиться через mode=manifest и lifecycleStage=manifested без переноса или подмены.')
   }
   const requirements = [...proposal.immediateEffects, ...proposal.persistentEffects]
   const active = proposal.existingEventId ? state.activeEvents.find((event) => event.id === proposal.existingEventId) : undefined
@@ -436,7 +440,9 @@ export function forcedWorkshopEventDecision(state: EventDirectorState, turn: num
   const event = state.activeEvents.find((entry) => (
     entry.workshopDirective?.requestedByOwner
     && entry.workshopDirective.delivery === 'next-turn'
-    && entry.nextEligibleTurn <= turn
+    // requestedTurn is immutable owner intent. An earlier faulty advance may have pushed
+    // nextEligibleTurn forward, but it must never postpone a guaranteed next-turn event.
+    && entry.workshopDirective.requestedTurn + 1 <= turn
   ))
   if (!event) return undefined
   const {
@@ -513,7 +519,9 @@ export function applyNarrativeEventProposal(
       surpriseCharge: clamp(state.surpriseCharge - 4, 0, 100),
       nextEvaluationTurn: turn + evaluationDelay,
       activeEvents: state.activeEvents.map((event) => (
-        event.nextEligibleTurn <= turn ? { ...event, nextEligibleTurn: turn + evaluationDelay } : event
+        event.nextEligibleTurn <= turn && !event.workshopDirective?.requestedByOwner
+          ? { ...event, nextEligibleTurn: turn + evaluationDelay }
+          : event
       )),
       lastEvaluatedTurn: turn,
     }

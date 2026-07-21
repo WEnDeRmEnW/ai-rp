@@ -158,6 +158,27 @@ describe('universal narrative event director', () => {
     const forced = forcedWorkshopEventDecision(queued, campaign.turn + 1)
     expect(forced).toMatchObject({ mode: 'manifest', existingEventId: 'event-workshop-1', magnitude: 'legendary' })
     expect(validateNarrativeEventProposal(campaign, queued, { mode: 'none', reason: 'Пропустить.' })).toContain('Владелец кампании назначил обязательное событие на этот ход; mode=none недопустим.')
+
+    const improperlyAdvanced = proposal({
+      ...requested,
+      mode: 'advance',
+      existingEventId: 'event-workshop-1',
+      lifecycleStage: 'imminent',
+    })
+    expect(validateNarrativeEventProposal(campaign, queued, improperlyAdvanced).join(' ')).toContain('обязано проявиться через mode=manifest')
+
+    const delayedByOldBug = structuredClone(queued)
+    delayedByOldBug.activeEvents[0].nextEligibleTurn = campaign.turn + 100
+    expect(forcedWorkshopEventDecision(delayedByOldBug, campaign.turn + 1)).toMatchObject({
+      mode: 'manifest',
+      existingEventId: 'event-workshop-1',
+    })
+
+    const afterDeclinedAutomaticEvent = applyNarrativeEventProposal(campaign, queued, {
+      mode: 'none',
+      reason: 'Автоматическое событие не требуется.',
+    }, () => 'unused')
+    expect(afterDeclinedAutomaticEvent.activeEvents[0].nextEligibleTurn).toBe(campaign.turn + 1)
   })
 
   it('records an immediate workshop event at the current turn', () => {
