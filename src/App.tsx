@@ -18,10 +18,12 @@ import { useApp } from './state/AppContext'
 import { useAuth } from './state/AuthContext'
 import { getWorldPresentation } from './lib/world-customization'
 import { loadInterfacePreferences, saveInterfacePreferences, type InterfacePreferences } from './lib/interface-preferences'
+import { useMediaQuery } from './lib/use-media-query'
 
 export function App() {
   const app = useApp()
   const auth = useAuth()
+  const isMobile = useMediaQuery('(max-width: 800px)')
   const [newWorldOpen, setNewWorldOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -32,8 +34,8 @@ export function App() {
   const [focusMode, setFocusMode] = useState(false)
   const [interfacePreferences, setInterfacePreferences] = useState<InterfacePreferences>(() => loadInterfacePreferences())
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth <= 800 ? false : localStorage.getItem('letopis-sidebar-visible') !== 'false')
-  const [inspectorOpen, setInspectorOpen] = useState(() => window.innerWidth > 800)
+  const [sidebarVisible, setSidebarVisible] = useState(() => isMobile ? false : localStorage.getItem('letopis-sidebar-visible') !== 'false')
+  const [inspectorOpen, setInspectorOpen] = useState(() => !isMobile)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('dashboard')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [mode, setMode] = useState<ActionType>('do')
@@ -95,7 +97,7 @@ export function App() {
 
   const toggleSidebar = () => {
     if (focusMode) setFocusMode(false)
-    if (window.innerWidth <= 800) {
+    if (isMobile) {
       setInspectorOpen(false)
       setSidebarOpen((value) => !value)
       return
@@ -137,7 +139,7 @@ export function App() {
       <TopBar
         campaign={campaign}
         canUndo={campaign.snapshots.length > 0 && !app.generating}
-        sidebarOpen={window.innerWidth <= 800 ? sidebarOpen : sidebarVisible}
+        sidebarOpen={isMobile ? sidebarOpen : sidebarVisible}
         inspectorOpen={inspectorOpen}
         focusMode={focusMode}
         onMenu={toggleSidebar}

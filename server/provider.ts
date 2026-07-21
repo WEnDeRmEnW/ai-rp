@@ -45,6 +45,25 @@ function expandedOutputLimit(current: number): number {
   return Math.min(131_072, Math.max(current + 4_096, Math.ceil(current * 1.5)))
 }
 
+// Cap the size of the previous (often very large) reply echoed back during JSON repair.
+// The model regenerates the full object from the original messages, so only a tail is needed
+// as context; resending the entire reply doubles input tokens, latency and cost.
+const repairEchoLimit = 6_000
+
+function repairEcho(raw: string): string {
+  if (raw.length <= repairEchoLimit) return raw
+  return `…[начало предыдущего ответа опущено]\n${raw.slice(-repairEchoLimit)}`
+}
+
+// Optional cheaper/faster model for auxiliary service-stage calls (context selection,
+// classification and other bounded JSON utilities). Opt-in via LETOPIS_SERVICE_MODEL;
+// turn/world/narrative stages always keep the configured model.
+function stageConfig(config: ProviderConfig, stage: CompletionStage): ProviderConfig {
+  const serviceModel = process.env.LETOPIS_SERVICE_MODEL?.trim()
+  if (stage !== 'service' || !serviceModel) return config
+  return { ...config, model: serviceModel }
+}
+
 function reducedProviderLimit(detail: string, current: number): number {
   const normalized = detail.replace(/[,_]/g, '')
   const explicitCeiling = [
@@ -204,16 +223,17 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   let repairMessages = messages
   let lastError: unknown
   let maxOutputTokens = outputLimit(messages, true, options)
+  const stagedConfig = stageConfig(config, options?.stage ?? inferStage(messages, true))
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await requestCompletion(config, repairMessages, true, maxOutputTokens)
+    const completion = await requestCompletion(stagedConfig, repairMessages, true, maxOutputTokens)
     const raw = completion.content
     if (completion.truncated) {
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
       maxOutputTokens = expandedOutputLimit(maxOutputTokens)
       repairMessages = [
         ...messages,
-        { role: 'assistant', content: raw },
+        { role: 'assistant', content: repairEcho(raw) },
         {
           role: 'user',
           content: `Предыдущий JSON был ОБРЕЗАН провайдером по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}). Верни заново весь объект целиком, от первой до последней закрывающей скобки. Не продолжай с места обрыва, не сокращай массивы и вложенные объекты, не добавляй Markdown или пояснения.`,
@@ -227,7 +247,7 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
       lastError = error
       repairMessages = [
         ...messages,
-        { role: 'assistant', content: raw },
+        { role: 'assistant', content: repairEcho(raw) },
         {
           role: 'user',
           content: 'Предыдущий ответ синтаксически не является корректным JSON. Верни тот же полный объект заново: без Markdown, комментариев и текста до или после JSON. Проверь кавычки, запятые и закрывающие скобки.',
