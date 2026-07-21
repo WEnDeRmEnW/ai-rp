@@ -55,6 +55,15 @@ function repairEcho(raw: string): string {
   return `…[начало предыдущего ответа опущено]\n${raw.slice(-repairEchoLimit)}`
 }
 
+// Optional cheaper/faster model for auxiliary service-stage calls (context selection,
+// classification and other bounded JSON utilities). Opt-in via LETOPIS_SERVICE_MODEL;
+// turn/world/narrative stages always keep the configured model.
+function stageConfig(config: ProviderConfig, stage: CompletionStage): ProviderConfig {
+  const serviceModel = process.env.LETOPIS_SERVICE_MODEL?.trim()
+  if (stage !== 'service' || !serviceModel) return config
+  return { ...config, model: serviceModel }
+}
+
 function reducedProviderLimit(detail: string, current: number): number {
   const normalized = detail.replace(/[,_]/g, '')
   const explicitCeiling = [
@@ -214,9 +223,10 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   let repairMessages = messages
   let lastError: unknown
   let maxOutputTokens = outputLimit(messages, true, options)
+  const stagedConfig = stageConfig(config, options?.stage ?? inferStage(messages, true))
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const completion = await requestCompletion(config, repairMessages, true, maxOutputTokens)
+    const completion = await requestCompletion(stagedConfig, repairMessages, true, maxOutputTokens)
     const raw = completion.content
     if (completion.truncated) {
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)

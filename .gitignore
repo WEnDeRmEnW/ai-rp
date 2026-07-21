@@ -9,3 +9,6 @@ dist-server/
 .vscode/
 coverage/
 .data/
+
+# Local stress-test artifacts (kept out of the repo root)
+.infinity-test*.json
