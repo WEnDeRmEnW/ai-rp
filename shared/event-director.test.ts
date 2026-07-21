@@ -173,12 +173,28 @@ describe('universal narrative event director', () => {
       mode: 'manifest',
       existingEventId: 'event-workshop-1',
     })
+    expect(forcedWorkshopEventDecision(queued, campaign.turn + 2)).toBeUndefined()
 
     const afterDeclinedAutomaticEvent = applyNarrativeEventProposal(campaign, queued, {
       mode: 'none',
       reason: 'Автоматическое событие не требуется.',
     }, () => 'unused')
-    expect(afterDeclinedAutomaticEvent.activeEvents[0].nextEligibleTurn).toBe(campaign.turn + 1)
+    expect(afterDeclinedAutomaticEvent.activeEvents).toEqual([])
+
+    const successfullyManifested = applyNarrativeEventProposal(campaign, queued, forced!, () => 'unused')
+    expect(successfullyManifested.activeEvents[0]).toMatchObject({
+      id: 'event-workshop-1',
+      stage: 'manifested',
+      workshopDirective: undefined,
+      nextEligibleTurn: campaign.turn + 11,
+    })
+
+    const staleCampaign = structuredClone(campaign)
+    staleCampaign.turn = campaign.turn + 1
+    staleCampaign.eventDirectorState = queued
+    const stalePrepared = prepareEventDirectorState(staleCampaign)
+    expect(stalePrepared.activeEvents).toEqual([])
+    expect(shouldConsultEventDirector(staleCampaign, stalePrepared)).toBe(false)
   })
 
   it('records an immediate workshop event at the current turn', () => {

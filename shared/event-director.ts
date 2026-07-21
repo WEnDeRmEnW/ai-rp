@@ -158,7 +158,23 @@ const dynamicsMultiplier = { quiet: 0.75, living: 1, volatile: 1.25 } as const
 export function prepareEventDirectorState(campaign: Campaign): EventDirectorState {
   const settings = normalizeEventDirectorSettings(campaign.settings.eventDirector)
   const turn = campaign.turn + 1
-  const state = normalizeEventDirectorState(campaign.eventDirectorState, campaign.turn)
+  const normalized = normalizeEventDirectorState(campaign.eventDirectorState, campaign.turn)
+  const hadStaleWorkshopDirective = normalized.activeEvents.some((event) => (
+    event.workshopDirective?.requestedByOwner
+    && event.workshopDirective.requestedTurn + 1 < turn
+  ))
+  // A workshop command with delivery=next-turn is a one-shot instruction, not a permanent
+  // obligation. Old saves may contain a directive whose exact delivery turn already passed
+  // after a failed materialization; drop that stale record instead of forcing it forever.
+  const state = {
+    ...normalized,
+    surpriseCharge: hadStaleWorkshopDirective ? Math.min(normalized.surpriseCharge, 24) : normalized.surpriseCharge,
+    nextEvaluationTurn: hadStaleWorkshopDirective ? turn + 4 : normalized.nextEvaluationTurn,
+    activeEvents: normalized.activeEvents.filter((event) => (
+      !event.workshopDirective?.requestedByOwner
+      || event.workshopDirective.requestedTurn + 1 >= turn
+    )),
+  }
   if (!settings.enabled || state.lastEvaluatedTurn >= turn) return state
   const turns = Math.max(1, turn - state.lastEvaluatedTurn)
   const beat = campaign.pacing?.beat
@@ -170,7 +186,9 @@ export function prepareEventDirectorState(campaign: Campaign): EventDirectorStat
     * dynamicsMultiplier[campaign.settings.worldDynamics ?? 'living'])
   return {
     ...state,
-    surpriseCharge: clamp(state.surpriseCharge + perTurn * turns, 0, 100),
+    surpriseCharge: hadStaleWorkshopDirective
+      ? Math.min(24, clamp(state.surpriseCharge + perTurn * turns, 0, 100))
+      : clamp(state.surpriseCharge + perTurn * turns, 0, 100),
     lastEvaluatedTurn: turn,
     categoryCooldowns: Object.fromEntries(Object.entries(state.categoryCooldowns)
       .filter(([, dueTurn]) => (dueTurn ?? 0) > turn)),
@@ -440,9 +458,9 @@ export function forcedWorkshopEventDecision(state: EventDirectorState, turn: num
   const event = state.activeEvents.find((entry) => (
     entry.workshopDirective?.requestedByOwner
     && entry.workshopDirective.delivery === 'next-turn'
-    // requestedTurn is immutable owner intent. An earlier faulty advance may have pushed
-    // nextEligibleTurn forward, but it must never postpone a guaranteed next-turn event.
-    && entry.workshopDirective.requestedTurn + 1 <= turn
+    // The owner's command is guaranteed on exactly one RP turn. A failed or missed attempt
+    // must never turn it into a compulsory event on every later turn.
+    && entry.workshopDirective.requestedTurn + 1 === turn
   ))
   if (!event) return undefined
   const {
@@ -488,6 +506,14 @@ const chargeCost: Record<NarrativeEventModeCostKey, number> = {
 }
 type NarrativeEventModeCostKey = Exclude<NarrativeEventProposal['mode'], 'manifest'> | NarrativeEventMagnitude
 
+const aftermathDelay: Record<NarrativeEventMagnitude, number> = {
+  subtle: 3,
+  notable: 4,
+  major: 6,
+  legendary: 10,
+  mythic: 14,
+}
+
 function toRecord(proposal: NarrativeEventProposal, id: string, createdTurn: number, currentTurn: number): NarrativeEventRecord {
   const { mode: _mode, existingEventId: _existing, lifecycleStage, ...content } = proposal
   void _mode
@@ -514,15 +540,28 @@ export function applyNarrativeEventProposal(
   if (proposal.mode === 'none') {
     const frequency = normalizeEventDirectorSettings(campaign.settings.eventDirector).frequency
     const evaluationDelay = frequency === 'rare' ? 4 : frequency === 'balanced' ? 3 : 2
+    const spentWorkshopAttempt = state.activeEvents.some((event) => (
+      event.workshopDirective?.requestedByOwner
+      && event.workshopDirective.requestedTurn + 1 <= turn
+    ))
     return {
       ...state,
-      surpriseCharge: clamp(state.surpriseCharge - 4, 0, 100),
+      surpriseCharge: spentWorkshopAttempt
+        ? Math.min(state.surpriseCharge, 24)
+        : clamp(state.surpriseCharge - 4, 0, 100),
       nextEvaluationTurn: turn + evaluationDelay,
-      activeEvents: state.activeEvents.map((event) => (
-        event.nextEligibleTurn <= turn && !event.workshopDirective?.requestedByOwner
-          ? { ...event, nextEligibleTurn: turn + evaluationDelay }
-          : event
-      )),
+      activeEvents: state.activeEvents
+        // A due workshop directive has spent its single mandatory attempt. If materialization
+        // failed, remove the unmanifested record; the UI may offer a deliberate retry later.
+        .filter((event) => !(
+          event.workshopDirective?.requestedByOwner
+          && event.workshopDirective.requestedTurn + 1 <= turn
+        ))
+        .map((event) => (
+          event.nextEligibleTurn <= turn
+            ? { ...event, nextEligibleTurn: turn + evaluationDelay }
+            : event
+        )),
       lastEvaluatedTurn: turn,
     }
   }
@@ -537,6 +576,9 @@ export function applyNarrativeEventProposal(
     workshopDirective: proposal.mode === 'manifest' ? undefined : existing?.workshopDirective,
   }
   const stage = proposal.lifecycleStage ?? nextRecord.stage
+  if (proposal.mode === 'manifest' || stage === 'manifested') {
+    nextRecord.nextEligibleTurn = turn + Math.max(aftermathDelay[proposal.magnitude], proposal.minimumDelay)
+  }
   const terminal = stage === 'resolved' || stage === 'cancelled'
   const activeEvents = [...state.activeEvents]
   if (terminal) {
@@ -676,7 +718,7 @@ export function applyWorkshopEventDirective(
   const record: NarrativeEventRecord = {
     ...baseRecord,
     stage: 'manifested',
-    nextEligibleTurn: currentTurn + Math.max(1, proposal.minimumDelay),
+    nextEligibleTurn: currentTurn + Math.max(aftermathDelay[proposal.magnitude], proposal.minimumDelay),
     workshopDirective: undefined,
   }
   if (existingIndex >= 0) activeEvents[existingIndex] = record
