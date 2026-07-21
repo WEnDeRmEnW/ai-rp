@@ -3,6 +3,18 @@ import { createDemoCampaign } from '../src/lib/demo'
 import { resolveActionCheck } from './resolution'
 
 describe('token-efficient action checks', () => {
+  it('changes the real target number when campaign difficulty changes', () => {
+    const story = createDemoCampaign()
+    story.settings.difficulty = 'story'
+    const harsh = structuredClone(story)
+    harsh.settings.difficulty = 'harsh'
+
+    const storyCheck = resolveActionCheck(story, 'Пытаюсь взломать сложный замок', 'do', () => 10)
+    const harshCheck = resolveActionCheck(harsh, 'Пытаюсь взломать сложный замок', 'do', () => 10)
+
+    expect(harshCheck!.target - storyCheck!.target).toBe(5)
+  })
+
   it('resolves risky actions locally without another model call', () => {
     const campaign = createDemoCampaign()
     campaign.settings.resolutionMode = 'visible'

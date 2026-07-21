@@ -1,5 +1,5 @@
 import { AlignJustify, BookOpen, Check, Eye, EyeOff, Gauge, KeyRound, Moon, RotateCcw, Server, Sparkles, Sun, Type } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Campaign, EventDirectorPermissions, ProviderConfig, ProviderKind } from '../../shared/types'
 import { normalizeEventDirectorSettings } from '../../shared/event-director'
 import { providerDefaults, switchProvider } from '../lib/provider-settings'
@@ -67,32 +67,67 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
   const [canonMode, setCanonMode] = useState(campaign?.settings.canonMode ?? 'flexible')
   const [contentBoundaries, setContentBoundaries] = useState(campaign?.settings.contentBoundaries ?? '')
   const [saved, setSaved] = useState(false)
+  const [campaignSaveState, setCampaignSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [interfaceDraft, setInterfaceDraft] = useState(interfacePreferences)
   const [themeDraft, setThemeDraft] = useState(theme)
+  const wasOpenRef = useRef(false)
+  const initializedCampaignIdRef = useRef<string | undefined>(undefined)
+  const campaignSaveSequenceRef = useRef(0)
 
   useEffect(() => {
-    if (open) {
-      setDraft(provider)
-      setAuthorsNote(campaign?.settings.authorsNote ?? '')
-      setResponseLength(campaign?.settings.responseLength ?? 'adaptive')
-      setDifficulty(campaign?.settings.difficulty ?? 'balanced')
-      setPlayerAgency(campaign?.settings.playerAgency ?? 'strict')
-      setResolutionMode(campaign?.settings.resolutionMode ?? 'hidden')
-      setContextProfile(campaign?.settings.contextProfile ?? 'million')
-      setQualityMode(campaign?.settings.qualityMode ?? 'deep')
-      setScenePace(campaign?.settings.scenePace ?? 'balanced')
-      setProseStyle(campaign?.settings.proseStyle ?? 'literary')
-      setDialogueDensity(campaign?.settings.dialogueDensity ?? 'balanced')
-      setNpcAutonomy(campaign?.settings.npcAutonomy ?? 'independent')
-      setWorldDynamics(campaign?.settings.worldDynamics ?? 'living')
-      setEventDirector(normalizeEventDirectorSettings(campaign?.settings.eventDirector))
-      setCanonMode(campaign?.settings.canonMode ?? 'flexible')
-      setContentBoundaries(campaign?.settings.contentBoundaries ?? '')
-      setInterfaceDraft(interfacePreferences)
-      setThemeDraft(theme)
-      setSaved(false)
+    if (!open) {
+      wasOpenRef.current = false
+      initializedCampaignIdRef.current = undefined
+      return
     }
+    if (wasOpenRef.current && initializedCampaignIdRef.current === campaign?.id) return
+    wasOpenRef.current = true
+    initializedCampaignIdRef.current = campaign?.id
+    setDraft(provider)
+    setAuthorsNote(campaign?.settings.authorsNote ?? '')
+    setResponseLength(campaign?.settings.responseLength ?? 'adaptive')
+    setDifficulty(campaign?.settings.difficulty ?? 'balanced')
+    setPlayerAgency(campaign?.settings.playerAgency ?? 'strict')
+    setResolutionMode(campaign?.settings.resolutionMode ?? 'hidden')
+    setContextProfile(campaign?.settings.contextProfile ?? 'million')
+    setQualityMode(campaign?.settings.qualityMode ?? 'deep')
+    setScenePace(campaign?.settings.scenePace ?? 'balanced')
+    setProseStyle(campaign?.settings.proseStyle ?? 'literary')
+    setDialogueDensity(campaign?.settings.dialogueDensity ?? 'balanced')
+    setNpcAutonomy(campaign?.settings.npcAutonomy ?? 'independent')
+    setWorldDynamics(campaign?.settings.worldDynamics ?? 'living')
+    setEventDirector(normalizeEventDirectorSettings(campaign?.settings.eventDirector))
+    setCanonMode(campaign?.settings.canonMode ?? 'flexible')
+    setContentBoundaries(campaign?.settings.contentBoundaries ?? '')
+    setInterfaceDraft(interfacePreferences)
+    setThemeDraft(theme)
+    setSaved(false)
+    setCampaignSaveState('idle')
   }, [open, provider, campaign, interfacePreferences, theme])
+
+  const persistCampaignSettings = (patch: Partial<Campaign['settings']>) => {
+    if (!campaign) return
+    const sequence = ++campaignSaveSequenceRef.current
+    setCampaignSaveState('saving')
+    void onCampaign((next) => {
+      next.settings = {
+        ...next.settings,
+        ...patch,
+        ...(patch.eventDirector ? { eventDirector: normalizeEventDirectorSettings(patch.eventDirector) } : {}),
+      }
+      return next
+    }).then(() => {
+      if (sequence === campaignSaveSequenceRef.current) setCampaignSaveState('saved')
+    }).catch(() => {
+      if (sequence === campaignSaveSequenceRef.current) setCampaignSaveState('error')
+    })
+  }
+
+  const updateEventDirector = (next: typeof eventDirector) => {
+    const normalized = normalizeEventDirectorSettings(next)
+    setEventDirector(normalized)
+    persistCampaignSettings({ eventDirector: normalized })
+  }
 
   const save = async () => {
     onProvider(draft.provider === 'ollama' ? {
@@ -151,22 +186,23 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
 
       {campaign && <section className="settings-section">
         <div className="settings-title"><div><KeyRound size={18} /></div><span><h3>Режиссёрская заметка</h3><p>Короткая установка, которую рассказчик учитывает особенно внимательно.</p></span></div>
-        <label className="field"><textarea value={authorsNote} onChange={(event) => setAuthorsNote(event.target.value)} rows={4} maxLength={4000} placeholder="Например: больше живых диалогов, медленнее раскрывать тайну…" /></label>
+        <label className="field"><textarea value={authorsNote} onChange={(event) => setAuthorsNote(event.target.value)} onBlur={() => persistCampaignSettings({ authorsNote: authorsNote.trim() })} rows={4} maxLength={4000} placeholder="Например: больше живых диалогов, медленнее раскрывать тайну…" /></label>
         <div className="field-grid settings-selects">
-          <label className="field"><span>Длина ответа</span><select value={responseLength} onChange={(event) => setResponseLength(event.target.value as typeof responseLength)}><option value="adaptive">По сцене — без фиксированного лимита</option><option value="compact">Коротко</option><option value="balanced">Сбалансированно</option><option value="detailed">Подробно</option></select></label>
-          <label className="field"><span>Сложность</span><select value={difficulty} onChange={(event) => setDifficulty(event.target.value as typeof difficulty)}><option value="story">Сюжетная</option><option value="balanced">Честная</option><option value="harsh">Суровая</option></select></label>
-          <label className="field"><span>Свобода героя</span><select value={playerAgency} onChange={(event) => setPlayerAgency(event.target.value as typeof playerAgency)}><option value="strict">Только мои решения</option><option value="cinematic">Кинематографично</option></select></label>
-          <label className="field"><span>Контекст истории</span><select value={contextProfile} onChange={(event) => setContextProfile(event.target.value as typeof contextProfile)}><option value="standard">Стандартный</option><option value="long">Долгий</option><option value="million">DeepSeek 1M</option></select></label>
-          <label className="field"><span>Качество сцены</span><select value={qualityMode} onChange={(event) => setQualityMode(event.target.value as typeof qualityMode)}><option value="balanced">Один черновик</option><option value="deep">Два черновика + критик</option></select></label>
-          <label className="field"><span>Темп сцены</span><select value={scenePace} onChange={(event) => setScenePace(event.target.value as typeof scenePace)}><option value="slow">Медленное погружение</option><option value="balanced">Сбалансированный</option><option value="fast">Динамичный</option><option value="montage">Монтаж и пропуск рутины</option></select></label>
-          <label className="field"><span>Проверки риска</span><select value={resolutionMode} onChange={(event) => setResolutionMode(event.target.value as typeof resolutionMode)}><option value="off">Выключены</option><option value="hidden">Скрытые</option><option value="visible">Показывать бросок</option></select></label>
-          <label className="field"><span>Стиль прозы</span><select value={proseStyle} onChange={(event) => setProseStyle(event.target.value as typeof proseStyle)}><option value="literary">Живой литературный</option><option value="cinematic">Кинематографичный</option><option value="direct">Прямой и ясный</option></select></label>
-          <label className="field"><span>Плотность диалогов</span><select value={dialogueDensity} onChange={(event) => setDialogueDensity(event.target.value as typeof dialogueDensity)}><option value="low">Редкие и весомые</option><option value="balanced">Баланс</option><option value="high">Много живых реплик</option></select></label>
-          <label className="field"><span>Самостоятельность персонажей</span><select value={npcAutonomy} onChange={(event) => setNpcAutonomy(event.target.value as typeof npcAutonomy)}><option value="reactive">В основном реагируют</option><option value="balanced">Баланс инициативы</option><option value="independent">Живут независимо</option></select></label>
-          <label className="field"><span>Динамика мира</span><select value={worldDynamics} onChange={(event) => setWorldDynamics(event.target.value as typeof worldDynamics)}><option value="quiet">Медленные перемены</option><option value="living">Живой мир</option><option value="volatile">Бурно развивающийся</option></select></label>
-          <label className="field"><span>Отношение к канону</span><select value={canonMode} onChange={(event) => setCanonMode(event.target.value as typeof canonMode)}><option value="faithful">Строгий канон</option><option value="flexible">Гибкая ветка</option><option value="original">Оригинальный мир</option></select></label>
+          <label className="field"><span>Длина ответа</span><select value={responseLength} onChange={(event) => { const value = event.target.value as typeof responseLength; setResponseLength(value); persistCampaignSettings({ responseLength: value }) }}><option value="adaptive">По сцене — без фиксированного лимита</option><option value="compact">Коротко</option><option value="balanced">Сбалансированно</option><option value="detailed">Подробно</option></select></label>
+          <label className="field"><span>Сложность</span><select value={difficulty} onChange={(event) => { const value = event.target.value as typeof difficulty; setDifficulty(value); persistCampaignSettings({ difficulty: value }) }}><option value="story">Сюжетная</option><option value="balanced">Честная</option><option value="harsh">Суровая</option></select></label>
+          <label className="field"><span>Свобода героя</span><select value={playerAgency} onChange={(event) => { const value = event.target.value as typeof playerAgency; setPlayerAgency(value); persistCampaignSettings({ playerAgency: value }) }}><option value="strict">Только мои решения</option><option value="cinematic">Кинематографично</option></select></label>
+          <label className="field"><span>Контекст истории</span><select value={contextProfile} onChange={(event) => { const value = event.target.value as typeof contextProfile; setContextProfile(value); persistCampaignSettings({ contextProfile: value }) }}><option value="standard">Стандартный</option><option value="long">Долгий</option><option value="million">DeepSeek 1M</option></select></label>
+          <label className="field"><span>Качество сцены</span><select value={qualityMode} onChange={(event) => { const value = event.target.value as typeof qualityMode; setQualityMode(value); persistCampaignSettings({ qualityMode: value }) }}><option value="balanced">Один черновик без критика</option><option value="deep">Два черновика + критик</option></select></label>
+          <label className="field"><span>Темп сцены</span><select value={scenePace} onChange={(event) => { const value = event.target.value as typeof scenePace; setScenePace(value); persistCampaignSettings({ scenePace: value }) }}><option value="slow">Медленное погружение</option><option value="balanced">Сбалансированный</option><option value="fast">Динамичный</option><option value="montage">Монтаж и пропуск рутины</option></select></label>
+          <label className="field"><span>Проверки риска</span><select value={resolutionMode} onChange={(event) => { const value = event.target.value as typeof resolutionMode; setResolutionMode(value); persistCampaignSettings({ resolutionMode: value }) }}><option value="off">Выключены</option><option value="hidden">Скрытые</option><option value="visible">Показывать бросок</option></select></label>
+          <label className="field"><span>Стиль прозы</span><select value={proseStyle} onChange={(event) => { const value = event.target.value as typeof proseStyle; setProseStyle(value); persistCampaignSettings({ proseStyle: value }) }}><option value="literary">Живой литературный</option><option value="cinematic">Кинематографичный</option><option value="direct">Прямой и ясный</option></select></label>
+          <label className="field"><span>Плотность диалогов</span><select value={dialogueDensity} onChange={(event) => { const value = event.target.value as typeof dialogueDensity; setDialogueDensity(value); persistCampaignSettings({ dialogueDensity: value }) }}><option value="low">Редкие и весомые</option><option value="balanced">Баланс</option><option value="high">Много живых реплик</option></select></label>
+          <label className="field"><span>Самостоятельность персонажей</span><select value={npcAutonomy} onChange={(event) => { const value = event.target.value as typeof npcAutonomy; setNpcAutonomy(value); persistCampaignSettings({ npcAutonomy: value }) }}><option value="reactive">В основном реагируют</option><option value="balanced">Баланс инициативы</option><option value="independent">Живут независимо</option></select></label>
+          <label className="field"><span>Динамика мира</span><select value={worldDynamics} onChange={(event) => { const value = event.target.value as typeof worldDynamics; setWorldDynamics(value); persistCampaignSettings({ worldDynamics: value }) }}><option value="quiet">Медленные перемены</option><option value="living">Живой мир</option><option value="volatile">Бурно развивающийся</option></select></label>
+          <label className="field"><span>Отношение к канону</span><select value={canonMode} onChange={(event) => { const value = event.target.value as typeof canonMode; setCanonMode(value); persistCampaignSettings({ canonMode: value }) }}><option value="faithful">Строгий канон</option><option value="flexible">Гибкая ветка</option><option value="original">Оригинальный мир</option></select></label>
         </div>
-        <label className="field settings-boundaries"><span>Границы контента</span><textarea value={contentBoundaries} onChange={(event) => setContentBoundaries(event.target.value)} rows={3} maxLength={2000} placeholder="Темы и детали, которые рассказчик обязан исключить…" /></label>
+        <label className="field settings-boundaries"><span>Границы контента</span><textarea value={contentBoundaries} onChange={(event) => setContentBoundaries(event.target.value)} onBlur={() => persistCampaignSettings({ contentBoundaries: contentBoundaries.trim() })} rows={3} maxLength={2000} placeholder="Темы и детали, которые рассказчик обязан исключить…" /></label>
+        <div className={`settings-note settings-note--save-state ${campaignSaveState === 'error' ? 'is-error' : ''}`} role="status"><strong>{campaignSaveState === 'saving' ? 'Сохраняем изменения…' : campaignSaveState === 'error' ? 'Не удалось сохранить' : 'Автосохранение включено'}</strong><span>{campaignSaveState === 'saved' ? 'Изменение уже записано локально и отправлено в очередь облачной синхронизации.' : campaignSaveState === 'error' ? 'Локальное изменение не записалось. Нажмите «Сохранить настройки», чтобы повторить.' : 'Игровые настройки сохраняются сразу после выбора и не требуют прокрутки к кнопке внизу.'}</span></div>
         <div className="settings-note settings-note--real"><strong>Эти настройки действуют</strong><span>Они передаются режиссёру, рассказчику и фоновому симулятору каждого хода. Сложность меняет проверки, качество — число черновиков и критика, контекст — реальный объём долгой памяти.</span></div>
         <div className="settings-note"><strong>Долгая память</strong><span>Профиль DeepSeek 1M хранит исходную переписку целиком, подаёт свежие сцены дословно и извлекает старые главы, факты и канон по смыслу. Окно не заполняется всей историей подряд.</span></div>
       </section>}
@@ -174,24 +210,24 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
       {campaign && <section className="settings-section event-director-settings">
         <div className="settings-title"><div><Sparkles size={18} /></div><span><h3>Неожиданные события</h3><p>Редкие причинные повороты: новые люди, силы, артефакты, открытия, войны, аномалии и изменения мира.</p></span></div>
         <div className="interface-toggle-list">
-          <button role="switch" aria-checked={eventDirector.enabled} className={eventDirector.enabled ? 'is-on' : ''} onClick={() => setEventDirector({ ...eventDirector, enabled: !eventDirector.enabled })}><span><strong>Универсальный режиссёр событий</strong><small>DeepSeek сначала предлагает смысловое событие, затем приложение проверяет и привязывает его к настоящему состоянию.</small></span><i /></button>
+          <button role="switch" aria-checked={eventDirector.enabled} className={eventDirector.enabled ? 'is-on' : ''} onClick={() => updateEventDirector({ ...eventDirector, enabled: !eventDirector.enabled })}><span><strong>Универсальный режиссёр событий</strong><small>DeepSeek сначала предлагает смысловое событие, затем приложение проверяет и привязывает его к настоящему состоянию.</small></span><i /></button>
         </div>
         <div className="field-grid settings-selects event-director-selects">
-          <label className="field"><span>Частота</span><select value={eventDirector.frequency} onChange={(event) => setEventDirector({ ...eventDirector, frequency: event.target.value as typeof eventDirector.frequency })}><option value="rare">Редко, но сильно</option><option value="balanced">Сбалансированно</option><option value="frequent">Чаще и динамичнее</option></select></label>
-          <label className="field"><span>Максимальный масштаб</span><select value={eventDirector.maxMagnitude} onChange={(event) => setEventDirector({ ...eventDirector, maxMagnitude: event.target.value as typeof eventDirector.maxMagnitude })}><option value="subtle">Только тонкие</option><option value="notable">До примечательных</option><option value="rare">До редких</option><option value="major">До крупных</option><option value="epic">До эпических</option><option value="legendary">До легендарных</option><option value="mythic">До мифических</option><option value="transcendent">Без ограничения масштаба</option></select></label>
-          <label className="field"><span>Опасность</span><select value={eventDirector.lethality} onChange={(event) => setEventDirector({ ...eventDirector, lethality: event.target.value as typeof eventDirector.lethality })}><option value="fair">Честно и смертельно</option><option value="ruthless">Без сюжетной защиты</option><option value="cinematic">Кинематографично</option></select></label>
-          <label className="field"><span>Чудеса</span><select value={eventDirector.miraclePolicy} onChange={(event) => setEventDirector({ ...eventDirector, miraclePolicy: event.target.value as typeof eventDirector.miraclePolicy })}><option value="rare">Крайне редкое чистое чудо</option><option value="signals-only">Только знаки и возможности</option><option value="off">Отключены</option></select></label>
-          <label className="field"><span>Влияние на историю</span><select value={eventDirector.storyImpact} onChange={(event) => setEventDirector({ ...eventDirector, storyImpact: event.target.value as typeof eventDirector.storyImpact })}><option value="fate-changing">Может менять судьбу мира</option><option value="side-arcs">Только боковые арки</option><option value="scene-only">Только текущая сцена</option></select></label>
-          <label className="field"><span>Создание нового</span><select value={eventDirector.canonPolicy} onChange={(event) => setEventDirector({ ...eventDirector, canonPolicy: event.target.value as typeof eventDirector.canonPolicy })}><option value="follow-campaign">По режиму канона кампании</option><option value="established-only">Только существующие сущности</option><option value="free">Полная авторская свобода</option></select></label>
-          <label className="field"><span>Повторы</span><select value={eventDirector.repetitionPolicy} onChange={(event) => setEventDirector({ ...eventDirector, repetitionPolicy: event.target.value as typeof eventDirector.repetitionPolicy })}><option value="evolving-only">Только как развитие</option><option value="rare-repeat">Редко после перерыва</option><option value="unrestricted">Решает ИИ</option></select></label>
-          <label className="field"><span>Раскрытие</span><select value={eventDirector.revealMode} onChange={(event) => setEventDirector({ ...eventDirector, revealMode: event.target.value as typeof eventDirector.revealMode })}><option value="world-only">Только через события мира</option><option value="indicator">Безымянный индикатор</option><option value="transparent">Показывать подготовку</option></select></label>
+          <label className="field"><span>Частота</span><select value={eventDirector.frequency} onChange={(event) => updateEventDirector({ ...eventDirector, frequency: event.target.value as typeof eventDirector.frequency })}><option value="rare">Редко, но сильно</option><option value="balanced">Сбалансированно</option><option value="frequent">Чаще и динамичнее</option></select></label>
+          <label className="field"><span>Максимальный масштаб</span><select value={eventDirector.maxMagnitude} onChange={(event) => updateEventDirector({ ...eventDirector, maxMagnitude: event.target.value as typeof eventDirector.maxMagnitude })}><option value="subtle">Только тонкие</option><option value="notable">До примечательных</option><option value="rare">До редких</option><option value="major">До крупных</option><option value="epic">До эпических</option><option value="legendary">До легендарных</option><option value="mythic">До мифических</option><option value="transcendent">Без ограничения масштаба</option></select></label>
+          <label className="field"><span>Опасность</span><select value={eventDirector.lethality} onChange={(event) => updateEventDirector({ ...eventDirector, lethality: event.target.value as typeof eventDirector.lethality })}><option value="fair">Честно и смертельно</option><option value="ruthless">Без сюжетной защиты</option><option value="cinematic">Кинематографично</option></select></label>
+          <label className="field"><span>Чудеса</span><select value={eventDirector.miraclePolicy} onChange={(event) => updateEventDirector({ ...eventDirector, miraclePolicy: event.target.value as typeof eventDirector.miraclePolicy })}><option value="rare">Крайне редкое чистое чудо</option><option value="signals-only">Только знаки и возможности</option><option value="off">Отключены</option></select></label>
+          <label className="field"><span>Влияние на историю</span><select value={eventDirector.storyImpact} onChange={(event) => updateEventDirector({ ...eventDirector, storyImpact: event.target.value as typeof eventDirector.storyImpact })}><option value="fate-changing">Может менять судьбу мира</option><option value="side-arcs">Только боковые арки</option><option value="scene-only">Только текущая сцена</option></select></label>
+          <label className="field"><span>Создание нового</span><select value={eventDirector.canonPolicy} onChange={(event) => updateEventDirector({ ...eventDirector, canonPolicy: event.target.value as typeof eventDirector.canonPolicy })}><option value="follow-campaign">По режиму канона кампании</option><option value="established-only">Только существующие сущности</option><option value="free">Полная авторская свобода</option></select></label>
+          <label className="field"><span>Повторы</span><select value={eventDirector.repetitionPolicy} onChange={(event) => updateEventDirector({ ...eventDirector, repetitionPolicy: event.target.value as typeof eventDirector.repetitionPolicy })}><option value="evolving-only">Только как развитие</option><option value="rare-repeat">Редко после перерыва</option><option value="unrestricted">Решает ИИ</option></select></label>
+          <label className="field"><span>Раскрытие</span><select value={eventDirector.revealMode} onChange={(event) => updateEventDirector({ ...eventDirector, revealMode: event.target.value as typeof eventDirector.revealMode })}><option value="world-only">Только через события мира</option><option value="indicator">Безымянный индикатор</option><option value="transparent">Показывать подготовку</option></select></label>
         </div>
         <details className="event-permission-details">
           <summary><span>Тонкая настройка возможностей</span><small>По умолчанию разрешены все области, но крупным изменениям всё равно нужны причины и подготовка.</small></summary>
           <div className="event-permission-grid">
             {eventPermissionLabels.map((permission) => {
               const enabled = eventDirector.permissions[permission.key]
-              return <button key={permission.key} role="switch" aria-checked={enabled} className={enabled ? 'is-on' : ''} onClick={() => setEventDirector({
+              return <button key={permission.key} role="switch" aria-checked={enabled} className={enabled ? 'is-on' : ''} onClick={() => updateEventDirector({
                 ...eventDirector,
                 permissions: { ...eventDirector.permissions, [permission.key]: !enabled },
               })}><span><strong>{permission.label}</strong><small>{permission.caption}</small></span><i /></button>

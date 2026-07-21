@@ -183,6 +183,8 @@ describe('runTurn consequence reconciliation', () => {
     expect(result.narrative).toContain('слышны быстрые шаги дозорного')
     expect(result.narrative).not.toContain('решает принять')
     expect(result.narrative).not.toContain('благодарит Миру')
+    expect(requestBodies.filter((body) => systemPrompt(body).includes('выдающийся ведущий'))).toHaveLength(1)
+    expect(requestBodies.some((body) => systemPrompt(body).includes('строгий редактор непротиворечивости'))).toBe(false)
     expect(requestBodies.some((body) => systemPrompt(body).includes('аудитор свободы игрока'))).toBe(false)
   })
 

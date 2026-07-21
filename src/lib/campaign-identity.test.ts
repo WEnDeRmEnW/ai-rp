@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Campaign } from '../../shared/types'
-import { ensureCampaignIdentity } from './campaign-identity'
+import { ensureCampaignIdentity, nextCampaignUpdatedAt } from './campaign-identity'
 import { createDemoCampaign } from './demo'
 
 describe('campaign identity', () => {
@@ -27,5 +27,11 @@ describe('campaign identity', () => {
   it('rejects values that are not campaign objects before IndexedDB sees them', () => {
     expect(() => ensureCampaignIdentity(undefined)).toThrow('некорректный объект')
     expect(() => ensureCampaignIdentity([])).toThrow('некорректный объект')
+  })
+
+  it('gives rapid consecutive edits strictly increasing cloud timestamps', () => {
+    const previous = '2026-07-21T12:00:00.123Z'
+    expect(nextCampaignUpdatedAt(previous, Date.parse(previous))).toBe('2026-07-21T12:00:00.124Z')
+    expect(nextCampaignUpdatedAt(previous, Date.parse(previous) + 10)).toBe('2026-07-21T12:00:00.133Z')
   })
 })

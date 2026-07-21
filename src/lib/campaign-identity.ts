@@ -23,3 +23,14 @@ export function ensureCampaignIdentity(value: unknown, requiredId?: string): Cam
 
   return campaign.id === id ? campaign : { ...campaign, id }
 }
+
+/**
+ * Cloud conflict resolution compares campaign timestamps. Several settings can
+ * be changed inside the same millisecond, so Date.now() alone can make a newer
+ * local edit indistinguishable from the previous one. Keep every mutation
+ * strictly newer than the campaign it was based on.
+ */
+export function nextCampaignUpdatedAt(previous?: string, now = Date.now()): string {
+  const previousTime = previous ? Date.parse(previous) : Number.NaN
+  return new Date(Math.max(now, Number.isFinite(previousTime) ? previousTime + 1 : now)).toISOString()
+}

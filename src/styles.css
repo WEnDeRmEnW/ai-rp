@@ -1165,6 +1165,10 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .operation-progress.is-complete .operation-progress__ring { background: #64d6a5; color: #07120e; }
 .settings-boundaries { margin-top: 14px; }
 .settings-note--real { border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); }
+.settings-note--save-state { margin-top: 10px; border-color: color-mix(in srgb, #64d6a5 34%, var(--border)); }
+.settings-note--save-state strong { color: #64d6a5; }
+.settings-note--save-state.is-error { border-color: color-mix(in srgb, var(--danger) 48%, var(--border)); }
+.settings-note--save-state.is-error strong { color: var(--danger); }
 .campaign-editor-tabs { display: flex; gap: 6px; padding: 12px 24px; border-bottom: 1px solid var(--border-soft); }
 .campaign-editor-tabs button { display: inline-flex; align-items: center; gap: 7px; min-height: 35px; padding: 0 12px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font-size: 10px; }
 .campaign-editor-tabs button.is-active { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--accent-soft); color: var(--accent); }

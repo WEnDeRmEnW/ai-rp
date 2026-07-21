@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ActionType, Campaign, OperationProgress, ProviderConfig, WorkshopEventOptions, WorldGenerationRequest } from '../../shared/types'
 import { normalizeEventDirectorSettings } from '../../shared/event-director'
 import { editCampaign as requestCampaignEdit, generateCampaign, takeTurn } from '../lib/api'
-import { ensureCampaignIdentity } from '../lib/campaign-identity'
+import { ensureCampaignIdentity, nextCampaignUpdatedAt } from '../lib/campaign-identity'
 import { createDemoCampaign } from '../lib/demo'
 import { applyPatch, commitTurn, rewindLastTurn } from '../lib/engine'
 import { loadProviderConfig, persistProviderConfig } from '../lib/provider-settings'
@@ -81,6 +81,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [lastSyncedAt, setLastSyncedAt] = useState<string>()
   const loadSequenceRef = useRef(0)
   const syncQueueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const localMutationQueueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const campaignsRef = useRef<Campaign[]>([])
   const ownerId = auth.user?.id || 'guest'
 
   const queueCloudWrite = useCallback((task: () => Promise<unknown>) => {
@@ -106,7 +108,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const pending = getPendingDeletes(auth.user.id)
       const result = await syncApi.reconcile(local, pending, timeoutMs)
       for (const tombstone of result.tombstones) await deleteStoredCampaign(tombstone.id)
-      for (const campaign of result.campaigns) await saveCampaign(campaign, auth.user.id)
+      for (const campaign of result.campaigns) {
+        const current = campaignsRef.current.find((item) => item.id === campaign.id)
+        await saveCampaign(current && current.updatedAt > campaign.updatedAt ? current : campaign, auth.user.id)
+      }
       setPendingDeletes(auth.user.id, [])
       setLastSyncedAt(result.syncedAt)
       setSyncState('synced')
@@ -122,11 +127,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (auth.loading) return
     const sequence = ++loadSequenceRef.current
+    let hasShownLocalCopy = false
     const showCampaigns = (stored: Campaign[]) => {
       if (sequence !== loadSequenceRef.current || !stored.length) return
-      setCampaigns(stored)
+      const currentById = new Map((hasShownLocalCopy ? campaignsRef.current : []).map((campaign) => [campaign.id, campaign]))
+      for (const campaign of stored) {
+        const current = currentById.get(campaign.id)
+        if (!current || campaign.updatedAt > current.updatedAt) currentById.set(campaign.id, campaign)
+      }
+      const merged = [...currentById.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      hasShownLocalCopy = true
+      campaignsRef.current = merged
+      setCampaigns(merged)
       const preferred = localStorage.getItem(`${ACTIVE_KEY}-${ownerId}`)
-      setActiveId(stored.some((campaign) => campaign.id === preferred) ? preferred! : stored[0].id)
+      setActiveId(merged.some((campaign) => campaign.id === preferred) ? preferred! : merged[0].id)
     }
     void (async () => {
       setLoading(true)
@@ -188,47 +202,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setTheme = useCallback((next: Theme) => setThemeState(next), [])
 
+  const replaceCampaign = useCallback((campaign: Campaign) => {
+    const next = [campaign, ...campaignsRef.current.filter((item) => item.id !== campaign.id)]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    campaignsRef.current = next
+    setCampaigns(next)
+  }, [])
+
   const upsert = useCallback(async (campaign: Campaign) => {
     const saved = await saveCampaign(ensureCampaignIdentity(campaign), ownerId)
-    setCampaigns((current) => [saved, ...current.filter((item) => item.id !== saved.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
+    replaceCampaign(saved)
     if (auth.user) queueCloudWrite(async () => {
       const result = await syncApi.save(saved)
       if (result.campaign.updatedAt > saved.updatedAt) {
-        const remote = await saveCampaign(result.campaign, auth.user!.id)
-        setCampaigns((current) => [remote, ...current.filter((item) => item.id !== remote.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
+        const current = campaignsRef.current.find((item) => item.id === saved.id)
+        if (!current || result.campaign.updatedAt > current.updatedAt) {
+          const remote = await saveCampaign(result.campaign, auth.user!.id)
+          replaceCampaign(remote)
+        }
       }
     })
     return saved
-  }, [auth.user, ownerId, queueCloudWrite])
+  }, [auth.user, ownerId, queueCloudWrite, replaceCampaign])
 
   const syncNow = useCallback(async () => {
     if (!auth.user) return
     const stored = await reconcileOwner()
+    campaignsRef.current = stored
     setCampaigns(stored)
     if (!stored.some((campaign) => campaign.id === activeCampaignId) && stored[0]) setActiveCampaignId(stored[0].id)
   }, [activeCampaignId, auth.user, reconcileOwner, setActiveCampaignId])
 
   const updateActiveCampaign = useCallback(async (updater: (campaign: Campaign) => Campaign) => {
-    const current = campaigns.find((campaign) => campaign.id === activeCampaignId)
-    if (!current) return
-    const draft = structuredClone(current)
-    const updated = updater(draft)
-    const next = ensureCampaignIdentity(updated && typeof updated === 'object' && !Array.isArray(updated) ? updated : draft, current.id)
-    next.updatedAt = new Date().toISOString()
-    lastEditBackupRef.current = structuredClone(current)
-    setCanUndoEdit(true)
-    await upsert(next)
-  }, [activeCampaignId, campaigns, upsert])
+    const campaignId = activeCampaignId
+    if (!campaignId) return
+    const mutation = localMutationQueueRef.current.catch(() => undefined).then(async () => {
+      const current = campaignsRef.current.find((campaign) => campaign.id === campaignId)
+      if (!current) return
+      const draft = structuredClone(current)
+      const updated = updater(draft)
+      const next = ensureCampaignIdentity(updated && typeof updated === 'object' && !Array.isArray(updated) ? updated : draft, current.id)
+      next.updatedAt = nextCampaignUpdatedAt(current.updatedAt)
+      lastEditBackupRef.current = structuredClone(current)
+      setCanUndoEdit(true)
+      await upsert(next)
+    })
+    localMutationQueueRef.current = mutation
+    await mutation
+  }, [activeCampaignId, upsert])
 
   const sendTurn = useCallback(async (input: string, actionType: ActionType) => {
-    const campaign = campaigns.find((candidate) => candidate.id === activeCampaignId)
-    if (!campaign || generating || !input.trim()) return false
+    if (generating || !input.trim()) return false
     setGenerating(true)
     setErrorTitle('Ход не применён')
     setError(undefined)
     const controller = new AbortController()
     abortRef.current = controller
     try {
+      await localMutationQueueRef.current.catch(() => undefined)
+      const campaign = campaignsRef.current.find((candidate) => candidate.id === activeCampaignId)
+      if (!campaign) return false
       setOperationProgress({ percent: 1, stage: 'connecting', detail: 'Передаём ход рассказчику' })
       const response = await takeTurn({ campaign, input: input.trim(), actionType, provider }, controller.signal, setOperationProgress)
       await upsert(commitTurn(campaign, input.trim(), actionType, response))
@@ -246,7 +279,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (abortRef.current === controller) abortRef.current = undefined
       setGenerating(false)
     }
-  }, [activeCampaignId, campaigns, generating, provider, upsert])
+  }, [activeCampaignId, generating, provider, upsert])
 
   const retryFailedTurn = useCallback(async () => {
     const failed = lastFailedTurnRef.current
@@ -399,9 +432,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const demo = createDemoCampaign()
       await saveCampaign(demo, ownerId)
       if (auth.user) queueCloudWrite(() => syncApi.save(demo))
+      campaignsRef.current = [demo]
       setCampaigns([demo])
       setActiveCampaignId(demo.id)
     } else {
+      campaignsRef.current = remaining
       setCampaigns(remaining)
       if (activeCampaignId === campaignId) setActiveCampaignId(remaining[0].id)
     }

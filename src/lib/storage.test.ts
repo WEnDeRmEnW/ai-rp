@@ -36,6 +36,17 @@ describe('campaign IndexedDB storage', () => {
     upgradedDb.close()
   })
 
+  it('preserves a changed scene quality mode across a real IndexedDB reload', async () => {
+    const storage = await import('./storage')
+    await storage.clearCampaigns()
+    const campaign = createDemoCampaign()
+    campaign.settings.qualityMode = 'balanced'
+    await storage.saveCampaign(campaign, 'settings-owner')
+
+    const [reloaded] = await storage.getCampaignsForOwner('settings-owner')
+    expect(reloaded.settings.qualityMode).toBe('balanced')
+  })
+
   it('claims guest stories once and keeps campaigns isolated by account', async () => {
     const storage = await import('./storage')
     await storage.clearCampaigns()

@@ -45,8 +45,10 @@ describe('unexpected event settings', () => {
   it('renders every real control in Russian and saves nested permissions without losing defaults', async () => {
     const campaign = createDemoCampaign()
     let savedCampaign: Campaign | undefined
+    let workingCampaign = structuredClone(campaign)
     const onCampaign = vi.fn(async (updater: (value: Campaign) => Campaign) => {
-      savedCampaign = updater(structuredClone(campaign))
+      workingCampaign = updater(structuredClone(workingCampaign))
+      savedCampaign = workingCampaign
     })
 
     render(<SettingsDialog
@@ -75,7 +77,7 @@ describe('unexpected event settings', () => {
     expect(wars.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить настройки' }))
 
-    await waitFor(() => expect(onCampaign).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onCampaign).toHaveBeenCalled())
     expect(savedCampaign?.settings.eventDirector).toMatchObject({
       enabled: true,
       frequency: 'balanced',
@@ -87,5 +89,37 @@ describe('unexpected event settings', () => {
         miracles: true,
       },
     })
+  })
+
+  it('autosaves scene quality and does not reset an in-progress choice after a same-campaign refresh', async () => {
+    const campaign = createDemoCampaign()
+    campaign.settings.qualityMode = 'deep'
+    let persisted = structuredClone(campaign)
+    const onCampaign = vi.fn(async (updater: (value: Campaign) => Campaign) => {
+      persisted = updater(structuredClone(persisted))
+    })
+    const common = {
+      open: true,
+      provider,
+      theme: 'dark' as const,
+      interfacePreferences: defaultInterfacePreferences,
+      onClose: vi.fn(),
+      onProvider: vi.fn(),
+      onTheme: vi.fn(),
+      onInterface: vi.fn(),
+      onCampaign,
+    }
+    const view = render(<SettingsDialog {...common} campaign={campaign} />)
+    const quality = screen.getByLabelText('Качество сцены') as HTMLSelectElement
+
+    fireEvent.change(quality, { target: { value: 'balanced' } })
+
+    await waitFor(() => expect(persisted.settings.qualityMode).toBe('balanced'))
+    expect(screen.getByText('Автосохранение включено')).toBeTruthy()
+
+    const staleBackgroundRefresh = structuredClone(campaign)
+    staleBackgroundRefresh.updatedAt = new Date(Date.parse(campaign.updatedAt) + 1).toISOString()
+    view.rerender(<SettingsDialog {...common} campaign={staleBackgroundRefresh} />)
+    expect((screen.getByLabelText('Качество сцены') as HTMLSelectElement).value).toBe('balanced')
   })
 })
