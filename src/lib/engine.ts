@@ -1836,6 +1836,14 @@ export function applyPatch(
   })
 
   const campaignEntityIds = new Set([campaign.player.id, ...campaign.npcs.map((npc) => npc.id)])
+  const pressureTargetIds = new Set([
+    ...campaignEntityIds,
+    ...campaign.world.factions.map((faction) => faction.id),
+    ...(campaign.world.places ?? []).map((place) => place.id),
+    ...(campaign.world.processes ?? []).map((process) => process.id),
+    ...(campaign.world.legends ?? []).map((legend) => legend.id),
+    ...campaign.inventory.map((item) => item.id),
+  ])
   patch.upsertCharacterArcs?.slice(0, 20).forEach((incoming, arcIndex) => {
     if (!campaignEntityIds.has(incoming.ownerId)) {
       rejectedReference(diagnostics, `statePatch.upsertCharacterArcs[${arcIndex}].ownerId`, incoming.ownerId, 'владелец арки не найден')
@@ -1899,7 +1907,7 @@ export function applyPatch(
   })
 
   patch.upsertWorldPressures?.slice(0, 16).forEach((incoming, pressureIndex) => {
-    const invalidTarget = incoming.targetIds.find((targetId) => !campaignEntityIds.has(targetId))
+    const invalidTarget = incoming.targetIds.find((targetId) => !pressureTargetIds.has(targetId))
     if (invalidTarget) {
       rejectedReference(diagnostics, `statePatch.upsertWorldPressures[${pressureIndex}].targetIds`, invalidTarget, 'цель давления мира не найдена')
       return

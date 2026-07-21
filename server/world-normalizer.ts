@@ -99,6 +99,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const timestamp = new Date().toISOString()
   const playerId = id()
   const npcIds = new Map<string, string>(generated.npcs.map((npc) => [npc.name.toLocaleLowerCase('ru-RU'), id()]))
+  const factionIds = new Map<string, string>(generated.world.factions.map((faction) => [faction.name.toLocaleLowerCase('ru-RU'), id()]))
   const placeIds = new Map<string, string>(generated.world.places.map((place) => [place.name.toLocaleLowerCase('ru-RU'), id()]))
   const processIds = new Map<string, string>(generated.world.processes.map((process) => [process.title.toLocaleLowerCase('ru-RU'), id()]))
   const legendIds = new Map<string, string>(generated.world.legends.map((legend) => [legend.name.toLocaleLowerCase('ru-RU'), id()]))
@@ -133,6 +134,10 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
   const entityId = (name: string) => name.toLocaleLowerCase('ru-RU') === generated.player.name.toLocaleLowerCase('ru-RU')
     ? playerId
     : npcIds.get(name.toLocaleLowerCase('ru-RU'))
+  const pressureTargetId = (name: string) => {
+    const key = name.toLocaleLowerCase('ru-RU')
+    return entityId(name) ?? factionIds.get(key) ?? placeIds.get(key) ?? processIds.get(key) ?? legendIds.get(key)
+  }
   const presentNpcIds = generated.opening.scene.presentNpcNames
     .map((name) => npcIds.get(name.toLocaleLowerCase('ru-RU')))
     .filter((candidate): candidate is string => Boolean(candidate))
@@ -204,7 +209,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
           transcendent: generated.world.presentation.rarityLabels.transcendent ?? 'Трансцендентный',
         },
       },
-      factions: generated.world.factions.map((faction) => ({ ...faction, id: id(), lastChangedTurn: 0 })),
+      factions: generated.world.factions.map((faction) => ({ ...faction, id: factionIds.get(faction.name.toLocaleLowerCase('ru-RU'))!, lastChangedTurn: 0 })),
       places: generated.world.places.map(({ parentName, ...place }) => ({
         ...place,
         id: placeIds.get(place.name.toLocaleLowerCase('ru-RU'))!,
@@ -339,7 +344,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
         ...rest,
         id: id(),
         sourceNpcId: sourceNpcName ? npcIds.get(sourceNpcName.toLocaleLowerCase('ru-RU')) : undefined,
-        targetIds: targetNames.map(entityId).filter((candidate): candidate is string => Boolean(candidate)),
+        targetIds: targetNames.map(pressureTargetId).filter((candidate): candidate is string => Boolean(candidate)),
         measures: pressure.measures.map((measure) => ({ ...measure, id: id() })),
         createdTurn: 0,
         lastAdvancedTurn: 0,

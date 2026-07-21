@@ -220,6 +220,21 @@ describe('legend ecosystem patch contract', () => {
     expect(campaign.world.legends?.[0]?.characterId).toBe(campaign.player.id)
   })
 
+  it('preserves a world pressure aimed at a real legendary entity without turning it into an NPC', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const generated = demoWorld(request)
+    const targetLegend = generated.world.legends[0]
+    generated.worldPressures[0].targetNames = [targetLegend.name]
+
+    const campaign = normalizeWorld(generatedWorldSchema.parse(generated), request)
+    expect(campaign.worldPressures?.[0]?.targetIds).toEqual([campaign.world.legends?.[0]?.id])
+    expect(campaign.npcs.some((npc) => npc.name === targetLegend.name)).toBe(false)
+  })
+
   it('accepts a full real legend update without model-authored server timestamps', () => {
     const request = {
       inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',

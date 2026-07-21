@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { demoWorld } from './demo'
-import { generateWorld, splitGeneratedWorldSections } from './orchestrator'
+import { generateWorld, normalizeGeneratedWorldReferences, splitGeneratedWorldSections } from './orchestrator'
 
 type CompletionBody = { messages: Array<{ role: string; content: string }> }
 type Stage = 'manifest' | 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
@@ -108,6 +108,16 @@ const originalConcept = {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('multi-stage world generation', () => {
+  it('drops only a pressure whose every target is a dangling name instead of inventing a character', () => {
+    const generated = demoWorld({ ...request, provider: { provider: 'demo' as const } })
+    generated.worldPressures[0].targetNames = ['Сущность без записи']
+
+    const normalized = normalizeGeneratedWorldReferences(generated, request.characterName)
+
+    expect(normalized.worldPressures).toHaveLength(0)
+    expect(normalized.npcs.some((npc) => npc.name === 'Сущность без записи')).toBe(false)
+  })
+
   it('never asks the provider to emit the entire world in one completion', async () => {
     const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
     const sections = splitGeneratedWorldSections(completeWorld)

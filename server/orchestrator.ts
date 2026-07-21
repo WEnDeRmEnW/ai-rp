@@ -3807,9 +3807,27 @@ export function normalizeGeneratedWorldReferences(source: GeneratedWorld, reques
   world.mysteryCases.forEach((mystery) => { mystery.culpritName = renamePlayerReference(mystery.culpritName) })
   world.worldEvents.forEach((event) => { event.involvedNpcNames = renamePlayerReferences(event.involvedNpcNames) })
   world.threads.forEach((thread) => { thread.participantNames = renamePlayerReferences(thread.participantNames) })
-  world.worldPressures.forEach((pressure) => {
+  const pressureTargetAliases = new Map<string, string>()
+  const registerPressureTarget = (canonical: string, aliases: Array<string | undefined> = []) => {
+    [canonical, ...aliases].forEach((alias) => {
+      const normalized = alias ? normalizedReference(alias) : ''
+      if (normalized && !pressureTargetAliases.has(normalized)) pressureTargetAliases.set(normalized, canonical)
+    })
+  }
+  registerPressureTarget(exactPlayerName, [generatedPlayerName])
+  world.npcs.forEach((npc) => registerPressureTarget(npc.name))
+  world.world.factions.forEach((faction) => registerPressureTarget(faction.name))
+  world.world.places.forEach((place) => registerPressureTarget(place.name))
+  world.world.processes.forEach((process) => registerPressureTarget(process.title))
+  world.world.legends.forEach((legend) => registerPressureTarget(legend.name, [...legend.aliases, ...legend.titles, legend.epithet]))
+
+  world.worldPressures = world.worldPressures.flatMap((pressure) => {
     pressure.sourceNpcName = renamePlayerReference(pressure.sourceNpcName)
-    pressure.targetNames = renamePlayerReferences(pressure.targetNames)
+    pressure.targetNames = [...new Set(renamePlayerReferences(pressure.targetNames).flatMap((name) => {
+      const canonical = pressureTargetAliases.get(normalizedReference(name))
+      return canonical ? [canonical] : []
+    }))]
+    return pressure.targetNames.length ? [pressure] : []
   })
   world.influenceAssets.forEach((asset) => {
     asset.holderName = renamePlayerReference(asset.holderName) ?? asset.holderName

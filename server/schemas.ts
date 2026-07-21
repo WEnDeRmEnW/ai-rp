@@ -2964,6 +2964,13 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
   const entityNames = new Set([...npcNames, world.player.name.toLocaleLowerCase('ru-RU')])
   const placeNames = new Set(world.world.places.map((place) => place.name.toLocaleLowerCase('ru-RU')))
   const factionNames = new Set(world.world.factions.map((faction) => faction.name.toLocaleLowerCase('ru-RU')))
+  const pressureTargetNames = new Set([
+    ...entityNames,
+    ...placeNames,
+    ...factionNames,
+    ...world.world.processes.map((process) => process.title.toLocaleLowerCase('ru-RU')),
+    ...world.world.legends.map((legend) => legend.name.toLocaleLowerCase('ru-RU')),
+  ])
   const legendThresholds = new Map(world.world.legendarium.thresholds.map((threshold) => [threshold.stage, threshold.minRenown]))
   const causalTitles = [
     ...world.world.processes.map((process) => process.title),
@@ -3077,7 +3084,13 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
     })
   })
   world.worldPressures.forEach((pressure, index) => {
-    pressure.targetNames.forEach((name, targetIndex) => requireEntity(name, ['worldPressures', index, 'targetNames', targetIndex]))
+    pressure.targetNames.forEach((name, targetIndex) => {
+      if (!pressureTargetNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['worldPressures', index, 'targetNames', targetIndex],
+        message: `Unknown persistent pressure target reference: ${name}`,
+      })
+    })
     if (pressure.sourceNpcName && !npcNames.has(pressure.sourceNpcName.toLocaleLowerCase('ru-RU'))) context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['worldPressures', index, 'sourceNpcName'],
