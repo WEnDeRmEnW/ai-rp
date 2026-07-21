@@ -367,6 +367,24 @@ const consequenceDomainAliases: Record<string, string> = {
   knowledge: 'knowledge', memory: 'knowledge', lore: 'knowledge', знания: 'knowledge', память: 'knowledge', 'память и знания': 'knowledge',
 }
 
+function safePresentationEnum(
+  value: string,
+  allowed: readonly string[],
+  aliases: Record<string, string>,
+  fallback: string,
+): string {
+  const normalized = value.trim().toLocaleLowerCase('ru-RU')
+  const token = enumToken(value)
+  if (allowed.includes(normalized)) return normalized
+  const direct = aliases[normalized] ?? aliases[token]
+  if (direct && allowed.includes(direct)) return direct
+  const semantic = Object.entries(aliases).find(([alias]) => {
+    const aliasToken = enumToken(alias)
+    return aliasToken.length >= 3 && (token.includes(aliasToken) || aliasToken.includes(token))
+  })?.[1]
+  return semantic && allowed.includes(semantic) ? semantic : fallback
+}
+
 function enumFor(value: unknown, key: string | undefined, path: string[]): unknown {
   if (typeof value !== 'string' || !key) return value
   const normalized = value.trim().toLocaleLowerCase('ru-RU')
@@ -492,11 +510,26 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
 
   if (key === 'chosen') return translate({ а: 'a', '1': 'a', первый: 'a', б: 'b', '2': 'b', второй: 'b' })
   if (key === 'severity') return translate({ низкая: 'low', низкий: 'low', средняя: 'medium', средний: 'medium', высокая: 'high', высокий: 'high' })
-  if (key === 'layout' && has('artifact')) return translate({ реликварий: 'reliquary', схема: 'schematic', чертеж: 'schematic', чертёж: 'schematic', гримуар: 'grimoire', созвездие: 'constellation', монолит: 'monolith', органика: 'organic', арсенал: 'arsenal', минимализм: 'minimal' })
-  if (key === 'surface' && has('artifact')) return translate({ металл: 'metal', камень: 'stone', бумага: 'paper', стекло: 'glass', энергия: 'energy', органика: 'organic', пустота: 'void', ткань: 'fabric', дерево: 'wood', композит: 'composite', составной: 'composite' })
-  if (key === 'glow' && has('artifact')) return translate({ нет: 'none', отсутствует: 'none', мягкое: 'soft', пульсация: 'pulse', пульс: 'pulse', ореол: 'halo', жилы: 'veins', угли: 'embers', искры: 'embers', глитч: 'glitch', помехи: 'glitch' })
-  if (key === 'headerStyle' && has('artifact')) return translate({ гравировка: 'inscribed', надпись: 'inscribed', технический: 'technical', церемониальный: 'ceremonial', минимальный: 'minimal', живой: 'living' })
-  if (key === 'density' && has('artifact')) return translate({ удобная: 'comfortable', комфортная: 'comfortable', кинематографичная: 'cinematic', выразительная: 'cinematic' })
+  if (key === 'layout' && has('artifact')) return safePresentationEnum(value,
+    ['reliquary', 'schematic', 'grimoire', 'constellation', 'monolith', 'organic', 'arsenal', 'minimal'],
+    { реликварий: 'reliquary', shrine: 'reliquary', схема: 'schematic', чертеж: 'schematic', чертёж: 'schematic', blueprint: 'schematic', гримуар: 'grimoire', book: 'grimoire', созвездие: 'constellation', stars: 'constellation', монолит: 'monolith', monument: 'monolith', органика: 'organic', living: 'organic', арсенал: 'arsenal', collection: 'arsenal', минимализм: 'minimal', cards: 'minimal', card: 'minimal' },
+    'minimal')
+  if (key === 'surface' && has('artifact')) return safePresentationEnum(value,
+    ['metal', 'stone', 'paper', 'glass', 'energy', 'organic', 'void', 'fabric', 'wood', 'composite'],
+    { металл: 'metal', steel: 'metal', камень: 'stone', rock: 'stone', бумага: 'paper', parchment: 'paper', стекло: 'glass', crystal: 'glass', энергия: 'energy', plasma: 'energy', органика: 'organic', living: 'organic', пустота: 'void', cosmic: 'void', ткань: 'fabric', textile: 'fabric', дерево: 'wood', timber: 'wood', композит: 'composite', составной: 'composite', mixed: 'composite' },
+    'composite')
+  if (key === 'glow' && has('artifact')) return safePresentationEnum(value,
+    ['none', 'soft', 'pulse', 'halo', 'veins', 'embers', 'glitch'],
+    { нет: 'none', отсутствует: 'none', off: 'none', мягкое: 'soft', subtle: 'soft', пульсация: 'pulse', пульс: 'pulse', rhythmic: 'pulse', ореол: 'halo', aura: 'halo', жилы: 'veins', veins: 'veins', угли: 'embers', искры: 'embers', sparks: 'embers', глитч: 'glitch', помехи: 'glitch', digital: 'glitch' },
+    'none')
+  if (key === 'headerStyle' && has('artifact')) return safePresentationEnum(value,
+    ['inscribed', 'technical', 'ceremonial', 'minimal', 'living'],
+    { гравировка: 'inscribed', надпись: 'inscribed', engraved: 'inscribed', технический: 'technical', schematic: 'technical', церемониальный: 'ceremonial', ritual: 'ceremonial', минимальный: 'minimal', clean: 'minimal', живой: 'living', organic: 'living' },
+    'minimal')
+  if (key === 'density' && has('artifact')) return safePresentationEnum(value,
+    ['comfortable', 'cinematic'],
+    { удобная: 'comfortable', комфортная: 'comfortable', compact: 'comfortable', spacious: 'comfortable', кинематографичная: 'cinematic', выразительная: 'cinematic', dramatic: 'cinematic' },
+    'comfortable')
   if (key === 'resemblanceKind') return translate({ канон: 'canon', серия: 'set', набор: 'set', культура: 'culture', создатель: 'creator', эволюция: 'evolution', развитие: 'evolution' })
   if (((key === '[]' && (has('sectionOrder') || has('revealedSections'))) || (key === 'section' && has('discovery') && has('evidence'))) && has('profile') && has('abilities')) return translate({
     nature: 'source', creativeidentity: 'principle', 'creative identity': 'principle', ownerexpression: 'identity', 'owner expression': 'identity',
@@ -505,7 +538,29 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
   if (key === '[]' && (has('sectionOrder') || has('revealedSections'))) return translate({
     идентичность: 'identity', образ: 'identity', происхождение: 'origin', принцип: 'principle', требования: 'requirements', пассивы: 'passives', компоненты: 'components', силы: 'powers', сочетания: 'combined', недостатки: 'drawbacks', отказы: 'failureModes', уязвимости: 'failureModes', развитие: 'evolution', история: 'history', разумность: 'sentience', тайны: 'secrets',
   })
-  if (key === 'surface') return translate({ бумага: 'paper', бумажный: 'paper', магия: 'arcane', магический: 'arcane', технология: 'tech', технологичный: 'tech', органика: 'organic', органический: 'organic', нуар: 'noir', минимализм: 'minimal' })
+  if (key === 'layout' && has('presentation') && (has('abilities') || has('addAbilities') || has('upsertAbilities') || has('abilityChanges') || has('profileChanges'))) return safePresentationEnum(value,
+    ['discipline', 'protocol', 'network', 'mandate', 'mutation', 'constellation', 'arsenal', 'minimal'],
+    { дисциплина: 'discipline', school: 'discipline', протокол: 'protocol', procedure: 'protocol', сеть: 'network', web: 'network', мандат: 'mandate', authority: 'mandate', мутация: 'mutation', evolution: 'mutation', созвездие: 'constellation', stars: 'constellation', арсенал: 'arsenal', collection: 'arsenal', минимализм: 'minimal', cards: 'minimal', card: 'minimal' },
+    'minimal')
+  if (key === 'density' && has('presentation') && (has('abilities') || has('addAbilities') || has('upsertAbilities') || has('abilityChanges') || has('profileChanges'))) return safePresentationEnum(value,
+    ['comfortable', 'cinematic'],
+    { удобная: 'comfortable', комфортная: 'comfortable', compact: 'comfortable', spacious: 'comfortable', кинематографичная: 'cinematic', выразительная: 'cinematic', dramatic: 'cinematic' },
+    'comfortable')
+  if (key === 'icon' && (has('presentation') || has('interfaceModules') || has('upsertInterfaceModules'))) return safePresentationEnum(value,
+    ['spark', 'eye', 'shield', 'network', 'pulse', 'compass', 'crown', 'rune', 'gear', 'flame', 'star', 'moon'],
+    { искра: 'spark', magic: 'spark', глаз: 'eye', взгляд: 'eye', vision: 'eye', щит: 'shield', defense: 'shield', сеть: 'network', узлы: 'network', web: 'network', пульс: 'pulse', сердце: 'pulse', heart: 'pulse', компас: 'compass', direction: 'compass', корона: 'crown', власть: 'crown', руна: 'rune', glyph: 'rune', механизм: 'gear', шестерня: 'gear', machine: 'gear', пламя: 'flame', огонь: 'flame', fire: 'flame', звезда: 'star', cosmic: 'star', луна: 'moon', night: 'moon' },
+    'spark')
+  if (key === 'surface' && has('presentation')) return safePresentationEnum(value,
+    ['paper', 'arcane', 'tech', 'organic', 'noir', 'minimal'],
+    {
+      бумага: 'paper', бумажный: 'paper', parchment: 'paper', book: 'paper', canvas: 'paper', fabric: 'paper', wood: 'paper', stone: 'paper',
+      магия: 'arcane', магический: 'arcane', mystical: 'arcane', mystic: 'arcane', rune: 'arcane', ritual: 'arcane', celestial: 'arcane',
+      технология: 'tech', технологичный: 'tech', technical: 'tech', digital: 'tech', cyber: 'tech', holographic: 'tech', neon: 'tech', glass: 'tech', crystal: 'tech', transparent: 'tech', metal: 'tech', steel: 'tech', energy: 'tech',
+      органика: 'organic', органический: 'organic', living: 'organic', biological: 'organic', bio: 'organic', floral: 'organic',
+      нуар: 'noir', dark: 'noir', shadow: 'noir', void: 'noir', gothic: 'noir', ink: 'noir',
+      минимализм: 'minimal', minimalistic: 'minimal', clean: 'minimal', simple: 'minimal', neutral: 'minimal', classic: 'minimal',
+    },
+    'minimal')
   if (key === 'visibility') return translate({ известно: 'known', открыто: 'known', слух: 'rumored', слухи: 'rumored', предположение: 'rumored', скрыто: 'hidden', тайно: 'hidden', секретно: 'hidden' })
   if (key === 'rarity') return translate({ обычный: 'common', обычное: 'common', необычный: 'uncommon', необычное: 'uncommon', редкий: 'rare', редкое: 'rare', исключительный: 'exceptional', исключительное: 'exceptional', эпический: 'epic', эпическое: 'epic', легендарный: 'legendary', легендарное: 'legendary', мифический: 'mythic', мифическое: 'mythic', трансцендентный: 'transcendent', трансцендентное: 'transcendent' })
   if (key === 'category' && (has('abilities') || has('addAbilities') || has('abilityChanges') || has('powers') || has('addPowers') || has('techniques') || has('addTechniques') || has('techniqueChanges') || has('capabilityChecklist'))) return translate({

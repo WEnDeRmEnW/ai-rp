@@ -372,6 +372,32 @@ describe('global DeepSeek output normalization', () => {
     expect(parsed.lore[0]).toMatchObject({ alwaysOn: true, secret: false, discovered: true, priority: 90 })
   })
 
+  it('keeps cosmetic presentation enums from rejecting an otherwise complete world', () => {
+    const raw: any = demoWorld(worldRequest)
+    raw.world.presentation.surface = 'glass'
+    raw.player.abilities[0].profile.presentation.layout = 'floating cards'
+    raw.player.abilities[0].profile.presentation.icon = 'orb'
+    raw.player.abilities[0].profile.presentation.density = 'spacious'
+
+    const parsed = generatedWorldSchema.parse(raw)
+
+    expect(parsed.world.presentation.surface).toBe('tech')
+    expect(parsed.player.abilities[0].profile?.presentation).toMatchObject({
+      layout: 'minimal',
+      icon: 'spark',
+      density: 'comfortable',
+    })
+
+    const normalized = normalizeModelOutput({
+      inventory: [{ artifact: { presentation: {
+        layout: 'floating cards', surface: 'liquid crystal', glow: 'radiant', headerStyle: 'ornate', density: 'spacious',
+      } } }],
+    }) as any
+    expect(normalized.inventory[0].artifact.presentation).toMatchObject({
+      layout: 'minimal', surface: 'glass', glow: 'none', headerStyle: 'minimal', density: 'comfortable',
+    })
+  })
+
   it('removes only no-charge sentinels and preserves a real authored charge mechanic', () => {
     const normalized = normalizeModelOutput({
       abilities: [
