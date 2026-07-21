@@ -604,6 +604,7 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
   const selected = buildContextSelection(campaign, input)
   const narrative = audience === 'narrative'
   const background = audience === 'background'
+  const interfaceRelevant = /(?:интерфейс|панел|вкладк|виджет|модул\S*\s+интерфейс|настрой\S*\s+отображ)/iu.test(input)
   const presentIds = new Set(campaign.scene.presentNpcIds)
   const presentNpcs = campaign.npcs.filter((npc) => presentIds.has(npc.id))
   const party = campaign.npcs
@@ -778,10 +779,10 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
     campaign.world.metrics ?? [], queryTokens, (metric) => `${metric.key} ${metric.label} ${metric.description} ${metric.source} ${metric.updatePolicy}`,
     (metric) => campaign.turn - metric.lastChangedTurn <= (background ? 4 : 2), background ? 20 : 12,
   )
-  const modules = selectFocused(
+  const modules = interfaceRelevant ? selectFocused(
     campaign.world.interfaceModules ?? [], queryTokens, (module) => `${module.title} ${module.subtitle ?? ''} ${module.description} ${module.reason}`,
     (module) => Boolean(module.pinned), background ? 10 : 6,
-  )
+  ) : []
   const world = {
     name: campaign.world.name,
     tagline: campaign.world.tagline,
@@ -924,9 +925,9 @@ function compactCampaign(campaign: Campaign, input: string, audience: PromptAudi
       ...campaign.player.abilities.map(({ id, name, kind, source, mastery }) => ({ id, name, kind, source, mastery, owner: 'player' as const })),
       ...itemAbilityIndex.map((entry) => ({ ...entry, owner: 'item' as const })),
     ].slice(0, background ? 220 : 160),
-    itemGrantedAbilities: grantedItemAbilities(campaign).slice(0, background ? 96 : 64),
+    itemGrantedAbilities: background ? [] : grantedItemAbilities(campaign).slice(0, 64),
     inventory: safeInventory,
-    artifactRegistry: background ? (campaign.artifactRegistry ?? []).slice(-5_000) : undefined,
+    artifactRegistry: undefined,
     inventoryIndex,
     quests,
     currentScene: campaign.scene,
@@ -1533,6 +1534,10 @@ export function progressionAuditPrompt(campaign: Campaign, input: string, plan: 
   // dossier even when a shallow history entry exists, and becomes deterministic/idempotent
   // after the next committed turn advances campaign.turn.
   const recentUpgradeMessages = campaign.messages.slice(-8).filter((message) => message.turn >= campaign.turn && upgradeSignal.test(message.content))
+  // Ordinary use is recorded deterministically from abilityExecutions. The model is needed only
+  // for a semantic rebuild: an explicit upgrade, awakening, module installation or a recent
+  // authored improvement that still has to be recovered into the permanent dossier.
+  if (!upgradeSignal.test(currentMaterial) && recentUpgradeMessages.length === 0) return undefined
   const missedRecentUpgrade = (names: Array<string | undefined>) => recentUpgradeMessages.some((message) => mentionsNamedEntity(message.content, names))
   const mentionedAbilities = campaign.player.abilities.filter((ability) => (
     mentionsNamedEntity(currentMaterial, [ability.name, ability.source, ...(ability.techniques ?? []).map((technique) => technique.name)])

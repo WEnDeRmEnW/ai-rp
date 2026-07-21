@@ -218,6 +218,7 @@ function StoryViewComponent({ campaign, generating, progress, onSuggestion, onPi
   const [historyWindow, setHistoryWindow] = useState({ campaignId: campaign.id, turnCount: INITIAL_VISIBLE_TURNS })
   const requestedTurnCount = historyWindow.campaignId === campaign.id ? historyWindow.turnCount : INITIAL_VISIBLE_TURNS
   const storyWindow = useMemo(() => selectStoryWindow(campaign.messages, requestedTurnCount), [campaign.messages, requestedTurnCount])
+  const previewBlocks = useMemo(() => formatStoryText(progress?.previewNarrative ?? ''), [progress?.previewNarrative])
   const allTurns = useMemo(() => [...new Set(campaign.messages.map((message) => message.turn).filter(Number.isFinite))].sort((left, right) => left - right), [campaign.messages])
   const waypoints = useMemo(() => buildStoryWaypoints(allTurns), [allTurns])
 
@@ -325,7 +326,13 @@ function StoryViewComponent({ campaign, generating, progress, onSuggestion, onPi
           {generating && (
             <article className="story-turn assistant-turn is-generating" aria-live="polite">
               <div className="living-seam" aria-hidden="true"><span /></div>
-              <OperationProgressPanel progress={progress} />
+              {previewBlocks.length ? <div className="turn-content story-preview">
+                <div className="turn-kicker"><span>Мир отвечает</span><i aria-hidden="true" /><span>синхронизация</span></div>
+                <div className="story-prose">
+                  {previewBlocks.map((block, index) => <StoryBlockView block={block} key={`preview-${block.kind}-${index}-${block.text.slice(0, 18)}`} />)}
+                </div>
+                <div className="story-preview-status"><OperationProgressPanel progress={progress} compact /></div>
+              </div> : <OperationProgressPanel progress={progress} />}
             </article>
           )}
         </div>

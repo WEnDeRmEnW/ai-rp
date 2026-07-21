@@ -412,7 +412,7 @@ describe('runtime customization prompts', () => {
     expect(context.world.processes[0]).toEqual({ id: 'process-rumor', title: 'Пепельный передел', visibility: 'rumored' })
     expect(context.world.laws[0]).toEqual({ id: 'law-rumor', title: 'Закон тишины', visibility: 'rumored' })
     expect(context.world.metrics[0]).toEqual({ id: 'metric-rumor', key: 'rumor-meter', label: 'Шёпот порта', visibility: 'rumored' })
-    expect(context.world.interfaceModules[0]).toEqual({ id: 'module-rumor', title: 'Печать порта', visibility: 'rumored' })
+    expect(context.world.interfaceModules).toEqual([])
     expect(context.pendingWorldEvents[0]).toEqual({ id: 'event-rumor', title: 'Ночь печати', visibility: 'rumored' })
     expect(context.causalChronicle[0]).toEqual({ id: 'chronicle-rumor', kind: 'event', title: 'Отзвук печати', visibility: 'rumored' })
     expect(context.activeConflict.participants[0]).toEqual({ entityId: 'unknown-rumor', visibility: 'rumored' })
@@ -488,7 +488,7 @@ describe('progression audit prompt', () => {
       drawbacks: [], evolutionPaths: [], secrets: [],
     }
 
-    const messages = progressionAuditPrompt(campaign, `Применяю «${item.name}» для чтения следа.`, { statePatch: {} })
+    const messages = progressionAuditPrompt(campaign, `Пробуждаю и улучшаю «${item.name}» через чтение следа.`, { statePatch: {} })
     expect(messages).toBeDefined()
     expect(messages?.[0].content).toContain('sentient=false запрещён mood')
     expect(messages?.[1].content).toContain(item.id)
@@ -590,7 +590,7 @@ describe('turn patch prompt contracts', () => {
       drawbacks: [], evolutionPaths: [], secrets: [],
     }
 
-    const messages = progressionAuditPrompt(campaign, `Применяю «${item.name}».`, { statePatch: {} })
+    const messages = progressionAuditPrompt(campaign, `Улучшаю «${item.name}».`, { statePatch: {} })
     expect(messages).toBeDefined()
     expectProgressionShapes(messages![0].content)
   })

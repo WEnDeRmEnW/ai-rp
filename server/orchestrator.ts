@@ -12,7 +12,8 @@ import { resolveActionCheck } from './resolution.js'
 import { tokenize } from '../shared/context.js'
 import { sanitizePlayerAgency } from './agency-guard.js'
 import { findNarrativeRepetitionIssues, narrativeRepetitionScore, removeNarrativeRepetitionParagraphs } from '../shared/narrative-repetition.js'
-import { abilityExecutionIssues, abilityNoveltyIssues, abilityNoveltyScore, abilityProfileIssues, updateAbilityRegistry } from '../shared/abilities.js'
+import { abilityExecutionIssues, abilityNoveltyIssues, abilityNoveltyScore, abilityProfileIssues, reconcileAbilityExecutionCosts, updateAbilityRegistry } from '../shared/abilities.js'
+import { grantedItemAbilities } from '../shared/effective-abilities.js'
 
 type ProgressReporter = (progress: OperationProgress) => void
 
@@ -31,6 +32,7 @@ function reportProgress(
   completedSteps?: number,
   totalSteps?: number,
   parallelTasks?: string[],
+  previewNarrative?: string,
 ) {
   if (!report) return
   const now = performance.now()
@@ -50,6 +52,7 @@ function reportProgress(
     providerTimeMs: providerStats?.providerTimeMs,
     providerWallMs: providerStats?.providerWallMs,
     peakProviderConcurrency: providerStats?.peakProviderConcurrency,
+    previewNarrative,
   })
   clock.lastReportedAt = now
   progressClocks.set(report, clock)
@@ -310,6 +313,44 @@ const CONSEQUENCE_DOMAINS: ConsequenceDomain[] = [
   'health', 'resources', 'stats', 'conditions', 'inventory', 'equipment', 'abilities', 'artifacts',
   'currency', 'relationships', 'quests', 'characters', 'conflict', 'scene_time', 'world', 'world_pressure', 'knowledge',
 ]
+
+const consequenceSignal = /(?:ран(?:а|ен|ил)|кров|урон|удар|убил|погиб|смерт|леч|исцел|отрав|ожог|перелом|потерял|лишил|украл|забрал|получил|наш[её]л|купил|продал|заплат|потрат|экипир|снял|улучш|пробуд|разблок|изучил|научил|отношени|довер|страх|репутац|задани|квест|вступил|покинул|телепорт|перемест|прошл[оа]\s+врем|день|час|войн|катастроф|закон|фракц|артефакт|способност|техник)/iu
+const backgroundSignal = /(?:отправля|путешеств|еду\b|лечу\b|плыву\b|перехожу|прибыва|покида|жду\b|сплю\b|несколько\s+(?:час|дн|нед)|проходит\s+(?:время|час|день)|тем временем|перенес[иите]+\s+сцен)/iu
+
+function backgroundSimulationDue(campaign: Campaign, input: string, actionType: TurnRequest['actionType']) {
+  const nextTurn = campaign.turn + 1
+  const cadence = campaign.settings.worldDynamics === 'volatile' ? 2 : 3
+  if (nextTurn % cadence === 0 || actionType === 'story' || backgroundSignal.test(input)) return true
+  if ((campaign.worldEvents ?? []).some((event) => event.status === 'due' || (event.dueTurn !== undefined && event.dueTurn <= nextTurn))) return true
+  if ((campaign.threads ?? []).some((thread) => thread.status === 'active' && thread.dueTurn !== undefined && thread.dueTurn <= nextTurn)) return true
+  if ((campaign.world.processes ?? []).some((process) => process.status === 'active' && process.dueTurn !== undefined && process.dueTurn <= nextTurn)) return true
+  return campaign.npcs.some((npc) => npc.initiative?.urgency !== undefined && npc.initiative.urgency >= 85 && npc.initiative.lastAdvancedTurn < campaign.turn)
+}
+
+function parseOptionalModelOutput<T>(
+  raw: unknown,
+  schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } } },
+): T {
+  const parsed = schema.safeParse(raw)
+  if (parsed.success) return parsed.data
+  throw new Error(compactIssues(parsed.error, raw))
+}
+
+function patchNeedsConsequenceAudit(patch: TurnPatch) {
+  const highRiskKeys: Array<keyof TurnPatch> = [
+    'inventory', 'playerProfile', 'upsertStats', 'removeStatKeys', 'upsertResources', 'removeResourceKeys',
+    'statDeltas', 'resourceDeltas', 'currencyDeltas', 'addAbilities', 'removeAbilityIds', 'abilityChanges',
+    'artifactChanges', 'addConditions', 'removeConditions', 'upsertStatusEffects', 'removeStatusEffectIds',
+    'relationships', 'npcs', 'quests', 'conflict', 'world', 'socialLinks', 'party', 'factionReputationDeltas',
+    'upsertFactionReputation', 'upsertCharacterArcs', 'upsertMysteryCases', 'upsertAntagonistPlans',
+    'upsertWorldPressures', 'upsertInfluenceAssets', 'removeInfluenceAssetIds',
+  ]
+  return highRiskKeys.some((key) => {
+    const value = patch[key]
+    if (Array.isArray(value)) return value.length > 0
+    return Boolean(value && (typeof value !== 'object' || Object.keys(value).length > 0))
+  })
+}
 
 type SanitizationRejection = {
   message: string
@@ -2161,10 +2202,13 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   reportProgress(report, 8, 'world-simulation', 'Персонажи и мир делают свои независимые шаги', 2, 11)
   const backgroundMessages = backgroundSimulatorPrompt(request.campaign, request.input)
   const emptyBackground: ReturnType<typeof backgroundSimulationSchema.parse> = { signals: [], statePatch: {} }
-  const backgroundPromise = optionalStage<ReturnType<typeof backgroundSimulationSchema.parse>>('background', async () => {
-    const rawBackground = await completeJson(request.provider, backgroundMessages)
-    return parseWithRepair(rawBackground, backgroundSimulationSchema, request.provider, backgroundMessages, () => ({ signals: [], statePatch: {} }))
-  }, emptyBackground)
+  const runBackgroundSimulation = backgroundSimulationDue(request.campaign, request.input, request.actionType)
+  const backgroundPromise = runBackgroundSimulation
+    ? optionalStage<ReturnType<typeof backgroundSimulationSchema.parse>>('background', async () => {
+      const rawBackground = await completeJson(request.provider, backgroundMessages)
+      return parseOptionalModelOutput(rawBackground, backgroundSimulationSchema)
+    }, emptyBackground)
+    : Promise.resolve(emptyBackground)
   const quietEventDecision: NarrativeEventDecision = { mode: 'none', reason: 'История ещё не накопила готовность к отдельному повороту.' }
   const forcedWorkshopEvent = forcedWorkshopEventDecision(preparedEventState, request.campaign.turn + 1)
   const eventConsultationNeeded = Boolean(forcedWorkshopEvent) || shouldConsultEventDirector(request.campaign, preparedEventState)
@@ -2558,13 +2602,77 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     .catch((error: unknown) => ({ ok: false as const, error }))
 
   const applyProgressionAudit = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
+    const playerSupplements: AbilityChange[] = []
+    const artifactSupplements: ArtifactChange[] = []
+    const npcSupplements = new Map<string, AbilityChange[]>()
+    const itemAbilities = grantedItemAbilities(request.campaign)
+    for (const receipt of plan.abilityExecutions) {
+      const masteryDelta = receipt.outcome === 'success' || receipt.outcome === 'partial' ? 1 : undefined
+      const history = {
+        title: receipt.techniqueId ? 'Подтверждённое применение техники' : 'Подтверждённое применение способности',
+        description: receipt.evidence,
+      }
+      if (receipt.ownerKind === 'player') {
+        const itemAbility = itemAbilities.find((entry) => entry.ability.id === receipt.abilityId)
+        if (itemAbility) {
+          const powerId = receipt.abilityId.startsWith(`item-power:${itemAbility.itemId}:`)
+            ? receipt.abilityId.slice(`item-power:${itemAbility.itemId}:`.length)
+            : undefined
+          artifactSupplements.push({
+            itemId: itemAbility.itemId,
+            ...(masteryDelta && powerId ? { powerMasteryDeltas: { [powerId]: masteryDelta } } : {}),
+            history,
+          })
+          continue
+        }
+        const ability = request.campaign.player.abilities.find((entry) => entry.id === receipt.abilityId)
+        if (!ability) continue
+        playerSupplements.push({
+          abilityId: ability.id,
+          ...(masteryDelta && (ability.mastery ?? 0) < 100 ? { masteryDelta } : {}),
+          ...(receipt.techniqueId ? {
+            techniqueChanges: [{ techniqueId: receipt.techniqueId, ...(masteryDelta ? { masteryDelta } : {}), history }],
+          } : {}),
+          history,
+        })
+        continue
+      }
+      const npc = request.campaign.npcs.find((entry) => entry.id === receipt.ownerId)
+      const ability = npc?.abilities?.find((entry) => entry.id === receipt.abilityId)
+      if (!npc || !ability) continue
+      const changes = npcSupplements.get(npc.id) ?? []
+      changes.push({
+        abilityId: ability.id,
+        ...(masteryDelta && (ability.mastery ?? 0) < 100 ? { masteryDelta } : {}),
+        ...(receipt.techniqueId ? {
+          techniqueChanges: [{ techniqueId: receipt.techniqueId, ...(masteryDelta ? { masteryDelta } : {}), history }],
+        } : {}),
+        history,
+      })
+      npcSupplements.set(npc.id, changes)
+    }
+    const deterministicAbilities = filterSupplementalAbilityChanges(plan.statePatch.abilityChanges, playerSupplements)
+    const deterministicArtifacts = filterSupplementalArtifactChanges(plan.statePatch.artifactChanges, artifactSupplements)
+    plan.statePatch.abilityChanges = [...(plan.statePatch.abilityChanges ?? []), ...(deterministicAbilities ?? [])]
+    plan.statePatch.artifactChanges = [...(plan.statePatch.artifactChanges ?? []), ...(deterministicArtifacts ?? [])]
+    for (const [npcId, candidates] of npcSupplements) {
+      const recorded = (plan.statePatch.npcs ?? [])
+        .filter((mutation) => mutation.operation === 'update' && mutation.targetId === npcId)
+        .flatMap((mutation) => mutation.operation === 'update' ? mutation.npc.abilityChanges ?? [] : [])
+      const additions = filterSupplementalAbilityChanges(recorded, candidates)
+      if (additions?.length) plan.statePatch.npcs = [
+        ...(plan.statePatch.npcs ?? []),
+        { operation: 'update', targetId: npcId, npc: { abilityChanges: additions } },
+      ]
+    }
+
     const progressionMessages = progressionAuditPrompt(request.campaign, request.input, plan)
     if (!progressionMessages) return plan
     reportProgress(report, 41, 'progression', 'Сверяем развитие способностей, предметов и персонажей', 5, 11)
     const emptyProgression: ReturnType<typeof progressionAuditSchema.parse> = {}
     const progression = await optionalStage<ReturnType<typeof progressionAuditSchema.parse>>('progression', async () => {
       const rawProgression = await completeJson(request.provider, progressionMessages)
-      return parseWithRepair(rawProgression, progressionAuditSchema, request.provider, progressionMessages, () => ({}))
+      return parseOptionalModelOutput(rawProgression, progressionAuditSchema)
     }, emptyProgression)
     const supplementalAbilityChanges = filterSupplementalAbilityChanges(plan.statePatch.abilityChanges, progression.abilityChanges)
     const supplementalArtifactChanges = filterSupplementalArtifactChanges(plan.statePatch.artifactChanges, progression.artifactChanges)
@@ -2617,6 +2725,14 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   validPlan = await enforceArtifactQuality(sanitized.plan)
   validPlan = await enforceAbilityQuality(validPlan)
   sanitized = sanitizePlan(request.campaign, validPlan)
+  const reconciledExecutionCosts = reconcileAbilityExecutionCosts(
+    request.campaign,
+    sanitized.plan.abilityExecutions,
+    sanitized.plan.statePatch,
+  )
+  sanitized.plan.abilityExecutions = reconciledExecutionCosts.receipts
+  sanitized.plan.statePatch = reconciledExecutionCosts.patch as typeof sanitized.plan.statePatch
+  if (reconciledExecutionCosts.corrections.length) sanitized.notes.push(...reconciledExecutionCosts.corrections)
   const executionIssues = abilityExecutionIssues(request.campaign, sanitized.plan.abilityExecutions, sanitized.plan.statePatch)
   if (executionIssues.length) {
     reportProgress(report, 47, 'ability-execution', 'Сверяем применение способностей, условия и фактически оплаченную цену', 5, 11)
@@ -2626,6 +2742,14 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     repaired = await enforceArtifactQuality(repaired)
     repaired = await enforceAbilityQuality(repaired)
     const repairedSanitized = sanitizePlan(request.campaign, repaired)
+    const repairedCosts = reconcileAbilityExecutionCosts(
+      request.campaign,
+      repairedSanitized.plan.abilityExecutions,
+      repairedSanitized.plan.statePatch,
+    )
+    repairedSanitized.plan.abilityExecutions = repairedCosts.receipts
+    repairedSanitized.plan.statePatch = repairedCosts.patch as typeof repairedSanitized.plan.statePatch
+    repairedSanitized.notes.push(...repairedCosts.corrections)
     const remainingExecutionIssues = abilityExecutionIssues(request.campaign, repairedSanitized.plan.abilityExecutions, repairedSanitized.plan.statePatch)
     if (remainingExecutionIssues.length) {
       throw new Error(`DeepSeek не смог безопасно согласовать применение способностей с механикой: ${remainingExecutionIssues.join(' ')}`)
@@ -2637,7 +2761,6 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     plan: ReturnType<typeof turnPlanSchema.parse>,
     candidateNarrative: string,
   ) => {
-    const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, plan, candidateNarrative, check)
     const fallback: ConsequenceAudit = {
       pass: true,
       narrativePass: true,
@@ -2646,9 +2769,18 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       omissions: [],
       statePatch: {},
     }
+    const needsAudit = request.actionType === 'story'
+      || plan.abilityExecutions.length > 0
+      || patchNeedsConsequenceAudit(plan.statePatch)
+      || consequenceSignal.test(`${request.input}\n${candidateNarrative}`)
+      || check?.outcome === 'failure'
+      || check?.outcome === 'mixed'
+      || (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed')
+    if (!needsAudit) return fallback
+    const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, plan, candidateNarrative, check)
     return optionalStage('consequence-audit', async () => {
       const rawAudit = await completeJson(request.provider, auditMessages)
-      return parseWithRepair<ConsequenceAudit>(rawAudit, consequenceAuditSchema, request.provider, auditMessages)
+      return parseOptionalModelOutput<ConsequenceAudit>(rawAudit, consequenceAuditSchema)
     }, fallback)
   }
 
@@ -2656,11 +2788,15 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     plan: ReturnType<typeof turnPlanSchema.parse>,
     candidateNarrative: string,
   ) => {
-    const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, candidateNarrative, plan)
     const emptyCurator: ReturnType<typeof memoryCuratorSchema.parse> = { memories: [], archives: [] }
+    const shouldCurate = (request.campaign.turn + 1) % 4 === 0
+      || request.actionType === 'story'
+      || Boolean(plan.statePatch.cleanup && Object.values(plan.statePatch.cleanup).some((entries) => entries?.length))
+    if (!shouldCurate) return emptyCurator
+    const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, candidateNarrative, plan)
     return optionalStage('memory', async () => {
       const rawCurator = await completeJson(request.provider, curatorMessages)
-      return parseWithRepair(rawCurator, memoryCuratorSchema, request.provider, curatorMessages, () => emptyCurator)
+      return parseOptionalModelOutput(rawCurator, memoryCuratorSchema)
     }, emptyCurator)
   }
 
@@ -2726,7 +2862,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     : await optionalStage('critic', async () => {
       const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB, repetitionA, repetitionB)
       const rawReview = await completeJson(request.provider, criticMessages)
-      return parseWithRepair(rawReview, continuityReviewSchema, request.provider, criticMessages, () => ({ chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }))
+      return parseOptionalModelOutput(rawReview, continuityReviewSchema)
     }, { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' })
   const reviewerChoice = review.chosen
   const reviewerIssues = reviewerChoice === 'a' ? repetitionA : repetitionB
@@ -2753,7 +2889,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   // exact unchanged narrative and plan; any revision receives a fresh complete audit bundle.
   const initiallyAuditedNarrative = narrative
   const initiallyAuditedPlanFingerprint = JSON.stringify(sanitized.plan)
-  reportProgress(report, 69, 'parallel-audit', 'Одновременно сверяем сцену, последствия и долгую память', 8, 11, ['Свобода героя', '17 областей состояния', 'Долгая память'])
+  reportProgress(report, 72, 'parallel-audit', 'Сцену уже можно читать — состояние и память синхронизируются в фоне', 8, 11, ['Свобода героя', 'Состояние мира', 'Долгая память'], narrative)
   const speculativeAudit = await speculativeAuditPromise
   const initialAuditBundle = initiallyAuditedNarrative === preferredDraft && speculativeAudit.ok
     ? speculativeAudit.bundle
@@ -2798,7 +2934,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       )
       const retryAudit = await optionalStage<ConsequenceAudit>('consequence-reference-repair', async () => {
         const retryRaw = await completeJson(request.provider, retryMessages)
-        return parseWithRepair<ConsequenceAudit>(retryRaw, consequenceAuditSchema, request.provider, retryMessages)
+        return parseOptionalModelOutput<ConsequenceAudit>(retryRaw, consequenceAuditSchema)
       }, consequenceAudit)
       consequenceAudit = retryAudit
       repairedOmissions.push(...retryAudit.omissions)

@@ -142,7 +142,7 @@ describe('runTurn consequence reconciliation', () => {
 
     expect(requestBodies.filter((body) => systemPrompt(body).includes('выдающийся ведущий'))).toHaveLength(2)
     expect(requestBodies.some((body) => systemPrompt(body).includes('аудитор свободы игрока'))).toBe(false)
-    expect(requestBodies.some((body) => systemPrompt(body).includes('архивариус'))).toBe(true)
+    expect(requestBodies.some((body) => systemPrompt(body).includes('архивариус'))).toBe(false)
   })
 
   it('returns the turn while deterministically removing decisions invented for the player', async () => {
@@ -563,9 +563,11 @@ describe('runTurn consequence reconciliation', () => {
     expect(criticBody).toBeUndefined()
   })
 
-  it('runs only necessary final audits concurrently and skips redundant balanced-mode critics', async () => {
+  it('skips background and final model audits for a calm balanced-mode turn', async () => {
     const campaign = createDemoCampaign()
     campaign.settings.qualityMode = 'balanced'
+    campaign.settings.eventDirector.enabled = false
+    let totalProviderCalls = 0
     let activeAuditors = 0
     let maximumActiveAuditors = 0
     let activeLatencyStages = 0
@@ -583,6 +585,7 @@ describe('runTurn consequence reconciliation', () => {
     }
 
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      totalProviderCalls += 1
       const body = JSON.parse(String(init?.body)) as CompletionBody
       const system = systemPrompt(body)
       if (system.includes('скрытый симулятор живого мира') || system.includes('режиссёр и строгий распорядитель состояния')) {
@@ -625,9 +628,10 @@ describe('runTurn consequence reconciliation', () => {
 
     await runTurn({ campaign, input: `Осматриваю карту с помощью ${campaign.player.abilities[0].name}, пока ничего больше не решая.`, actionType: 'do', provider })
 
-    expect(maximumActiveAuditors).toBe(1)
-    expect(maximumActiveLatencyStages).toBe(2)
-    expect(maximumActiveEarlyStages).toBe(2)
-    expect(maximumActivePlanAndProseStages).toBe(2)
+    expect(maximumActiveAuditors).toBe(0)
+    expect(maximumActiveLatencyStages).toBe(0)
+    expect(maximumActiveEarlyStages).toBe(1)
+    expect(maximumActivePlanAndProseStages).toBe(1)
+    expect(totalProviderCalls).toBe(2)
   })
 })

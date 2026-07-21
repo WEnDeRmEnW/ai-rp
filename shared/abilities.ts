@@ -1,5 +1,6 @@
 import type {
   Ability,
+  AbilityDraft,
   AbilityExecutionReceipt,
   AbilityDiscovery,
   AbilityKnowledgeLevel,
@@ -7,6 +8,8 @@ import type {
   AbilityRegistryEntry,
   CapabilityGroup,
   CapabilityTier,
+  PowerTechnique,
+  PowerTechniqueDraft,
   WorldCapabilitySystem,
   Campaign,
   TurnPatch,
@@ -253,6 +256,120 @@ function sameCosts(left: AbilityExecutionReceipt['costs'], right: AbilityExecuti
   const a = total(left)
   const b = total(right)
   return Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([resource, amount]) => b[resource] === amount)
+}
+
+type ExecutionAbility = {
+  ability: Ability | AbilityDraft
+  technique: PowerTechnique | PowerTechniqueDraft | undefined
+}
+
+function resolveExecutionAbility(
+  campaign: Campaign,
+  patch: TurnPatch,
+  receipt: AbilityExecutionReceipt,
+): ExecutionAbility | undefined {
+  const addedNpc = patch.npcs?.find((mutation) => mutation.operation === 'add' && mutation.npc.id === receipt.ownerId)
+  const updatedNpcAbilities = patch.npcs
+    ?.filter((mutation) => mutation.operation === 'update' && mutation.targetId === receipt.ownerId)
+    .flatMap((mutation) => mutation.operation === 'update' ? [
+      ...(mutation.npc.abilities ?? []),
+      ...(mutation.npc.upsertAbilities ?? []),
+    ] : []) ?? []
+  const owner = receipt.ownerKind === 'player'
+    ? (receipt.ownerId === campaign.player.id ? campaign.player : undefined)
+    : campaign.npcs.find((npc) => npc.id === receipt.ownerId) ?? addedNpc?.npc
+  if (!owner) return undefined
+  const grantedItemAbility = receipt.ownerKind === 'player'
+    ? grantedItemAbilities(campaign).find((entry) => entry.ability.id === receipt.abilityId)
+    : undefined
+  const ability = owner.abilities?.find((candidate) => candidate.id === receipt.abilityId)
+    ?? (receipt.ownerKind === 'player' ? patch.addAbilities ?? [] : [...(addedNpc?.npc.abilities ?? []), ...updatedNpcAbilities])
+      .find((candidate) => candidate.id === receipt.abilityId)
+    ?? grantedItemAbility?.ability
+  if (!ability) return undefined
+  const technique = receipt.techniqueId
+    ? ability.techniques?.find((candidate) => candidate.id === receipt.techniqueId)
+    : undefined
+  return { ability, technique }
+}
+
+function costTotals(costs: AbilityExecutionReceipt['costs']) {
+  return costs.reduce<Record<string, number>>((result, cost) => {
+    result[cost.resource] = (result[cost.resource] ?? 0) + cost.amount
+    return result
+  }, {})
+}
+
+/**
+ * The authored ability card is the source of truth. DeepSeek often copies a plausible but
+ * outdated price into an execution receipt; repairing the whole turn for that shape-only
+ * mismatch is both slow and fragile. Canonicalize the receipt and replace only the attributable
+ * resource charge, preserving any unrelated loss already present in the patch.
+ */
+export function reconcileAbilityExecutionCosts(
+  campaign: Campaign,
+  receiptsInput: AbilityExecutionReceipt[] | undefined,
+  patchInput: TurnPatch,
+): { receipts: AbilityExecutionReceipt[]; patch: TurnPatch; corrections: string[] } {
+  const receipts = structuredClone(receiptsInput ?? [])
+  const patch = structuredClone(patchInput)
+  const corrections: string[] = []
+  const oldTotals = new Map<string, number>()
+  const requiredTotals = new Map<string, number>()
+  const addTotal = (target: Map<string, number>, receipt: AbilityExecutionReceipt, resource: string, amount: number) => {
+    const key = `${receipt.ownerKind}:${receipt.ownerId}:${resource}`
+    target.set(key, (target.get(key) ?? 0) + amount)
+  }
+
+  receipts.forEach((receipt, index) => {
+    Object.entries(costTotals(receipt.costs)).forEach(([resource, amount]) => addTotal(oldTotals, receipt, resource, amount))
+    const resolved = resolveExecutionAbility(campaign, patch, receipt)
+    if (!resolved || (receipt.techniqueId && !resolved.technique)) return
+    const canonical = receipt.outcome === 'blocked' ? [] : (resolved.technique?.costs ?? resolved.ability.costs ?? [])
+    if (!sameCosts(receipt.costs, canonical)) {
+      corrections.push(`abilityExecutions[${index}]: цена приведена к механике «${resolved.technique?.name ?? resolved.ability.name}».`)
+      receipt.costs = structuredClone(canonical)
+    }
+    Object.entries(costTotals(canonical)).forEach(([resource, amount]) => addTotal(requiredTotals, receipt, resource, amount))
+  })
+
+  const keys = new Set([...oldTotals.keys(), ...requiredTotals.keys()])
+  for (const key of keys) {
+    const separator = key.indexOf(':')
+    const secondSeparator = key.indexOf(':', separator + 1)
+    const ownerKind = key.slice(0, separator) as AbilityExecutionReceipt['ownerKind']
+    const ownerId = key.slice(separator + 1, secondSeparator)
+    const resource = key.slice(secondSeparator + 1)
+    const oldAmount = oldTotals.get(key) ?? 0
+    const requiredAmount = requiredTotals.get(key) ?? 0
+    const replaceCharge = (current: number | undefined) => {
+      const delta = current ?? 0
+      if (oldAmount > 0 && delta <= -oldAmount) return delta + oldAmount - requiredAmount
+      return requiredAmount > 0 && delta > -requiredAmount ? -requiredAmount : delta
+    }
+    if (ownerKind === 'player') {
+      const current = patch.resourceDeltas?.[resource]
+      const next = replaceCharge(current)
+      if (next !== (current ?? 0)) {
+        patch.resourceDeltas = { ...(patch.resourceDeltas ?? {}), [resource]: next }
+        corrections.push(`Списание ${resource} синхронизировано с фактической ценой способности.`)
+      }
+      continue
+    }
+    let mutation = patch.npcs?.find((entry) => entry.operation === 'update' && entry.targetId === ownerId)
+    if (!mutation || mutation.operation !== 'update') {
+      mutation = { operation: 'update', targetId: ownerId, npc: {} }
+      patch.npcs = [...(patch.npcs ?? []), mutation]
+    }
+    const current = mutation.npc.resourceDeltas?.[resource]
+    const next = replaceCharge(current)
+    if (next !== (current ?? 0)) {
+      mutation.npc.resourceDeltas = { ...(mutation.npc.resourceDeltas ?? {}), [resource]: next }
+      corrections.push(`Списание ${resource} у ${ownerId} синхронизировано с фактической ценой способности.`)
+    }
+  }
+
+  return { receipts, patch, corrections: [...new Set(corrections)] }
 }
 
 export function abilityExecutionIssues(

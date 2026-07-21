@@ -244,6 +244,11 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .suggestion-row button:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); color: var(--text); }
 .is-generating { min-height: 72px; }
 .is-generating .living-seam span { animation: seamPulse 1.8s ease-in-out infinite; }
+.story-preview { opacity: .94; }
+.story-preview .story-prose { animation: previewReveal .28s ease-out both; }
+.story-preview-status { margin-top: 18px; border-top: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border)); padding-top: 8px; }
+.story-preview-status .operation-progress { background: color-mix(in srgb, var(--accent) 4%, var(--surface-2)); }
+@keyframes previewReveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .generation-copy { display: flex; align-items: center; gap: 10px; padding-top: 2px; color: var(--muted); font-family: ui-serif, Georgia, serif; font-size: 14px; font-style: italic; }
 .quiet-cursor { width: 2px; height: 19px; background: var(--accent); animation: blink 1s steps(2) infinite; }
 .scroll-anchor { height: 1px; }

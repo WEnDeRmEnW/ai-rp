@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Ability, AbilityProfile, InventoryItem, WorldCapabilitySystem } from './types'
-import { abilityExecutionIssues, abilityNoveltyIssues, abilityProfileIssues, visibleAbilityTechniques } from './abilities'
+import { abilityExecutionIssues, abilityNoveltyIssues, abilityProfileIssues, reconcileAbilityExecutionCosts, visibleAbilityTechniques } from './abilities'
 import { createDemoCampaign } from '../src/lib/demo'
 
 export const testCapabilitySystem: WorldCapabilitySystem = {
@@ -94,6 +94,30 @@ describe('authorial ability mechanics', () => {
     ability.techniques![0].availability = { state: 'blocked', reasons: ['Нет прямого контакта.'] }
     const invalid = abilityExecutionIssues(campaign, [{ ownerKind: 'player', ownerId: campaign.player.id, abilityId: ability.id, techniqueId: 'tech-listen', intent: 'Развести голоса на расстоянии.', outcome: 'success', costs: [{ resource: 'focus', amount: 2 }], requirementsUsed: [], effects: ['Приём всё равно сработал.'], evidence: 'Противоречивый текст.' }], { resourceDeltas: { focus: -2 } })
     expect(invalid.join(' ')).toContain('availability=blocked')
+  })
+
+  it('canonicalizes a model-authored receipt to the real ability cost without regenerating the turn', () => {
+    const campaign = createDemoCampaign()
+    const ability = testAbility()
+    campaign.world.capabilitySystem = testCapabilitySystem
+    campaign.player.abilities = [ability]
+    const repaired = reconcileAbilityExecutionCosts(campaign, [{
+      ownerKind: 'player',
+      ownerId: campaign.player.id,
+      abilityId: ability.id,
+      techniqueId: 'tech-listen',
+      intent: 'Развести голоса в печати.',
+      outcome: 'success',
+      costs: [{ resource: 'focus', amount: 9 }],
+      requirementsUsed: ['Прямое касание.'],
+      effects: ['Один голос стал разборчивым.'],
+      evidence: 'Голос слышен в сцене.',
+    }], { resourceDeltas: { focus: -9, health: -3 } })
+
+    expect(repaired.receipts[0].costs).toEqual([{ resource: 'focus', amount: 2 }])
+    expect(repaired.patch.resourceDeltas).toEqual({ focus: -2, health: -3 })
+    expect(repaired.corrections.join(' ')).toContain('цена приведена к механике')
+    expect(abilityExecutionIssues(campaign, repaired.receipts, repaired.patch)).toEqual([])
   })
 
   it('accepts an equipped artifact power as belonging to the player', () => {

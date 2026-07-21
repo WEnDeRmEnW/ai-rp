@@ -2364,6 +2364,8 @@ export interface OperationProgress {
   providerTimeMs?: number
   providerWallMs?: number
   peakProviderConcurrency?: number
+  /** Sanitized prose ready for reading while non-narrative state is still being reconciled. */
+  previewNarrative?: string
 }
 
 export interface CampaignEditRequest {
