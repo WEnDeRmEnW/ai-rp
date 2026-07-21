@@ -115,7 +115,7 @@ async function runJob<T>(kind: 'turn' | 'world' | 'edit' | 'question', payload: 
       // Polling does not accelerate generation. A calmer interval keeps the public endpoint
       // healthy during long world builds and still updates progress promptly.
       const elapsed = job.progress?.elapsedMs ?? 0
-      await abortableDelay(elapsed > 120_000 ? 3_000 : elapsed > 30_000 ? 1_500 : 750, signal)
+      await abortableDelay(elapsed > 120_000 ? 10_000 : elapsed > 30_000 ? 5_000 : 2_000, signal)
       try {
         job = await fetchJson<JobState<T>>(`/api/jobs/${kind}/${job.id}`, { method: 'GET' }, signal)
         connectionLostAt = undefined
