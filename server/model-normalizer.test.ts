@@ -317,7 +317,9 @@ describe('global DeepSeek output normalization', () => {
   it('normalizes decorated numbers, booleans, colors, records and Russian enums in a generated world', () => {
     const raw: any = demoWorld(worldRequest)
     raw.player.currency = '37 штормовых марок'
-    raw.player.abilities[0].profile.availability = { state: 'available', reasons: [] }
+    raw.player.abilities[0].profile.availability = {
+      state: 'available', reasons: [], charges: { current: 0, max: 0 },
+    }
     raw.player.abilities[0].profile.availability.nextReady = { turn: 0, unit: 'turn' }
     raw.player.abilities[0].profile.nature.kind = 'kekkei_genkai'
     delete raw.player.abilities[0].profile.nature.groupId
@@ -327,6 +329,7 @@ describe('global DeepSeek output normalization', () => {
     raw.player.abilities[0].profile.discovery.evidence = [{ section: 'nature', summary: 'Пробуждение зафиксировано.', source: 'Личное наблюдение', reliability: 100 }]
     raw.player.abilities[1].profile.nature.kind = 'ninjutsu'
     delete raw.player.abilities[1].profile.nature.groupId
+    raw.player.abilities[1].profile.availability = { state: 'ready', reasons: [], charges: 0 }
     raw.opening.scene.tension = 'опасность: 81%'
     raw.world.presentation.accent = '#abc'
     raw.world.presentation.accentStrong = '11aa77'
@@ -350,6 +353,8 @@ describe('global DeepSeek output normalization', () => {
     expect(parsed.player.currency).toEqual({ 'штормовых марок': 37 })
     expect(parsed.player.abilities[0].profile?.availability?.state).toBe('ready')
     expect(parsed.player.abilities[0].profile?.availability?.nextReady).toEqual({ unit: 'turn', value: 0 })
+    expect(parsed.player.abilities[0].profile?.availability?.charges).toBeUndefined()
+    expect(parsed.player.abilities[1].profile?.availability?.charges).toBeUndefined()
     expect(parsed.player.abilities[0].profile).toMatchObject({
       nature: { kind: 'innate', groupId: 'kekkei-genkai' },
       presentation: { sectionOrder: ['source', 'principle', 'identity'] },
@@ -365,6 +370,18 @@ describe('global DeepSeek output normalization', () => {
     expect(parsed.npcs[0].name).toBeTruthy()
     expect(parsed.worldEvents[0]).toMatchObject({ visibility: 'rumored' })
     expect(parsed.lore[0]).toMatchObject({ alwaysOn: true, secret: false, discovered: true, priority: 90 })
+  })
+
+  it('removes only no-charge sentinels and preserves a real authored charge mechanic', () => {
+    const normalized = normalizeModelOutput({
+      abilities: [
+        { profile: { availability: { state: 'ready', reasons: [], charges: { current: 0, max: 0 } } } },
+        { profile: { availability: { state: 'limited', reasons: ['Осталось два импульса'], charges: { current: 2, max: 3, label: 'Импульсы' } } } },
+      ],
+    }) as any
+
+    expect(normalized.abilities[0].profile.availability.charges).toBeUndefined()
+    expect(normalized.abilities[1].profile.availability.charges).toEqual({ current: 2, max: 3, label: 'Импульсы' })
   })
 
   it('unwraps a DeepSeek player snapshot into safe canonical patch fields', () => {

@@ -1033,6 +1033,38 @@ function canonicalizePatchContainer(value: Record<string, unknown>): Record<stri
 const ABILITY_RECORD_COLLECTIONS = new Set(['abilities', 'addAbilities', 'upsertAbilities', 'abilityChanges'])
 const ABILITY_AVAILABILITY_KEYS = new Set(['state', 'reasons', 'nextReady', 'charges', 'lastUsedTurn'])
 
+function canonicalizeAbilityAvailability(value: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...value }
+  const charges = result.charges
+  if (charges === undefined || charges === null) {
+    delete result.charges
+    return result
+  }
+
+  const scalarCharges = parseNumberLike(charges)
+  if (typeof scalarCharges === 'number' && Number.isFinite(scalarCharges) && scalarCharges <= 0) {
+    delete result.charges
+    return result
+  }
+
+  if (!isRecord(charges)) return result
+  const maximum = parseNumberLike(charges.max)
+  const current = parseNumberLike(charges.current)
+  const label = typeof charges.label === 'string' ? charges.label.trim() : ''
+  const onlyChargeShape = Object.keys(charges).every((key) => ['current', 'max', 'label'].includes(key))
+  const explicitlyHasNoCapacity = typeof maximum === 'number' && Number.isFinite(maximum) && maximum <= 0
+  const emptyNoChargeSentinel = maximum === undefined
+    && label.length === 0
+    && onlyChargeShape
+    && (current === undefined || (typeof current === 'number' && Number.isFinite(current) && current <= 0))
+
+  // DeepSeek sometimes emits { current: 0, max: 0 } to mean that an ability
+  // does not use discrete charges. The whole optional mechanic must be absent;
+  // inventing a positive capacity or a label would change the authored ability.
+  if (explicitlyHasNoCapacity || emptyNoChargeSentinel) delete result.charges
+  return result
+}
+
 function canonicalizeNextReady(value: Record<string, unknown>): Record<string, unknown> {
   const unitAliases = [
     ['turn', 'turn'], ['turns', 'turn'], ['scene', 'scene'], ['scenes', 'scene'],
@@ -1129,6 +1161,7 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
 
   if (isRecord(value)) {
     let record = canonicalizeAbilityRecord(value, path)
+    if (key === 'availability') record = canonicalizeAbilityAvailability(record)
     if (key === 'nextReady' && path.includes('availability')) record = canonicalizeNextReady(record)
     if (key === 'nature' && path.includes('profile') && path.includes('abilities') && !record.groupId && typeof record.kind === 'string') {
       const misplacedGroup = enumToken(record.kind).replaceAll(' ', '-')
