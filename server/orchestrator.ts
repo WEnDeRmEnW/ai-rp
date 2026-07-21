@@ -4267,11 +4267,23 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
 
     const repairSummary = JSON.stringify(effectiveReview)
     const repairStages = qualityRepairStages(effectiveReview)
+    let optionalRewriteFailed = false
     const repairedEntries = await mapWithConcurrency(repairStages, 3, async (stage) => {
       reportProgress(report, 90 + attempt * 3, 'world-section-rewrite', `Улучшаем только раздел «${stage}» по замечаниям редактора`, 10, 11)
-      const repaired = await regenerateOwnedWorldSection(stage, completeSections, request, concept, repairSummary, manifest)
-      return [stage, repaired[stage]] as const
+      try {
+        const repaired = await regenerateOwnedWorldSection(stage, completeSections, request, concept, repairSummary, manifest)
+        return [stage, repaired[stage]] as const
+      } catch (error) {
+        optionalRewriteFailed = true
+        const detail = error instanceof Error ? error.message : String(error)
+        console.warn(`[model:world-section-rewrite] Необязательное улучшение «${stage}» пропущено; сохраняем лучший целостный мир: ${detail}`)
+        return [stage, completeSections[stage]] as const
+      }
     })
+    if (optionalRewriteFailed) {
+      reportProgress(report, 97, 'finalizing', 'Редактор недоступен — сохраняем лучший уже проверенный мир', 11, 11)
+      return world
+    }
     completeSections = { ...completeSections, ...Object.fromEntries(repairedEntries) }
     integrity = await ensureGeneratedWorldIntegrity(completeSections, request, concept, report, manifest)
     world = integrity.world

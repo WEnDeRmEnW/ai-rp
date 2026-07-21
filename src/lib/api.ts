@@ -6,7 +6,8 @@ class ApiError extends Error {
   }
 }
 
-const transientStatuses = new Set([408, 425, 429, 500, 502, 503, 504])
+const transientStatuses = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526])
+const JOB_RECONNECT_WINDOW_MS = 30 * 60 * 1000
 
 function abortableDelay(milliseconds: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -67,32 +68,73 @@ interface JobState<T> {
   progress?: OperationProgress
 }
 
+function isTransientJobConnectionError(error: unknown) {
+  return error instanceof ApiError && (error.status === undefined || transientStatuses.has(error.status))
+}
+
 async function runJob<T>(kind: 'turn' | 'world' | 'edit' | 'question', payload: unknown, signal?: AbortSignal, onProgress?: (progress: OperationProgress) => void): Promise<T> {
   const requestId = crypto.randomUUID()
   const create = () => fetchJson<JobState<T>>(`/api/jobs/${kind}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId, payload }),
   }, signal)
-  let job = await create()
+  let connectionLostAt: number | undefined
+  let connectionFailures = 0
+  let lastProgress: OperationProgress = { percent: 1, stage: 'connecting', detail: 'Соединяемся с сервером' }
+
+  const reconnect = async (error: unknown) => {
+    if (!isTransientJobConnectionError(error)) throw error
+    connectionLostAt ??= Date.now()
+    connectionFailures += 1
+    if (Date.now() - connectionLostAt > JOB_RECONNECT_WINDOW_MS) throw error
+    onProgress?.({
+      ...lastProgress,
+      stage: 'reconnecting',
+      detail: 'Связь прервалась — восстанавливаем её, сервер продолжает работу',
+    })
+    await abortableDelay(Math.min(10_000, 1_000 * connectionFailures), signal)
+  }
+
+  const startOrResume = async (): Promise<JobState<T>> => {
+    while (true) {
+      try {
+        const started = await create()
+        connectionLostAt = undefined
+        connectionFailures = 0
+        return started
+      } catch (error) {
+        await reconnect(error)
+      }
+    }
+  }
+  let job = await startOrResume()
   if (job.progress) onProgress?.(job.progress)
+  if (job.progress) lastProgress = job.progress
   let recreated = false
   try {
     while (job.status === 'pending') {
-      // A completed model response should appear immediately instead of waiting up to another
-      // 1.25 seconds for the next poll. Job snapshots are tiny and the interval relaxes on long
-      // world builds to avoid unnecessary traffic.
+      // Polling does not accelerate generation. A calmer interval keeps the public endpoint
+      // healthy during long world builds and still updates progress promptly.
       const elapsed = job.progress?.elapsedMs ?? 0
-      await abortableDelay(elapsed > 120_000 ? 750 : elapsed > 30_000 ? 500 : 250, signal)
+      await abortableDelay(elapsed > 120_000 ? 3_000 : elapsed > 30_000 ? 1_500 : 750, signal)
       try {
         job = await fetchJson<JobState<T>>(`/api/jobs/${kind}/${job.id}`, { method: 'GET' }, signal)
-        if (job.progress) onProgress?.(job.progress)
+        connectionLostAt = undefined
+        connectionFailures = 0
+        if (job.progress) {
+          lastProgress = job.progress
+          onProgress?.(job.progress)
+        }
       } catch (error) {
         if (error instanceof ApiError && error.status === 404 && !recreated) {
           recreated = true
-          job = await create()
-          if (job.progress) onProgress?.(job.progress)
+          job = await startOrResume()
+          if (job.progress) {
+            lastProgress = job.progress
+            onProgress?.(job.progress)
+          }
           continue
         }
-        throw error
+        await reconnect(error)
       }
     }
     if (job.status === 'failed') throw new ApiError(job.error || 'Операция на сервере завершилась с ошибкой.')

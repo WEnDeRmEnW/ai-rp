@@ -30,6 +30,13 @@ function providerResponse(value: unknown) {
   })
 }
 
+function emptyProviderResponse() {
+  return new Response(JSON.stringify({ choices: [{ message: { content: '' } }] }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 function requestedGenerationStage(system: string): Stage | undefined {
   if (system.includes('единый компактный паспорт большого ролевого мира')) return 'manifest'
   if (!system.includes('МНОГОЭТАПНАЯ ГЕНЕРАЦИЯ')) return undefined
@@ -232,5 +239,40 @@ describe('multi-stage world generation', () => {
     expect(characterCalls).toBe(2)
     expect(legendCalls).toBe(1)
     expect(requestedStages.slice(-1)).toEqual(['characters'])
+  })
+
+  it('returns the best valid world when only an optional final rewrite gets an empty provider response', async () => {
+    const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
+    const sections = splitGeneratedWorldSections(completeWorld)
+    const manifest = manifestFromWorld(completeWorld)
+    let interfaceCalls = 0
+    const incompleteInterfaceReview = {
+      pass: false,
+      coverage: 88,
+      issues: [{ type: 'completeness', entity: 'Интерфейс мира', detail: 'Нужно улучшить подпись интерфейса.', severity: 'high' }],
+      missingCapabilities: ['Более точная подпись интерфейса'],
+      coverageAudit: [{ capability: 'Адаптивный интерфейс', importance: 'major', status: 'partial', location: 'world.interfaceModules', detail: 'Нужна более точная подпись.' }],
+      constraintAudit: [],
+      rewriteInstructions: 'Улучши только interface, не меняя факты мира.',
+    }
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
+      const stage = requestedGenerationStage(system)
+      if (stage) {
+        if (stage === 'manifest') return providerResponse(manifest)
+        if (stage === 'interface') {
+          interfaceCalls += 1
+          return interfaceCalls === 1 ? providerResponse(sections.interface) : emptyProviderResponse()
+        }
+        return providerResponse(sections[stage])
+      }
+      if (system.includes('Составь coverageAudit')) return providerResponse(incompleteInterfaceReview)
+      return providerResponse(originalConcept)
+    }))
+
+    await expect(generateWorld(request)).resolves.toEqual(completeWorld)
+    expect(interfaceCalls).toBe(2)
   })
 })
