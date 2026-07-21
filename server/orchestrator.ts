@@ -339,7 +339,7 @@ function parseOptionalModelOutput<T>(
 function patchNeedsConsequenceAudit(patch: TurnPatch) {
   const highRiskKeys: Array<keyof TurnPatch> = [
     'inventory', 'playerProfile', 'upsertStats', 'removeStatKeys', 'upsertResources', 'removeResourceKeys',
-    'statDeltas', 'resourceDeltas', 'currencyDeltas', 'addAbilities', 'removeAbilityIds', 'abilityChanges',
+    'statDeltas', 'resourceDeltas', 'upsertCurrency', 'currencyDeltas', 'addAbilities', 'removeAbilityIds', 'abilityChanges',
     'artifactChanges', 'addConditions', 'removeConditions', 'upsertStatusEffects', 'removeStatusEffectIds',
     'relationships', 'npcs', 'quests', 'conflict', 'world', 'socialLinks', 'party', 'factionReputationDeltas',
     'upsertFactionReputation', 'upsertCharacterArcs', 'upsertMysteryCases', 'upsertAntagonistPlans',
@@ -1305,6 +1305,7 @@ export function mergePatches(backgroundInput: TurnPatch | null | undefined, fore
     removeResourceKeys: unique(background.removeResourceKeys, foreground.removeResourceKeys),
     statDeltas: sumRecords(background.statDeltas, foreground.statDeltas),
     resourceDeltas: sumRecords(background.resourceDeltas, foreground.resourceDeltas),
+    upsertCurrency: { ...(background.upsertCurrency ?? {}), ...(foreground.upsertCurrency ?? {}) },
     currencyDeltas: sumRecords(background.currencyDeltas, foreground.currencyDeltas),
     addAbilities: concat(background.addAbilities, foreground.addAbilities),
     removeAbilityIds: unique(background.removeAbilityIds, foreground.removeAbilityIds),
@@ -1588,6 +1589,7 @@ export function mergeAuditPatch(baseInput: TurnPatch | null | undefined, auditIn
   additional.lore = onlyNewLore(base.lore, additional.lore)
   additional.statDeltas = omitRecordedKeys(additional.statDeltas, base.statDeltas)
   additional.resourceDeltas = omitRecordedKeys(additional.resourceDeltas, base.resourceDeltas)
+  additional.upsertCurrency = omitRecordedKeys(additional.upsertCurrency, base.upsertCurrency)
   additional.currencyDeltas = omitRecordedKeys(additional.currencyDeltas, base.currencyDeltas)
   additional.factionReputationDeltas = omitRecordedKeys(additional.factionReputationDeltas, base.factionReputationDeltas)
 
@@ -3318,7 +3320,7 @@ function workshopPatchTargets(patch: TurnPatch, domain: NarrativeEventRequiremen
     case 'npc': return (patch.npcs ?? []).map((entry) => entry.operation === 'add' ? entry.npc.id : entry.targetId)
     case 'stat': return [...(patch.upsertStats ?? []).map((entry) => entry.key), ...Object.keys(patch.statDeltas ?? {}), ...(patch.removeStatKeys ?? [])]
     case 'resource': return [...(patch.upsertResources ?? []).map((entry) => entry.key), ...Object.keys(patch.resourceDeltas ?? {}), ...(patch.removeResourceKeys ?? [])]
-    case 'currency': return Object.keys(patch.currencyDeltas ?? {})
+    case 'currency': return [...Object.keys(patch.upsertCurrency ?? {}), ...Object.keys(patch.currencyDeltas ?? {})]
     case 'condition': return [...(patch.addConditions ?? []), ...(patch.removeConditions ?? [])]
     case 'status-effect': return [...(patch.upsertStatusEffects ?? []).flatMap((entry) => entry.id ? [entry.id] : []), ...(patch.removeStatusEffectIds ?? [])]
     case 'ability': return [...(patch.addAbilities ?? []).flatMap((entry) => entry.id ? [entry.id] : []), ...(patch.abilityChanges ?? []).map((entry) => entry.abilityId), ...(patch.removeAbilityIds ?? [])]

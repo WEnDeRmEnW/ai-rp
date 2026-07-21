@@ -903,7 +903,7 @@ function requirementSatisfied(requirement: NarrativeEventRequirement, patch: Tur
     case 'player':
       return Boolean(patch.playerProfile || patch.upsertStats?.length || patch.removeStatKeys?.length || patch.upsertResources?.length
         || patch.removeResourceKeys?.length || Object.keys(patch.statDeltas ?? {}).length || Object.keys(patch.resourceDeltas ?? {}).length
-        || Object.keys(patch.currencyDeltas ?? {}).length || patch.addConditions?.length || patch.removeConditions?.length
+        || Object.keys(patch.upsertCurrency ?? {}).length || Object.keys(patch.currencyDeltas ?? {}).length || patch.addConditions?.length || patch.removeConditions?.length
         || patch.upsertStatusEffects?.length || patch.removeStatusEffectIds?.length)
     case 'npc':
       return Boolean(patch.npcs?.some((entry) => (
@@ -938,7 +938,7 @@ function requirementSatisfied(requirement: NarrativeEventRequirement, patch: Tur
       return Boolean(upserted || changed)
     }
     case 'currency': {
-      const entries = Object.entries(patch.currencyDeltas ?? {}).filter(([key]) => matches(key))
+      const entries = [...Object.entries(patch.upsertCurrency ?? {}), ...Object.entries(patch.currencyDeltas ?? {})].filter(([key]) => matches(key))
       if (requirement.operation === 'remove') return entries.some(([, value]) => value < 0)
       if (requirement.operation === 'create') return entries.some(([, value]) => value > 0)
       return entries.some(([, value]) => value !== 0)

@@ -1863,6 +1863,7 @@ const turnPatchContract = z.object({
   removeResourceKeys: z.array(shortText).max(24).optional(),
   statDeltas: z.preprocess(normalizeNumberRecord, z.record(z.string().max(100), z.number().min(-1_000_000).max(1_000_000))).optional(),
   resourceDeltas: z.preprocess(normalizeNumberRecord, z.record(z.string().max(100), z.number().min(-1_000_000).max(1_000_000))).optional(),
+  upsertCurrency: z.preprocess(normalizeNumberRecord, z.record(z.string().max(100), z.number().min(0).max(1_000_000_000))).optional(),
   currencyDeltas: z.preprocess(normalizeNumberRecord, z.record(z.string().max(100), z.number().min(-100_000).max(100_000))).optional(),
   addAbilities: z.array(abilityDraftSchema).max(40).optional(),
   removeAbilityIds: z.array(idSchema).max(40).optional(),

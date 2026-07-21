@@ -1395,6 +1395,18 @@ describe('state engine', () => {
     ]))
   })
 
+  it('applies an absolute currency correction without treating the balance as a delta', () => {
+    const campaign = createDemoCampaign()
+    campaign.player.currency.credits = 25
+
+    const corrected = applyPatch(campaign, { upsertCurrency: { credits: 400 } }, 1)
+
+    expect(corrected.player.currency.credits).toBe(400)
+    expect(diffCampaignState(campaign, corrected)).toContainEqual(expect.objectContaining({
+      kind: 'currency', label: 'credits', before: 25, after: 400, delta: 375,
+    }))
+  })
+
   it('removes an exact NPC social link without affecting the remaining network', () => {
     const campaign = createDemoCampaign()
     const first = campaign.npcs[0]

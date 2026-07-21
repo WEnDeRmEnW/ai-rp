@@ -960,6 +960,38 @@ function mergeReputationUpserts(aliasEntries: Array<Record<string, unknown>>, ca
 
 function canonicalizePatchContainer(value: Record<string, unknown>): Record<string, unknown> {
   const result = { ...value }
+  const playerAliases = ['player', 'hero', 'protagonist', 'герой', 'персонажИгрока']
+  const nestedPlayers = playerAliases.map((key) => result[key]).filter(isRecord)
+  if (nestedPlayers.length) {
+    const player = Object.assign({}, ...nestedPlayers)
+    const nestedProfile = isRecord(player.profile) ? player.profile : {}
+    const profileKeys = ['name', 'archetype', 'appearance', 'personality', 'backstory', 'goal', 'levelDelta', 'lifeState']
+    const profile = {
+      ...nestedProfile,
+      ...Object.fromEntries(profileKeys.flatMap((key) => player[key] !== undefined ? [[key, player[key]]] : [])),
+      ...(isRecord(result.playerProfile) ? result.playerProfile : {}),
+    }
+    if (Object.keys(profile).length) result.playerProfile = profile
+
+    const arrayAliases: Array<[string, string]> = [
+      ['stats', 'upsertStats'], ['resources', 'upsertResources'], ['abilities', 'addAbilities'],
+      ['statusEffects', 'upsertStatusEffects'], ['conditions', 'addConditions'], ['inventory', 'inventory'],
+    ]
+    for (const [source, target] of arrayAliases) {
+      if (result[target] === undefined && player[source] !== undefined) result[target] = player[source]
+    }
+    const directPatchKeys = [
+      'removeStatKeys', 'removeResourceKeys', 'statDeltas', 'resourceDeltas', 'currencyDeltas',
+      'removeAbilityIds', 'abilityChanges', 'artifactChanges', 'removeConditions',
+      'removeStatusEffectIds', 'relationships',
+    ]
+    for (const patchKey of directPatchKeys) {
+      if (result[patchKey] === undefined && player[patchKey] !== undefined) result[patchKey] = player[patchKey]
+    }
+    if (result.upsertCurrency === undefined && player.currency !== undefined) result.upsertCurrency = normalizeCurrency(player.currency)
+    removeKeys(result, playerAliases)
+  }
+
   const sceneAliases = ['currentScene', 'current_scene', 'sceneUpdate', 'scenePatch']
   const aliasScene = firstDefined(result, sceneAliases)
   if (aliasScene !== undefined) {

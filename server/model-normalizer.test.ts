@@ -367,6 +367,28 @@ describe('global DeepSeek output normalization', () => {
     expect(parsed.lore[0]).toMatchObject({ alwaysOn: true, secret: false, discovered: true, priority: 90 })
   })
 
+  it('unwraps a DeepSeek player snapshot into safe canonical patch fields', () => {
+    const parsed = turnPatchSchema.parse({
+      player: {
+        profile: { appearance: 'На виске закреплён новый нейроинтерфейс.' },
+        archetype: 'Оператор резонанса',
+        stats: [{ key: 'will', label: 'Воля', value: '84', max: '100' }],
+        resources: [{ key: 'lifeEnergy', label: 'Жизненная энергия', value: '100', max: '100', aliases: ['HP', 'Здоровье'], color: '#ef4444', kind: 'health', criticalBelow: '20' }],
+        currency: { credits: '250' },
+        conditions: ['Нейронная синхронизация'],
+        resourceDeltas: { focus: '-5' },
+      },
+    })
+
+    expect(parsed).not.toHaveProperty('player')
+    expect(parsed.playerProfile).toMatchObject({ archetype: 'Оператор резонанса', appearance: expect.stringContaining('нейроинтерфейс') })
+    expect(parsed.upsertStats?.[0]).toMatchObject({ key: 'will', value: 84, max: 100 })
+    expect(parsed.upsertResources?.[0]).toMatchObject({ key: 'lifeEnergy', value: 100, aliases: ['HP', 'Здоровье'], criticalBelow: 20 })
+    expect(parsed.upsertCurrency).toEqual({ credits: 250 })
+    expect(parsed.addConditions).toEqual(['Нейронная синхронизация'])
+    expect(parsed.resourceDeltas).toEqual({ focus: -5 })
+  })
+
   it('preserves shorthand facets and mechanics misplaced inside ability availability', () => {
     const raw: any = demoWorld(worldRequest)
     const ability = raw.player.abilities[0]

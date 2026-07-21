@@ -11,6 +11,25 @@ const plan = (relationships: unknown) => ({
 })
 
 describe('campaign editor contract', () => {
+  it('accepts a full player wrapper from DeepSeek by canonicalizing it before strict validation', () => {
+    const parsed = campaignEditResponseSchema.parse({
+      summary: 'Ресурсы героя восстановлены.',
+      campaignPatch: {},
+      settingsPatch: {},
+      statePatch: {
+        player: {
+          resources: [{ key: 'lifeEnergy', label: 'Жизненная энергия', value: 100, max: 100, aliases: ['HP'], kind: 'health' }],
+          stats: [{ key: 'focus', label: 'Концентрация', value: 95, max: 100 }],
+          currency: { credits: 400 },
+        },
+      },
+    })
+
+    expect(parsed.statePatch.upsertResources?.[0]).toMatchObject({ key: 'lifeEnergy', value: 100 })
+    expect(parsed.statePatch.upsertStats?.[0]).toMatchObject({ key: 'focus', value: 95 })
+    expect(parsed.statePatch.upsertCurrency).toEqual({ credits: 400 })
+  })
+
   it('accepts real world, presentation and settings corrections in one checked response', () => {
     const parsed = campaignEditResponseSchema.parse({
       summary: 'Мир и стиль обновлены.',

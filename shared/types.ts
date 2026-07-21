@@ -2291,6 +2291,8 @@ export interface TurnPatch {
   removeResourceKeys?: string[]
   statDeltas?: Record<string, number>
   resourceDeltas?: Record<string, number>
+  /** Absolute currency balances, primarily for owner-directed campaign edits. */
+  upsertCurrency?: Record<string, number>
   currencyDeltas?: Record<string, number>
   addAbilities?: AbilityDraft[]
   removeAbilityIds?: ID[]

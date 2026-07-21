@@ -964,6 +964,7 @@ export function describePatch(patch: TurnPatch): string[] {
   Object.entries(patch.resourceDeltas ?? {}).forEach(([key, delta]) => changes.push(`${key} ${delta >= 0 ? '+' : '−'}${Math.abs(delta)}`))
   Object.entries(patch.statDeltas ?? {}).forEach(([key, delta]) => changes.push(`${key} ${delta >= 0 ? '+' : '−'}${Math.abs(delta)}`))
   Object.entries(patch.currencyDeltas ?? {}).forEach(([key, delta]) => changes.push(`${key} ${delta >= 0 ? '+' : '−'}${Math.abs(delta)}`))
+  Object.entries(patch.upsertCurrency ?? {}).forEach(([key, value]) => changes.push(`${key}: ${value}`))
   patch.addAbilities?.forEach((ability) => changes.push(`Новая способность: ${ability.name}`))
   patch.abilityChanges?.forEach(() => changes.push('Способность развивается'))
   patch.artifactChanges?.forEach(() => changes.push('Артефакт изменился'))
@@ -1247,6 +1248,10 @@ export function applyPatch(
   updateStats(patch.statDeltas, 'stats')
   updateStats(patch.resourceDeltas, 'resources')
 
+  Object.entries(patch.upsertCurrency ?? {}).forEach(([currency, value]) => {
+    if (!Number.isFinite(value)) return
+    campaign.player.currency[currency] = Math.max(0, value)
+  })
   Object.entries(patch.currencyDeltas ?? {}).forEach(([currency, delta]) => {
     if (!Number.isFinite(delta)) return
     campaign.player.currency[currency] = Math.max(0, (campaign.player.currency[currency] ?? 0) + delta)
