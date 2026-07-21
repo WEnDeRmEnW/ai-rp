@@ -1,4 +1,6 @@
 import type { Campaign, CampaignEditResponse, NPC } from '../shared/types.js'
+import { assessItemRarity, rarityOrder } from '../shared/rarity.js'
+import { requestedArtifactRarity, requestsNewArtifact } from './artifact-intent.js'
 
 export interface WorkshopResurrectionIntent {
   mode: 'apply' | 'enable'
@@ -78,6 +80,24 @@ export function workshopStateResponseIssues(campaign: Campaign, instruction: str
     || materialObject(response.statePatch)
     || Boolean(response.eventDirective)
   if (!hasMaterialChange) issues.push('Ответ содержит только summary и не меняет ни одной запрошенной сущности.')
+
+  const requestedRarity = requestedArtifactRarity(instruction)
+  if (requestedRarity && requestsNewArtifact(instruction)) {
+    const additions = (response.statePatch.inventory ?? []).flatMap((mutation) => (
+      mutation.operation === 'add' && mutation.item.category === 'artifact' ? [mutation.item] : []
+    ))
+    if (!additions.length) {
+      issues.push(`Владелец прямо попросил выдать новый артефакт класса ${requestedRarity}; добавь его через statePatch.inventory operation=add, а не только описать в summary.`)
+    } else if (!additions.some((item) => rarityOrder.indexOf(assessItemRarity({
+      category: 'artifact',
+      effects: item.effects ?? [],
+      rarity: item.rarity ?? 'common',
+      rarityProfile: item.rarityProfile,
+      artifact: item.artifact,
+    }).rarity) >= rarityOrder.indexOf(requestedRarity))) {
+      issues.push(`Запрошен артефакт класса ${requestedRarity}, но ни один добавляемый предмет не достигает этого класса по реальным свойствам.`)
+    }
+  }
 
   const intent = detectWorkshopResurrectionIntent(campaign, instruction)
   if (!intent || (response.eventDirective && response.eventDirective.delivery !== 'apply-now')) return issues

@@ -21,6 +21,21 @@ function resurrectionCampaign() {
 }
 
 describe('workshop owner-intent verification', () => {
+  it('does not accept an unrelated patch when the owner asked to receive a maximum-rarity artifact', () => {
+    const { campaign } = resurrectionCampaign()
+    const response: CampaignEditResponse = {
+      summary: 'Герой получил великий артефакт.',
+      campaignPatch: {},
+      settingsPatch: {},
+      statePatch: { memories: [{ kind: 'fact', content: 'Кузница пообещала награду.', tags: ['Кузница'], importance: 40 }] },
+    }
+
+    expect(workshopStateResponseIssues(campaign, 'Выдай моему герою артефакт максимальной редкости.', response)).toEqual(expect.arrayContaining([
+      expect.stringContaining('transcendent'),
+      expect.stringContaining('inventory'),
+    ]))
+  })
+
   it('resolves a pronoun to the dead NPC from the latest conversation', () => {
     const { campaign, target } = resurrectionCampaign()
     expect(detectWorkshopResurrectionIntent(campaign, 'Сделай так, чтобы у меня получилось воскресить его.')).toEqual({

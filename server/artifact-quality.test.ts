@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { artifactPlanQualityIssues, requestedArtifactRarity } from './orchestrator'
+import { requestsNewArtifact } from './artifact-intent'
 import { artifactRewardRepairSchema, turnPlanSchema } from './schemas'
 
 function transcendentPlan(worldImpact = 98) {
@@ -104,6 +105,14 @@ describe('artifact workshop quality gate', () => {
   it('recognizes a Russian request for the highest artifact tier', () => {
     expect(requestedArtifactRarity('Прошу мастерскую выдать мне трансцендентный артефакт.')).toBe('transcendent')
     expect(requestedArtifactRarity('Создайте самый сильный артефакт максимального уровня.')).toBe('transcendent')
+    expect(requestedArtifactRarity('Дай моему персонажу артефакт максимальной редкости.')).toBe('transcendent')
+    expect(requestedArtifactRarity('Выдай артефакт максимальнйо редкости.')).toBe('transcendent')
+    expect(requestedArtifactRarity('Нужна реликвия высшей редкости.')).toBe('transcendent')
+  })
+
+  it('distinguishes an actual artifact grant from a generic request to improve one', () => {
+    expect(requestsNewArtifact('Сделай мне артефакт максимальной редкости.')).toBe(true)
+    expect(requestsNewArtifact('Сделай мой существующий артефакт получше.')).toBe(false)
   })
 
   it('rejects a mythic-scale artifact disguised as transcendent', () => {

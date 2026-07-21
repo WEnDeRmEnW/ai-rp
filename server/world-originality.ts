@@ -1,10 +1,12 @@
 import type { WorldGenerationRequest } from '../shared/types.js'
 import type { GeneratedWorld, WorldGenerationManifest } from './schemas.js'
 import type { WorldGenerationStage } from './prompts.js'
+import { analyzeWorldRequestIntent } from './world-intent.js'
 
 const stopWords = new Set([
   'авторский', 'большой', 'будет', 'весь', 'всего', 'герой', 'где', 'для', 'его', 'если', 'есть', 'или', 'как', 'мир', 'мира', 'мире',
   'может', 'новый', 'один', 'очень', 'после', 'при', 'свой', 'система', 'системы', 'также', 'этого', 'этот', 'это', 'the', 'and', 'with', 'world',
+  'аниме', 'исекай', 'фэнтези', 'магия', 'магии', 'гильдия', 'гильдии', 'королевство', 'монстры', 'приключения', 'fantasy', 'anime', 'isekai',
 ])
 
 const clicheFamilies = [
@@ -53,11 +55,13 @@ function clicheIssues(request: WorldGenerationRequest, fields: Array<{ label: st
 
 function priorWorldIssues(request: WorldGenerationRequest, name: string, identity: string): string[] {
   if (request.canonMode === 'faithful') return []
+  const familiarityMode = analyzeWorldRequestIntent(request).mode
+  const familiar = familiarityMode === 'familiar' || familiarityMode === 'guided'
   return (request.noveltyReferences ?? []).flatMap((reference) => {
     if (normalize(reference.name) === normalize(name)) return [`Название мира дословно повторяет уже существующий мир «${reference.name}».`]
     const referenceIdentity = [reference.name, reference.tagline, reference.premise, ...reference.signatureTerms].join(' ')
     const similarity = identitySimilarity(identity, referenceIdentity)
-    return similarity.shared >= 5 && similarity.score >= 0.48
+    return similarity.shared >= (familiar ? 7 : 5) && similarity.score >= (familiar ? 0.62 : 0.48)
       ? [`Основа мира слишком похожа на уже созданный мир «${reference.name}» (${Math.round(similarity.score * 100)}% сходства ключевых понятий).`]
       : []
   })
