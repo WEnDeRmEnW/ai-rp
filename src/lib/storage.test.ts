@@ -138,4 +138,32 @@ describe('campaign IndexedDB storage', () => {
       status: 'active',
     })
   })
+
+  it('removes a legacy personal duplicate while preserving the real artifact power', async () => {
+    const storage = await import('./storage')
+    const legacy = createDemoCampaign()
+    const item: import('../../shared/types').InventoryItem = {
+      id: 'ownership-artifact', name: 'Перчатка абсолютного вектора', description: 'Артефакт управляет направлением приложенной силы.',
+      category: 'artifact', quantity: 1, rarity: 'legendary', equipped: true, effects: [], discoveredTurn: 0, history: [],
+      artifact: {
+        sentient: false, awakened: true, attunement: 80, bond: 0, requirements: [], passiveEffects: [], combinedEffects: [], failureModes: [], components: [], drawbacks: [], evolutionPaths: [], secrets: [],
+        powers: [{ id: 'vector-return', name: 'Возврат вектора', description: 'Разворачивает направление приложенной к владельцу силы.', mastery: 80, costs: [], limitations: [], category: 'control', capabilities: ['Возвращает импульс к его источнику'], techniques: [] }],
+      },
+    }
+    legacy.inventory.push(item)
+    const power = item.artifact!.powers[0]
+    legacy.player.abilities.push({
+      ...structuredClone(legacy.player.abilities[0]),
+      id: 'duplicated-item-power',
+      name: power.name,
+      description: power.description,
+      source: `Item: ${item.name}`,
+      capabilities: [...(power.capabilities ?? [])],
+    })
+
+    const migrated = storage.migrateCampaign(legacy)
+    expect(migrated.player.abilities.some((ability) => ability.id === 'duplicated-item-power')).toBe(false)
+    expect(migrated.inventory.find((entry) => entry.id === item.id)?.artifact?.powers.some((entry) => entry.id === power.id)).toBe(true)
+    expect(migrated.abilityRegistry?.find((entry) => entry.abilityId === 'duplicated-item-power')?.status).not.toBe('active')
+  })
 })

@@ -4,6 +4,7 @@ import { normalizeEventDirectorSettings, normalizeEventDirectorState } from '../
 import { normalizeItemRarity, normalizeRarityProfile } from '../../shared/rarity'
 import { normalizeArtifactDiscovery, updateArtifactRegistry } from '../../shared/artifacts'
 import { updateAbilityRegistry } from '../../shared/abilities'
+import { separatePersonalAbilities } from '../../shared/ability-ownership'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { ensureCampaignIdentity } from './campaign-identity'
 
@@ -190,13 +191,32 @@ export async function getCampaigns(): Promise<Campaign[]> {
 
 export function migrateCampaign(campaign: Campaign): Campaign {
   const inventory = campaign.inventory.map((rawItem) => migrateItem(rawItem, campaign.turn))
+  const normalizedPlayerAbilities = campaign.player.abilities.map((ability) => ({
+    ...ability,
+    costs: ability.costs ?? [],
+    effects: ability.effects ?? [],
+    limitations: ability.limitations ?? [],
+    requirements: ability.requirements ?? [],
+    evolutionPaths: ability.evolutionPaths ?? [],
+    history: ability.history ?? [],
+    tags: ability.tags ?? [],
+    capabilities: ability.capabilities ?? [],
+    synergies: ability.synergies ?? [],
+    counters: ability.counters ?? [],
+    examples: ability.examples ?? [],
+    techniques: migratePowerTechniques(ability.techniques),
+  }))
+  const separatedPlayerAbilities = separatePersonalAbilities(normalizedPlayerAbilities, inventory)
   let artifactRegistry = structuredClone(campaign.artifactRegistry ?? [])
   for (const item of inventory) {
     if (!item.artifact) continue
     artifactRegistry = updateArtifactRegistry(artifactRegistry, item, 'active', campaign.turn)
   }
   let abilityRegistry = structuredClone(campaign.abilityRegistry ?? [])
-  for (const ability of campaign.player.abilities) {
+  for (const { ability } of separatedPlayerAbilities.itemOwned) {
+    abilityRegistry = updateAbilityRegistry(abilityRegistry, ability, campaign.player.id, 'player', 'removed', campaign.turn)
+  }
+  for (const ability of separatedPlayerAbilities.personal) {
     abilityRegistry = updateAbilityRegistry(abilityRegistry, ability, campaign.player.id, 'player', 'active', campaign.turn)
   }
   for (const npc of campaign.npcs) {
@@ -249,21 +269,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
       statusEffects: migrateStatusEffects(campaign.player.statusEffects),
       lifeState: campaign.player.lifeState ?? 'active',
       currency: campaign.player.currency ?? {},
-      abilities: campaign.player.abilities.map((ability) => ({
-        ...ability,
-        costs: ability.costs ?? [],
-        effects: ability.effects ?? [],
-        limitations: ability.limitations ?? [],
-        requirements: ability.requirements ?? [],
-        evolutionPaths: ability.evolutionPaths ?? [],
-        history: ability.history ?? [],
-        tags: ability.tags ?? [],
-        capabilities: ability.capabilities ?? [],
-        synergies: ability.synergies ?? [],
-        counters: ability.counters ?? [],
-        examples: ability.examples ?? [],
-        techniques: migratePowerTechniques(ability.techniques),
-      })),
+      abilities: separatedPlayerAbilities.personal,
     },
     inventory,
     artifactRegistry,

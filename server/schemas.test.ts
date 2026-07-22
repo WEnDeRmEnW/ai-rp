@@ -43,6 +43,30 @@ describe('campaign editor contract', () => {
   })
 })
 
+describe('generated ability ownership', () => {
+  it('rejects an artifact power copied into the player personal ability list', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const generated = demoWorld(request)
+    const item = generated.inventory.find((entry) => entry.artifact)!
+    const power = item.artifact!.powers[0]
+    generated.player.abilities[0] = {
+      ...generated.player.abilities[0],
+      name: power.name,
+      description: power.description,
+      source: `Item: ${item.name}`,
+      capabilities: power.capabilities,
+    }
+
+    const parsed = generatedWorldSchema.safeParse(generated)
+    expect(parsed.success).toBe(false)
+    if (!parsed.success) expect(parsed.error.issues.some((issue) => issue.message.includes('duplicated as a personal ability'))).toBe(true)
+  })
+})
+
 describe('universal narrative event contract', () => {
   it('normalizes DeepSeek Russian enums, numeric strings and singleton objects without inventing content', () => {
     const parsed = narrativeEventDecisionSchema.parse({

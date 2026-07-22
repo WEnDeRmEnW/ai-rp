@@ -43,6 +43,7 @@ import { compactMemoryBank } from '../../shared/context'
 import { normalizeItemRarity } from '../../shared/rarity'
 import { normalizeArtifactDiscovery, updateArtifactRegistry } from '../../shared/artifacts'
 import { normalizeAbilityDiscovery, updateAbilityRegistry } from '../../shared/abilities'
+import { itemOwnedAbilityMatch } from '../../shared/ability-ownership'
 import { isMutationOperationName } from '../../shared/mutation-operations'
 import { diffCampaignState, summarizeStateChanges } from './state-changes'
 
@@ -1258,9 +1259,11 @@ export function applyPatch(
   })
 
   patch.addAbilities?.slice(0, 40).forEach((ability) => {
+    const materialized = materializeAbility(ability, turn, undefined, campaign.world.capabilitySystem)
+    if (itemOwnedAbilityMatch(materialized, campaign.inventory)) return
     const existing = campaign.player.abilities.find((current) => current.id === ability.id || normalizedName(current.name) === normalizedName(ability.name))
     if (existing) Object.assign(existing, materializeAbility(ability, turn, existing, campaign.world.capabilitySystem))
-    else campaign.player.abilities.push(materializeAbility(ability, turn, undefined, campaign.world.capabilitySystem))
+    else campaign.player.abilities.push(materialized)
   })
   if (patch.removeAbilityIds?.length) {
     patch.removeAbilityIds.forEach((abilityId, index) => {

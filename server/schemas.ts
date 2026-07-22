@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { assessLegendEcology, assessStrongCharacterEcology } from '../shared/legend-ecology.js'
+import { itemOwnedAbilityMatch } from '../shared/ability-ownership.js'
 import { normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
 
 const stringifyScalar = (value: unknown) => typeof value === 'number' || typeof value === 'boolean' ? String(value) : value
@@ -2898,6 +2899,12 @@ const generatedWorldCoreContract = z.object({
       path: ['player', 'abilities', index, 'profile'],
       message: 'Every newly generated player ability requires a complete authored profile',
     })
+    const itemOwned = itemOwnedAbilityMatch(ability, section.inventory)
+    if (itemOwned) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['player', 'abilities', index],
+      message: `Item power must remain only in inventory artifact powers: ${itemOwned.itemName}${itemOwned.powerName ? ` / ${itemOwned.powerName}` : ''}. Remove it from player.abilities unless the text explicitly establishes a permanent transfer that survives loss of the item.`,
+    })
   })
 })
 
@@ -2991,6 +2998,14 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
       message: `Unknown character reference: ${name}`,
     })
   }
+  world.player.abilities.forEach((ability, index) => {
+    const itemOwned = itemOwnedAbilityMatch(ability, world.inventory)
+    if (itemOwned) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['player', 'abilities', index],
+      message: `Item power is duplicated as a personal ability: ${itemOwned.itemName}${itemOwned.powerName ? ` / ${itemOwned.powerName}` : ''}`,
+    })
+  })
   const interfaceBindingIssue = (moduleIndex: number, elementIndex: number, message: string) => context.addIssue({
     code: z.ZodIssueCode.custom,
     path: ['world', 'interfaceModules', moduleIndex, 'elements', elementIndex, 'binding'],

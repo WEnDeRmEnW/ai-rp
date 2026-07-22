@@ -18,6 +18,7 @@ import { workshopStateResponseIssues } from './workshop-intent.js'
 import { generatedWorldOriginalityIssues, worldManifestOriginalityIssues } from './world-originality.js'
 import { requestedArtifactRarity } from './artifact-intent.js'
 import { analyzeWorldRequestIntent } from './world-intent.js'
+import { itemOwnedAbilityMatch } from '../shared/ability-ownership.js'
 
 export { requestedArtifactRarity } from './artifact-intent.js'
 
@@ -422,6 +423,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     ...campaign.player.abilities.map((ability) => ability.id),
     ...(plan.statePatch.addAbilities ?? []).flatMap((ability) => ability.id ? [ability.id] : []),
   ])
+  const itemOwnedAbilityIds = new Set<string>()
   const knownArtifacts = new Set([
     ...campaign.inventory.filter((item) => item.artifact).map((item) => item.id),
     ...(plan.statePatch.inventory ?? []).flatMap((mutation) => mutation.operation === 'add' && mutation.item?.artifact && mutation.item.id ? [mutation.item.id] : []),
@@ -454,6 +456,22 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
       if (mutation.operation === 'remove') rejectStaleRemoval('Пропущено удаление уже отсутствующего предмета.', ['inventory', 'equipment', 'artifacts'])
       else reject('Отклонено обновление неизвестного предмета.', ['inventory', 'equipment', 'artifacts'])
       return []
+    })
+  }
+  if (plan.statePatch.addAbilities?.length) {
+    const ownershipInventory = [
+      ...campaign.inventory,
+      ...(plan.statePatch.inventory ?? []).flatMap((mutation) => mutation.operation === 'add' ? [mutation.item] : []),
+    ]
+    plan.statePatch.addAbilities = plan.statePatch.addAbilities.filter((ability) => {
+      const itemOwned = itemOwnedAbilityMatch(ability, ownershipInventory)
+      if (!itemOwned) return true
+      if (ability.id && !campaign.player.abilities.some((current) => current.id === ability.id)) {
+        knownAbilities.delete(ability.id)
+        itemOwnedAbilityIds.add(ability.id)
+      }
+      notes.push(`Сила «${ability.name}» сохранена только у предмета «${itemOwned.itemName}» и не продублирована как личная способность героя.`)
+      return false
     })
   }
   if (plan.statePatch.statDeltas) {
@@ -713,6 +731,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
   plan.statePatch.removeAbilityIds = plan.statePatch.removeAbilityIds?.filter((abilityId) => knownAbilities.has(abilityId))
   if ((plan.statePatch.removeAbilityIds?.length ?? 0) < removedAbilityCount) rejectStaleRemoval('Пропущено удаление уже отсутствующей способности.', ['abilities'])
   const abilityChangeCount = plan.statePatch.abilityChanges?.length ?? 0
+  const unknownAbilityChangeCount = plan.statePatch.abilityChanges?.filter((change) => !knownAbilities.has(change.abilityId) && !itemOwnedAbilityIds.has(change.abilityId)).length ?? 0
   plan.statePatch.abilityChanges = plan.statePatch.abilityChanges?.filter((change) => knownAbilities.has(change.abilityId)).map((change) => {
     if (change.mastery !== undefined && change.masteryDelta !== undefined) {
       delete change.masteryDelta
@@ -722,7 +741,7 @@ export function sanitizePlan(campaign: Campaign, plan: ReturnType<typeof turnPla
     sanitizeTechniquePatch((ability?.techniques ?? []).map((technique) => technique.id), change, ability?.name ?? change.abilityId)
     return change
   })
-  if ((plan.statePatch.abilityChanges?.length ?? 0) < abilityChangeCount) reject('Отклонено развитие неизвестной способности.', ['abilities'])
+  if ((plan.statePatch.abilityChanges?.length ?? 0) < abilityChangeCount && unknownAbilityChangeCount > 0) reject('Отклонено развитие неизвестной способности.', ['abilities'])
   const artifactChangeCount = plan.statePatch.artifactChanges?.length ?? 0
   plan.statePatch.artifactChanges = plan.statePatch.artifactChanges?.filter((change) => knownArtifacts.has(change.itemId)).map((change) => {
     const artifact = campaign.inventory.find((item) => item.id === change.itemId)?.artifact
@@ -4140,12 +4159,16 @@ function worldManifestStageIssues(
 ): string[] {
   if (stage === 'core') {
     const system = sections.core.world.capabilitySystem
+    const representedPlayerCapabilities = [
+      ...sections.core.player.abilities.map((entry) => entry.name),
+      ...sections.core.inventory.flatMap((item) => item.artifact?.powers.map((power) => power.name) ?? []),
+    ]
     return [
       ...(sections.core.world.name === manifest.world.name ? [] : [`Имя мира должно буквально совпадать с паспортом: ${manifest.world.name}`]),
       ...(sections.core.player.name === manifest.player.name ? [] : [`Имя героя должно буквально совпадать с паспортом: ${manifest.player.name}`]),
       ...missingManifestValues('характеристики героя', manifest.player.statKeys, sections.core.player.stats.map((entry) => entry.key)),
       ...missingManifestValues('ресурсы героя', manifest.player.resourceKeys, sections.core.player.resources.map((entry) => entry.key)),
-      ...missingManifestValues('способности героя', manifest.player.abilityNames, sections.core.player.abilities.map((entry) => entry.name)),
+      ...missingManifestValues('личные способности или силы предметов героя', manifest.player.abilityNames, representedPlayerCapabilities),
       ...missingManifestValues('стартовые предметы', manifest.player.inventory.map((entry) => entry.name), sections.core.inventory.map((entry) => entry.name)),
       ...missingManifestValues('группы системы возможностей', manifest.world.capabilityGroups.map((entry) => entry.id), system?.groups.map((entry) => entry.id ?? '') ?? []),
       ...missingManifestValues('классы системы возможностей', manifest.world.capabilityTiers.map((entry) => entry.id), system?.tiers.map((entry) => entry.id ?? '') ?? []),

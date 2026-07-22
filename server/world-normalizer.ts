@@ -5,6 +5,7 @@ import type {
 import { updateAbilityRegistry } from '../shared/abilities.js'
 import { defaultEventDirectorState, normalizeEventDirectorSettings } from '../shared/event-director.js'
 import { normalizeItemRarity, normalizeRarityProfile } from '../shared/rarity.js'
+import { separatePersonalAbilities } from '../shared/ability-ownership.js'
 import type { GeneratedWorld } from './schemas.js'
 
 const id = () => crypto.randomUUID()
@@ -180,7 +181,41 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       lastChangedTurn: 0,
     }
   })
-  const playerAbilities = generated.player.abilities.map((ability) => materializeGeneratedAbility(ability, 0, capability.system, capability.groupIds, capability.tierIds))
+  const inventory = generated.inventory.map((item) => {
+    const maxDurability = item.maxDurability
+    const durability = item.durability === undefined ? undefined : Math.max(0, Math.min(item.durability, maxDurability ?? 100_000))
+    const maxCharges = item.maxCharges
+    const charges = item.charges === undefined ? undefined : Math.max(0, Math.min(item.charges, maxCharges ?? 1_000_000))
+    const state = item.state === 'sealed' ? item.state
+      : durability !== undefined && durability <= 0 ? 'broken' as const
+        : charges !== undefined && maxCharges !== undefined && charges <= 0 ? 'depleted' as const
+          : item.state ?? (durability !== undefined && maxDurability !== undefined && durability < maxDurability ? 'damaged' as const : durability !== undefined || charges !== undefined ? 'intact' as const : undefined)
+    const normalizedItem = normalizeItemRarity({
+      ...item,
+      rarityProfile: normalizeRarityProfile(item.rarityProfile),
+      durability,
+      maxDurability,
+      charges,
+      maxCharges,
+      state,
+      id: id(),
+      discoveredTurn: 0,
+      history: item.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
+      artifact: item.artifact ? {
+        ...item.artifact,
+        powers: item.artifact.powers.map((power) => ({
+          ...power,
+          id: id(),
+          techniques: materializeTechniques(power.techniques, 0),
+        })),
+        components: item.artifact.components.map((component) => ({ ...component, id: id() })),
+        evolutionPaths: item.artifact.evolutionPaths.map((path) => ({ ...path, id: id() })),
+      } : undefined,
+    })
+    return normalizedItem
+  })
+  const playerAbilityCandidates = generated.player.abilities.map((ability) => materializeGeneratedAbility(ability, 0, capability.system, capability.groupIds, capability.tierIds))
+  const playerAbilities = separatePersonalAbilities(playerAbilityCandidates, inventory).personal
   let abilityRegistry = playerAbilities.reduce(
     (registry, ability) => updateAbilityRegistry(registry, ability, playerId, 'player', 'active', 0),
     [] as Campaign['abilityRegistry'],
@@ -245,39 +280,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       statusEffects: [],
       lifeState: 'active',
     },
-    inventory: generated.inventory.map((item) => {
-      const maxDurability = item.maxDurability
-      const durability = item.durability === undefined ? undefined : Math.max(0, Math.min(item.durability, maxDurability ?? 100_000))
-      const maxCharges = item.maxCharges
-      const charges = item.charges === undefined ? undefined : Math.max(0, Math.min(item.charges, maxCharges ?? 1_000_000))
-      const state = item.state === 'sealed' ? item.state
-        : durability !== undefined && durability <= 0 ? 'broken' as const
-          : charges !== undefined && maxCharges !== undefined && charges <= 0 ? 'depleted' as const
-            : item.state ?? (durability !== undefined && maxDurability !== undefined && durability < maxDurability ? 'damaged' as const : durability !== undefined || charges !== undefined ? 'intact' as const : undefined)
-      const normalizedItem = normalizeItemRarity({
-        ...item,
-        rarityProfile: normalizeRarityProfile(item.rarityProfile),
-        durability,
-        maxDurability,
-        charges,
-        maxCharges,
-        state,
-        id: id(),
-        discoveredTurn: 0,
-        history: item.history.map((entry) => ({ ...entry, id: id(), turn: 0 })),
-        artifact: item.artifact ? {
-          ...item.artifact,
-          powers: item.artifact.powers.map((power) => ({
-            ...power,
-            id: id(),
-            techniques: materializeTechniques(power.techniques, 0),
-          })),
-          components: item.artifact.components.map((component) => ({ ...component, id: id() })),
-          evolutionPaths: item.artifact.evolutionPaths.map((path) => ({ ...path, id: id() })),
-        } : undefined,
-      })
-      return normalizedItem
-    }),
+    inventory,
     npcs,
     socialLinks: generated.socialLinks.flatMap((link) => {
       const fromNpcId = npcIds.get(link.fromNpcName.toLocaleLowerCase('ru-RU'))

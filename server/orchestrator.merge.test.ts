@@ -24,6 +24,31 @@ function worldMetric(id: string, key: string, label: string): WorldMetricDraft {
 }
 
 describe('turn patch merging', () => {
+  it('keeps an artifact power out of personal abilities without failing the turn', () => {
+    const campaign = createDemoCampaign()
+    campaign.inventory.push({
+      id: 'artifact-vector', name: 'Перчатка вектора', description: 'Управляет направлением силы.', category: 'artifact', quantity: 1,
+      rarity: 'legendary', equipped: true, effects: [], discoveredTurn: campaign.turn, history: [],
+      artifact: {
+        sentient: false, awakened: true, attunement: 80, bond: 0, requirements: [], passiveEffects: [], combinedEffects: [], failureModes: [], components: [], drawbacks: [], evolutionPaths: [], secrets: [],
+        powers: [{ id: 'power-return', name: 'Возврат вектора', description: 'Разворачивает приложенную силу.', mastery: 80, costs: [], limitations: [], capabilities: ['Возвращает импульс'], techniques: [] }],
+      },
+    })
+    const plan = turnPlanSchema.parse({
+      outcome: 'Предмет показывает свою силу.',
+      beats: ['Перчатка разворачивает импульс.'],
+      suggestions: ['Осмотреть перчатку', 'Продолжить'],
+      statePatch: {
+        addAbilities: [{ id: 'duplicate-return', name: 'Возврат вектора', description: 'Разворачивает приложенную силу.', source: 'Item: Перчатка вектора', capabilities: ['Возвращает импульс'] }],
+      },
+    })
+
+    const sanitized = sanitizePlan(campaign, plan)
+    expect(sanitized.plan.statePatch.addAbilities).toEqual([])
+    expect(sanitized.rejections.filter((entry) => entry.blocking)).toEqual([])
+    expect(sanitized.notes).toEqual(expect.arrayContaining([expect.stringContaining('сохранена только у предмета')]))
+  })
+
   it('keeps supplemental consequences without applying the same relationship, level or NPC field twice', () => {
     const merged = mergeAuditPatch({
       playerProfile: { levelDelta: 1, goal: 'Выжить' },

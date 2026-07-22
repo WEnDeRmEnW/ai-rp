@@ -7,6 +7,7 @@ import type { Ability, ArtifactPower, ArtifactSection, Campaign, InspectorTabId,
 import { buildContextSelection } from '../../shared/context'
 import { assessItemRarity } from '../../shared/rarity'
 import { grantedItemAbilities, type GrantedItemAbility } from '../../shared/effective-abilities'
+import { separatePersonalAbilities } from '../../shared/ability-ownership'
 import { artifactComponentKnowledge, artifactPowerKnowledge, artifactSectionKnown } from '../../shared/artifacts'
 import { abilitySectionKnown, visibleAbilityTechniques } from '../../shared/abilities'
 import { narrativeEventMagnitudeContracts } from '../../shared/event-magnitude'
@@ -580,6 +581,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const weight = campaign.inventory.reduce((sum, item) => sum + (item.weight ?? 0) * item.quantity, 0)
   const filteredItems = useMemo(() => campaign.inventory.filter((item) => `${item.name} ${item.description}`.toLocaleLowerCase('ru-RU').includes(query.toLocaleLowerCase('ru-RU'))), [campaign.inventory, query])
   const itemAbilities = useMemo(() => grantedItemAbilities({ inventory: campaign.inventory }), [campaign.inventory])
+  const personalAbilities = useMemo(() => separatePersonalAbilities(campaign.player.abilities, campaign.inventory).personal, [campaign.player.abilities, campaign.inventory])
   const visibleLore = campaign.lore.filter((entry) => !entry.secret || entry.discovered)
   const visibleInitiatives = campaign.npcs.filter((npc) => getNpcDisclosure(npc).has('initiative') && npc.initiative && npc.initiative.visibility !== 'hidden' && npc.status !== 'dead')
   const visibleWorldEvents = (campaign.worldEvents ?? []).filter((event) => event.visibility !== 'hidden' && ['scheduled', 'due'].includes(event.status))
@@ -617,18 +619,18 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
   const labels = presentation.labels
   const playerAbilityGroups = useMemo(() => {
     const capabilitySystem = campaign.world.capabilitySystem
-    if (!capabilitySystem) return [{ id: 'legacy', label: labels.abilities, description: '', abilities: campaign.player.abilities }]
+    if (!capabilitySystem) return [{ id: 'legacy', label: labels.abilities, description: '', abilities: personalAbilities }]
     const groups = capabilitySystem.groups.map((group) => ({
       id: group.id,
       label: group.label,
       description: group.description,
       accent: group.accent,
-      abilities: campaign.player.abilities.filter((ability) => ability.profile?.nature.groupId === group.id),
+      abilities: personalAbilities.filter((ability) => ability.profile?.nature.groupId === group.id),
     })).filter((group) => group.abilities.length)
-    const ungrouped = campaign.player.abilities.filter((ability) => !ability.profile || !capabilitySystem.groups.some((group) => group.id === ability.profile?.nature.groupId))
+    const ungrouped = personalAbilities.filter((ability) => !ability.profile || !capabilitySystem.groups.some((group) => group.id === ability.profile?.nature.groupId))
     if (ungrouped.length) groups.push({ id: 'legacy', label: 'Прежние возможности', description: 'Карточки из старого сохранения остаются без автоматической переработки.', accent: presentation.accent, abilities: ungrouped })
     return groups
-  }, [campaign.player.abilities, campaign.world.capabilitySystem, labels.abilities, presentation.accent])
+  }, [personalAbilities, campaign.world.capabilitySystem, labels.abilities, presentation.accent])
   const entityName = (entityId?: string) => entityId === campaign.player.id ? campaign.player.name : campaign.npcs.find((npc) => npc.id === entityId)?.name ?? entityId ?? 'Неизвестно'
   const placeName = (placeId?: string) => campaign.world.places?.find((place) => place.id === placeId)?.name ?? placeId ?? 'Весь мир'
   const contextPreview = useMemo(() => buildContextSelection(campaign, lastAssistant?.content ?? campaign.scene.location), [campaign, lastAssistant?.content])
@@ -765,7 +767,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
                     {group.abilities.map((ability) => <AbilityCard key={ability.id} ability={ability} capabilitySystem={campaign.world.capabilitySystem} resources={campaign.player.resources} expanded={expandedAbility === ability.id} onToggle={() => ability.profile ? setAbilityDossier({ ability, ownerName: campaign.player.name, resources: campaign.player.resources }) : setExpandedAbility(expandedAbility === ability.id ? undefined : ability.id)} />)}
                   </div>
                 </section>)}
-                {!campaign.player.abilities.length && <EmptyMini>Личных способностей пока нет.</EmptyMini>}
+                {!personalAbilities.length && <EmptyMini>Личных способностей пока нет.</EmptyMini>}
               </div>
             </Section>
             {!!itemAbilities.length && <Section title="Силы предметов" action={<Backpack size={15} />}>
