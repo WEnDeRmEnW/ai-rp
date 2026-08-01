@@ -4370,7 +4370,11 @@ async function generateWorldSection<T>(
   const messages = issues && currentSection
     ? worldGenerationStageRepairPrompt(request, concept, stage, establishedFacts, currentSection, issues, manifest)
     : worldGenerationStagePrompt(request, concept, stage, establishedFacts, manifest)
-  const maxOutputTokens = stage === 'characters' || stage === 'legends' ? 65_536 : 49_152
+  const maxOutputTokens = stage === 'characters' || stage === 'legends'
+    ? 131_072
+    : stage === 'core' || stage === 'civilization' || stage === 'narrative'
+      ? 98_304
+      : 49_152
   const policy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
   const raw = await completeJson(request.provider, messages, {
     stage: 'world',

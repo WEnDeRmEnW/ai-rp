@@ -444,17 +444,24 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   let repairMessages = messages
   let lastError: unknown
   let maxOutputTokens = outputLimit(messages, true, options)
-  const maxAttempts = Math.max(1, Math.min(3, Math.round(options?.maxAttempts ?? 3)))
+  const maxSyntaxAttempts = Math.max(1, Math.min(3, Math.round(options?.maxAttempts ?? 3)))
   const transportAttempts = Math.max(1, Math.min(3, Math.round(options?.transportAttempts ?? 3)))
   const timeoutMs = Math.max(5_000, Math.min(300_000, Math.round(options?.timeoutMs ?? 300_000)))
   const stage = options?.stage ?? inferStage(messages, true)
   const streaming = options?.stream ?? (stage === 'world' || stage === 'turn')
+  let syntaxAttempts = 0
+  let truncationAttempts = 0
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  // A provider-side length stop is not a schema/syntax failure. Previously balanced generation
+  // counted 65k and 98k truncations as both allowed attempts, so it never sent the already
+  // prepared 131k request. Keep those recovery budgets independent.
+  while (syntaxAttempts < maxSyntaxAttempts) {
     const completion = await scopedRequestCompletion(config, repairMessages, true, maxOutputTokens, true, 'reduce', transportAttempts, timeoutMs, streaming)
     const raw = completion.content
     if (completion.truncated) {
+      truncationAttempts += 1
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
+      if (maxOutputTokens >= 131_072 || truncationAttempts >= 3) break
       maxOutputTokens = expandedOutputLimit(maxOutputTokens)
       repairMessages = [
         ...messages,
@@ -469,7 +476,9 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
     try {
       return extractJson(raw)
     } catch (error) {
+      syntaxAttempts += 1
       lastError = error
+      if (syntaxAttempts >= maxSyntaxAttempts) break
       repairMessages = [
         ...messages,
         { role: 'assistant', content: raw },

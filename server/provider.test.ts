@@ -205,6 +205,27 @@ describe('structured provider recovery', () => {
     expect(bodies[1].messages.at(-1).content).toContain('ОБРЕЗАН')
   })
 
+  it('reaches the 131k world limit even when schema policy allows only one syntax attempt', async () => {
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      const index = bodies.length - 1
+      return new Response(JSON.stringify({
+        choices: [{
+          message: { content: index < 2 ? '{"world":' : '{"world":{"name":"Полный большой мир"}}' },
+          finish_reason: index < 2 ? 'length' : 'stop',
+        }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+
+    await expect(completeJson(
+      { provider: 'ollama', model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', apiKey: 'test', temperature: 0.8 },
+      [{ role: 'system', content: 'Многоэтапная генерация мира.' }, { role: 'user', content: 'Создай большой раздел.' }],
+      { stage: 'world', maxAttempts: 1, maxOutputTokens: 65_536 },
+    )).resolves.toEqual({ world: { name: 'Полный большой мир' } })
+    expect(bodies.map((body) => body.max_tokens)).toEqual([65_536, 98_304, 131_072])
+  })
+
   it('safely lowers an explicitly rejected max_tokens limit for an OpenAI-compatible gateway', async () => {
     const bodies: any[] = []
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
