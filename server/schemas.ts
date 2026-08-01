@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { itemOwnedAbilityMatch } from '../shared/ability-ownership.js'
 import { legendNameLooksLikeEvent, legendRepresentsCharacter, linkedLegendNameMatchesCharacter } from '../shared/legend-identity.js'
-import { normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
+import { normalizeGeneratedWorldOutput, normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
 
 const stringifyScalar = (value: unknown) => typeof value === 'number' || typeof value === 'boolean' ? String(value) : value
 const idSchema = z.preprocess(stringifyScalar, z.string().min(1).max(120))
@@ -2873,7 +2873,7 @@ const worldGenerationManifestContract = z.object({
     factionNames: z.array(shortText).max(8),
     threatTier: threatTierSchema,
     hidden: modelBoolean,
-  }).strict()).min(1).max(20),
+  }).strict()).min(1).max(12),
   legends: z.array(z.object({
     name: shortText,
     characterName: shortText.optional(),
@@ -2890,7 +2890,7 @@ const worldGenerationManifestContract = z.object({
   }).strict(),
   interface: z.object({
     metricIds: z.array(idSchema).max(12),
-    moduleIds: z.array(idSchema).max(8),
+    moduleIds: z.array(idSchema).max(6),
   }).strict(),
 }).strict().superRefine((manifest, context) => {
   const unique = (values: string[], path: Array<string | number>) => {
@@ -2981,6 +2981,15 @@ const generatedWorldCharactersContract = generatedWorldStructuralContract.pick({
   worldPressures: true,
   influenceAssets: true,
 }).strict()
+
+// Character authoring is intentionally narrower than the assembled character section. DeepSeek
+// can fully author at most four dense NPC dossiers reliably before long responses start timing
+// out. The topology contract is generated only after those immutable dossiers are available.
+const generatedWorldNpcBatchContract = z.object({
+  npcs: generatedWorldStructuralContract.shape.npcs.min(1).max(4),
+}).strict()
+
+const generatedWorldCharacterTopologyContract = generatedWorldCharactersContract.omit({ npcs: true }).strict()
 
 const generatedWorldLegendsContract = z.object({
   world: generatedWorldStructuralContract.shape.world.pick({
@@ -3478,22 +3487,26 @@ const generatedWorldEcologyRepairContract = z.object({
  * separately so a small ecology/reference problem can be repaired without regenerating every
  * unrelated law, item, place and UI module five times.
  */
-export const generatedWorldDraftSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldStructuralContract)
-export const worldGenerationManifestSchema = z.preprocess((value) => normalizeModelOutput(value), worldGenerationManifestContract)
+export const generatedWorldDraftSchema = z.preprocess(normalizeGeneratedWorldOutput, generatedWorldStructuralContract)
+export const worldGenerationManifestSchema = z.preprocess(normalizeGeneratedWorldOutput, worldGenerationManifestContract)
 export const generatedWorldCoreSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCoreContract)
 export const generatedWorldCivilizationSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCivilizationContract)
-export const generatedWorldCharactersSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCharactersContract)
+export const generatedWorldCharactersSchema = z.preprocess(normalizeGeneratedWorldOutput, generatedWorldCharactersContract)
+export const generatedWorldNpcBatchSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldNpcBatchContract)
+export const generatedWorldCharacterTopologySchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCharacterTopologyContract)
 export const generatedWorldLegendsSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldLegendsContract)
 export const generatedWorldNarrativeSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldNarrativeContract)
-export const generatedWorldInterfaceSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldInterfaceContract)
+export const generatedWorldInterfaceSchema = z.preprocess(normalizeGeneratedWorldOutput, generatedWorldInterfaceContract)
 export const generatedWorldEcologyRepairSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldEcologyRepairContract)
-export const generatedWorldSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldContract)
+export const generatedWorldSchema = z.preprocess(normalizeGeneratedWorldOutput, generatedWorldContract)
 
 export type GeneratedWorld = z.infer<typeof generatedWorldSchema>
 export type WorldGenerationManifest = z.infer<typeof worldGenerationManifestSchema>
 export type GeneratedWorldCore = z.infer<typeof generatedWorldCoreSchema>
 export type GeneratedWorldCivilization = z.infer<typeof generatedWorldCivilizationSchema>
 export type GeneratedWorldCharacters = z.infer<typeof generatedWorldCharactersSchema>
+export type GeneratedWorldNpcBatch = z.infer<typeof generatedWorldNpcBatchSchema>
+export type GeneratedWorldCharacterTopology = z.infer<typeof generatedWorldCharacterTopologySchema>
 export type GeneratedWorldLegends = z.infer<typeof generatedWorldLegendsSchema>
 export type GeneratedWorldNarrative = z.infer<typeof generatedWorldNarrativeSchema>
 export type GeneratedWorldInterface = z.infer<typeof generatedWorldInterfaceSchema>

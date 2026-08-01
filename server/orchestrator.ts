@@ -4,8 +4,8 @@ import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventD
 import { demoTurn, demoWorld } from './demo.js'
 import { completeAuxiliaryJson, completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput, normalizeTurnPlan } from './model-normalizer.js'
-import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityProfileAuthoringPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestOriginalityRepairPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { abilityFocusedRepairSchema, abilityProfileAuthoringSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityProfileAuthoringResponse, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
+import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityProfileAuthoringPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationCharacterTopologyPrompt, worldGenerationManifestOriginalityRepairPrompt, worldGenerationManifestPrompt, worldGenerationNpcBatchPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { abilityFocusedRepairSchema, abilityProfileAuthoringSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCharacterTopologySchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldNpcBatchSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityProfileAuthoringResponse, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCharacterTopology, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type GeneratedWorldNpcBatch, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
@@ -4170,6 +4170,54 @@ export function normalizeGeneratedWorldReferences(source: GeneratedWorld, reques
   return world
 }
 
+/**
+ * Adaptive interface modules are an optional projection of the generated world. A stale or
+ * undisclosed live binding must never force the provider to regenerate an otherwise complete
+ * world (or, worse, disclose hidden state). Structural binding mistakes are handled by the
+ * generated-interface schema; this pass removes only elements rejected by the full cross-world
+ * binding audit. Runtime interface edits remain strict and continue to surface bad references.
+ */
+export function sanitizeGeneratedWorldInterfaceBindings(source: GeneratedWorld): GeneratedWorld {
+  const world = structuredClone(source)
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const parsed = generatedWorldSchema.safeParse(world)
+    if (parsed.success) return world
+
+    const rejectedByModule = new Map<number, Set<number>>()
+    parsed.error.issues.forEach((issue) => {
+      const [root, collection, moduleIndex, child, elementIndex, field] = issue.path
+      if (
+        root !== 'world'
+        || collection !== 'interfaceModules'
+        || child !== 'elements'
+        || field !== 'binding'
+        || typeof moduleIndex !== 'number'
+        || typeof elementIndex !== 'number'
+      ) return
+      rejectedByModule.set(moduleIndex, new Set([
+        ...(rejectedByModule.get(moduleIndex) ?? []),
+        elementIndex,
+      ]))
+    })
+    if (!rejectedByModule.size) break
+
+    world.world.interfaceModules = world.world.interfaceModules.flatMap((module, moduleIndex) => {
+      const rejected = rejectedByModule.get(moduleIndex)
+      if (!rejected?.size) return [module]
+      const elements = module.elements.filter((_, elementIndex) => !rejected.has(elementIndex))
+      if (!elements.length) return []
+      const survivingIds = new Set(elements.map((element) => element.id))
+      elements.forEach((element) => {
+        if (element.links) element.links = element.links.filter((link) => link !== element.id && survivingIds.has(link))
+      })
+      return [{ ...module, elements }]
+    })
+  }
+
+  return world
+}
+
 export function splitGeneratedWorldSections(world: GeneratedWorld): GeneratedWorldSections {
   const {
     factions, locations, places, processes, legendarium, legends, mysteries, routes, laws, mechanics,
@@ -4267,6 +4315,44 @@ export function extractGeneratedWorldStageCandidate(value: unknown, stage: World
   return section
 }
 
+export function extractGeneratedWorldNpcBatchCandidate(value: unknown): unknown {
+  const candidate = extractGeneratedWorldStageCandidate(value, 'characters')
+  if (Array.isArray(candidate)) return { npcs: candidate }
+  const record = worldGenerationRecord(candidate)
+  return record && Object.hasOwn(record, 'npcs') ? { npcs: record.npcs } : candidate
+}
+
+export function extractGeneratedWorldCharacterTopologyCandidate(value: unknown): unknown {
+  const candidate = extractGeneratedWorldStageCandidate(value, 'characters')
+  const record = worldGenerationRecord(candidate)
+  if (!record) return candidate
+  return pickPresentFields(record, ['socialLinks', 'characterArcs', 'antagonistPlans', 'worldPressures', 'influenceAssets'])
+}
+
+/** Deterministically restores manifest order and rejects silent omissions or invented NPCs. */
+export function assembleGeneratedWorldCharacters(
+  batches: GeneratedWorldNpcBatch[],
+  topology: GeneratedWorldCharacterTopology,
+  plannedNames: string[],
+): GeneratedWorldCharacters {
+  const normalizeName = (name: string) => name.trim().toLocaleLowerCase('ru-RU')
+  const byName = new Map<string, GeneratedWorldCharacters['npcs'][number]>()
+  for (const npc of batches.flatMap((batch) => batch.npcs)) {
+    const key = normalizeName(npc.name)
+    if (byName.has(key)) throw new Error(`NPC-пакеты повторили персонажа: ${npc.name}`)
+    byName.set(key, npc)
+  }
+  const plannedKeys = new Set(plannedNames.map(normalizeName))
+  const invented = [...byName.values()].filter((npc) => !plannedKeys.has(normalizeName(npc.name)))
+  if (invented.length) throw new Error(`NPC-пакет создал незапланированные имена: ${invented.map((npc) => npc.name).join(', ')}`)
+  const missing = plannedNames.filter((name) => !byName.has(normalizeName(name)))
+  if (missing.length) throw new Error(`NPC-пакеты пропустили персонажей: ${missing.join(', ')}`)
+  return {
+    npcs: plannedNames.map((name) => byName.get(normalizeName(name))!),
+    ...topology,
+  }
+}
+
 async function generateWorldSection<T>(
   request: WorldGenerationRequest,
   concept: ConceptAnalysis,
@@ -4291,6 +4377,123 @@ async function generateWorldSection<T>(
     timeoutMs: 180_000,
   })
   return parseWithRepair<T>(raw, schema, request.provider, messages, undefined, (candidate) => extractGeneratedWorldStageCandidate(candidate, stage), { maxAttempts: policy.schemaAttempts })
+}
+
+async function generateWorldCharactersInBatches(
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
+  manifest: WorldGenerationManifest,
+): Promise<GeneratedWorldCharacters> {
+  const policy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
+  const plannedBatches = Array.from(
+    { length: Math.ceil(manifest.npcs.length / 4) },
+    (_, index) => manifest.npcs.slice(index * 4, index * 4 + 4),
+  )
+  const maxFocusedAttempts = Math.max(2, policy.schemaAttempts)
+  const authorBatch = async (batchIndex: number, attempt: number): Promise<GeneratedWorldNpcBatch> => {
+    const plannedNpcs = plannedBatches[batchIndex]
+    const baseMessages = worldGenerationNpcBatchPrompt(request, concept, manifest, plannedNpcs)
+    const messages = attempt === 0 ? baseMessages : [
+      ...baseMessages,
+      {
+        role: 'user' as const,
+        content: `ТОЧЕЧНЫЙ ПОВТОР NPC_BATCH ${batchIndex + 1}, попытка ${attempt + 1}, nonce=${randomUUID()}. Предыдущий ответ этого пакета не прошёл проверку. Верни заново только полный JSON {"npcs":[...]} для тех же имён; не меняй другие пакеты.`,
+      },
+    ]
+    const raw = await completeJson(request.provider, messages, {
+      stage: 'world',
+      maxOutputTokens: 32_768,
+      maxAttempts: policy.providerAttempts,
+      // Focused retries below replace the old nested transport × whole-stage retry cascade.
+      transportAttempts: 1,
+      timeoutMs: 180_000,
+    })
+    const batch = await parseWithRepair<GeneratedWorldNpcBatch>(
+      raw,
+      generatedWorldNpcBatchSchema,
+      request.provider,
+      messages,
+      undefined,
+      extractGeneratedWorldNpcBatchCandidate,
+      { maxAttempts: Math.min(2, policy.schemaAttempts) },
+    )
+    assembleGeneratedWorldCharacters([batch], {
+      socialLinks: [], characterArcs: [], antagonistPlans: [], worldPressures: [], influenceAssets: [],
+    }, plannedNpcs.map((npc) => npc.name))
+    return batch
+  }
+
+  const batches: Array<GeneratedWorldNpcBatch | undefined> = Array(plannedBatches.length)
+  let pending = plannedBatches.map((_, index) => index)
+  let lastBatchErrors = new Map<number, unknown>()
+  for (let attempt = 0; pending.length && attempt < maxFocusedAttempts; attempt += 1) {
+    const settled = await Promise.allSettled(pending.map((batchIndex) => authorBatch(batchIndex, attempt)))
+    const failed: number[] = []
+    const errors = new Map<number, unknown>()
+    settled.forEach((result, resultIndex) => {
+      const batchIndex = pending[resultIndex]
+      if (result.status === 'fulfilled') batches[batchIndex] = result.value
+      else {
+        failed.push(batchIndex)
+        errors.set(batchIndex, result.reason)
+      }
+    })
+    pending = failed
+    lastBatchErrors = errors
+  }
+  if (pending.length) {
+    throw new Error(`Не завершены NPC-пакеты ${pending.map((index) => index + 1).join(', ')}: ${pending.map((index) => {
+      const reason = lastBatchErrors.get(index)
+      return reason instanceof Error ? reason.message : String(reason)
+    }).join('; ')}`)
+  }
+
+  const completeBatches = batches as GeneratedWorldNpcBatch[]
+  const orderedNpcs = assembleGeneratedWorldCharacters(completeBatches, {
+    socialLinks: [], characterArcs: [], antagonistPlans: [], worldPressures: [], influenceAssets: [],
+  }, manifest.npcs.map((npc) => npc.name)).npcs
+
+  let topology: GeneratedWorldCharacterTopology | undefined
+  let topologyError: unknown
+  for (let attempt = 0; !topology && attempt < maxFocusedAttempts; attempt += 1) {
+    const baseMessages = worldGenerationCharacterTopologyPrompt(request, concept, manifest, orderedNpcs)
+    const messages = attempt === 0 ? baseMessages : [
+      ...baseMessages,
+      {
+        role: 'user' as const,
+        content: `ТОЧЕЧНЫЙ ПОВТОР CHARACTER_TOPOLOGY, попытка ${attempt + 1}, nonce=${randomUUID()}. Верни заново только пять topology-массивов, не повторяй npcs.`,
+      },
+    ]
+    try {
+      const rawTopology = await completeJson(request.provider, messages, {
+        stage: 'world',
+        maxOutputTokens: 24_576,
+        maxAttempts: policy.providerAttempts,
+        transportAttempts: 1,
+        timeoutMs: 120_000,
+      })
+      topology = await parseWithRepair<GeneratedWorldCharacterTopology>(
+        rawTopology,
+        generatedWorldCharacterTopologySchema,
+        request.provider,
+        messages,
+        undefined,
+        extractGeneratedWorldCharacterTopologyCandidate,
+        { maxAttempts: Math.min(2, policy.schemaAttempts) },
+      )
+    } catch (error) {
+      topologyError = error
+    }
+  }
+  if (!topology) {
+    console.warn(`[world-generation:characters] Необязательный граф связей пропущен после точечных попыток; полные NPC сохранены: ${topologyError instanceof Error ? topologyError.message : String(topologyError)}`)
+    topology = { socialLinks: [], characterArcs: [], antagonistPlans: [], worldPressures: [], influenceAssets: [] }
+  }
+
+  const assembled = assembleGeneratedWorldCharacters(completeBatches, topology, manifest.npcs.map((npc) => npc.name))
+  const parsed = generatedWorldCharactersSchema.safeParse(assembled)
+  if (!parsed.success) throw new Error(compactIssues(parsed.error, assembled))
+  return parsed.data
 }
 
 async function regenerateOwnedWorldSection(
@@ -4354,7 +4557,9 @@ async function ensureGeneratedWorldIntegrity(
   }
 
   for (let attempt = 0; attempt < generationPolicy.integrityRepairs; attempt += 1) {
-    const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
+    const world = sanitizeGeneratedWorldInterfaceBindings(
+      normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName),
+    )
     sections = splitGeneratedWorldSections(world)
     const strict = generatedWorldSchema.safeParse(world)
     if (strict.success) return { world: strict.data, sections: splitGeneratedWorldSections(strict.data) }
@@ -4369,7 +4574,9 @@ async function ensureGeneratedWorldIntegrity(
     // real legend-owned inconsistency remains. This prevents four parallel passes from repeatedly
     // lowering one side while the other side still contains stale data.
     if (foundationStages.length) {
-      const linkedWorld = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
+      const linkedWorld = sanitizeGeneratedWorldInterfaceBindings(
+        normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName),
+      )
       sections = splitGeneratedWorldSections(linkedWorld)
       const linkedCheck = generatedWorldSchema.safeParse(linkedWorld)
       if (linkedCheck.success) return { world: linkedCheck.data, sections: splitGeneratedWorldSections(linkedCheck.data) }
@@ -4381,7 +4588,9 @@ async function ensureGeneratedWorldIntegrity(
     }
   }
 
-  const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
+  const world = sanitizeGeneratedWorldInterfaceBindings(
+    normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName),
+  )
   const finalCheck = generatedWorldSchema.safeParse(world)
   if (finalCheck.success) return { world: finalCheck.data, sections: splitGeneratedWorldSections(finalCheck.data) }
   throw new Error(`DeepSeek не смог связать разделы мира после ${generationPolicy.integrityRepairs} точечных волн: ${compactIssues(finalCheck.error, world)}`)
@@ -4671,7 +4880,6 @@ function worldManifestStageIssues(
   ]
   return [
     ...missingManifestValues('метрики интерфейса', manifest.interface.metricIds, (sections.interface.world.metrics ?? []).map((entry) => entry.id)),
-    ...missingManifestValues('модули интерфейса', manifest.interface.moduleIds, (sections.interface.world.interfaceModules ?? []).map((entry) => entry.id)),
   ]
 }
 
@@ -4684,7 +4892,7 @@ async function generateParallelWorldStage(
   const emptySections: Partial<GeneratedWorldSections> = {}
   if (stage === 'core') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCoreSchema, undefined, manifest)]
   if (stage === 'civilization') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCivilizationSchema, undefined, manifest)]
-  if (stage === 'characters') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCharactersSchema, undefined, manifest)]
+  if (stage === 'characters') return [stage, await generateWorldCharactersInBatches(request, concept, manifest)]
   if (stage === 'legends') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldLegendsSchema, undefined, manifest)]
   if (stage === 'narrative') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldNarrativeSchema, undefined, manifest)]
   return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldInterfaceSchema, undefined, manifest)]

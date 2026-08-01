@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { demoWorld } from './demo'
 import { generateWorld, normalizeGeneratedWorldReferences, splitGeneratedWorldSections } from './orchestrator'
+import { generatedWorldSchema } from './schemas'
 
 type CompletionBody = { messages: Array<{ role: string; content: string }> }
 type Stage = 'manifest' | 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
@@ -39,6 +40,8 @@ function emptyProviderResponse() {
 
 function requestedGenerationStage(system: string): Stage | undefined {
   if (system.includes('единый компактный паспорт большого ролевого мира')) return 'manifest'
+  if (system.includes('NPC_BATCH — ПОСЛЕДНЕЕ И ОБЯЗАТЕЛЬНОЕ ПРАВИЛО')) return 'characters'
+  if (system.includes('CHARACTER_TOPOLOGY.')) return 'characters'
   if (!system.includes('МНОГОЭТАПНАЯ ГЕНЕРАЦИЯ')) return undefined
   if (system.includes('ЭТАП «ФУНДАМЕНТ И ГЕРОЙ»')) return 'core'
   if (system.includes('ЭТАП «МИР, ГЕОГРАФИЯ И ЦИВИЛИЗАЦИИ»')) return 'civilization'
@@ -147,7 +150,7 @@ describe('multi-stage world generation', () => {
 
     const generated = await generateWorld(request)
 
-    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface'])
+    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'characters'])
     expect(peakWorldSections).toBe(6)
     expect(generated).toEqual(completeWorld)
   })
@@ -171,7 +174,7 @@ describe('multi-stage world generation', () => {
     }))
 
     await expect(generateWorld(request)).resolves.toEqual(completeWorld)
-    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface'])
+    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'characters'])
   })
 
   it('authors omitted ability profiles separately without regenerating the complete core section', async () => {
@@ -281,8 +284,13 @@ describe('multi-stage world generation', () => {
       return providerResponse(originalConcept)
     }))
 
-    await expect(generateWorld(request)).resolves.toEqual(completeWorld)
-    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'interface'])
+    const generated = await generateWorld(request)
+    expect(generated.world.name).toBe(completeWorld.world.name)
+    expect(generatedWorldSchema.safeParse(generated).success).toBe(true)
+    expect(generated.world.interfaceModules.flatMap((module) => module.elements).some((element) => (
+      element.binding?.domain === 'world.metric' && element.binding.key === 'missing-metric'
+    ))).toBe(false)
+    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'characters'])
   })
 
   it('repairs a living legend through its factual NPC before touching the legend again', async () => {
@@ -325,7 +333,7 @@ describe('multi-stage world generation', () => {
     }))
 
     await expect(generateWorld(request)).resolves.toEqual(completeWorld)
-    expect(characterCalls).toBe(2)
+    expect(characterCalls).toBe(3)
     expect(legendCalls).toBe(1)
     expect(requestedStages.slice(-1)).toEqual(['characters'])
   })

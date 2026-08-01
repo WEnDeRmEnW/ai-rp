@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { demoWorld } from './demo'
-import { assembleGeneratedWorldSections, normalizeGeneratedWorldReferences, splitGeneratedWorldSections } from './orchestrator'
-import { generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldDraftSchema, generatedWorldEcologyRepairSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema } from './schemas'
+import { assembleGeneratedWorldCharacters, assembleGeneratedWorldSections, normalizeGeneratedWorldReferences, sanitizeGeneratedWorldInterfaceBindings, splitGeneratedWorldSections } from './orchestrator'
+import { generatedWorldCharactersSchema, generatedWorldCharacterTopologySchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldDraftSchema, generatedWorldEcologyRepairSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldNpcBatchSchema, generatedWorldSchema } from './schemas'
 
 const request = {
   inspiration: 'Эйдол',
@@ -30,6 +30,45 @@ describe('generated world integrity pipeline', () => {
     expect(generatedWorldInterfaceSchema.safeParse(sections.interface).success).toBe(true)
     expect(assembleGeneratedWorldSections(sections)).toEqual(world)
     expect(generatedWorldSchema.safeParse(assembleGeneratedWorldSections(sections)).success).toBe(true)
+  })
+
+  it('validates full NPC batches independently and limits each provider response to four dossiers', () => {
+    const characters = splitGeneratedWorldSections(validWorld()).characters
+    const fiveNpcs = [0, 1, 2, 0, 1].map((index, copy) => ({
+      ...structuredClone(characters.npcs[index % characters.npcs.length]),
+      name: `${characters.npcs[index % characters.npcs.length].name}-${copy}`,
+    }))
+
+    expect(generatedWorldNpcBatchSchema.safeParse({ npcs: fiveNpcs.slice(0, 4) }).success).toBe(true)
+    expect(generatedWorldNpcBatchSchema.safeParse({ npcs: fiveNpcs }).success).toBe(false)
+    expect(generatedWorldNpcBatchSchema.safeParse({ npcs: [{ name: 'Неполное досье' }] }).success).toBe(false)
+    expect(generatedWorldCharacterTopologySchema.safeParse({
+      socialLinks: characters.socialLinks,
+      characterArcs: characters.characterArcs,
+      antagonistPlans: characters.antagonistPlans,
+      worldPressures: characters.worldPressures,
+      influenceAssets: characters.influenceAssets,
+      npcs: characters.npcs,
+    }).success).toBe(false)
+  })
+
+  it('assembles parallel NPC batches in manifest order without losing topology fields', () => {
+    const characters = splitGeneratedWorldSections(validWorld()).characters
+    const topology = {
+      socialLinks: characters.socialLinks,
+      characterArcs: characters.characterArcs,
+      antagonistPlans: characters.antagonistPlans,
+      worldPressures: characters.worldPressures,
+      influenceAssets: characters.influenceAssets,
+    }
+    const reversed = [...characters.npcs].reverse()
+    const batches = Array.from({ length: Math.ceil(reversed.length / 4) }, (_, index) => ({ npcs: reversed.slice(index * 4, index * 4 + 4) }))
+    const assembled = assembleGeneratedWorldCharacters(batches, topology, characters.npcs.map((npc) => npc.name))
+
+    expect(assembled.npcs.map((npc) => npc.name)).toEqual(characters.npcs.map((npc) => npc.name))
+    expect(assembled.socialLinks).toEqual(characters.socialLinks)
+    expect(assembled.worldPressures).toEqual(characters.worldPressures)
+    expect(() => assembleGeneratedWorldCharacters(batches, topology, [...characters.npcs.map((npc) => npc.name), 'Пропущенный NPC'])).toThrow(/Пропущенный NPC/u)
   })
 
   it('keeps valid world sections when an authored ability profile is absent or malformed', () => {
@@ -157,5 +196,35 @@ describe('generated world integrity pipeline', () => {
         message: expect.stringContaining('Unknown world metric binding'),
       }),
     ]))
+  })
+
+  it('drops only cross-world interface elements with invalid or hidden live bindings', () => {
+    const world = validWorld()
+    const module = world.world.interfaceModules[0]
+    expect(module).toBeDefined()
+    if (!module) return
+
+    const validElement = structuredClone(module.elements[0])
+    validElement.id = 'valid-static-element'
+    delete validElement.binding
+    validElement.value = 'Стабильное наблюдение'
+    module.elements = [
+      validElement,
+      {
+        id: 'unknown-live-element',
+        label: 'Несуществующая метрика',
+        kind: 'value',
+        value: 77,
+        state: 'warning',
+        binding: { domain: 'world.metric', key: 'missing-metric' },
+        links: ['valid-static-element'],
+      },
+    ]
+    validElement.links = ['unknown-live-element']
+
+    const sanitized = sanitizeGeneratedWorldInterfaceBindings(world)
+    expect(sanitized.world.interfaceModules[0]?.elements.map((element) => element.id)).toEqual(['valid-static-element'])
+    expect(sanitized.world.interfaceModules[0]?.elements[0]?.links).toEqual([])
+    expect(generatedWorldSchema.safeParse(sanitized).success).toBe(true)
   })
 })

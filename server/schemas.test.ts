@@ -70,7 +70,7 @@ describe('world generation manifest population bounds', () => {
     expect(worldGenerationManifestSchema.safeParse(compactWorldManifest()).success).toBe(true)
   })
 
-  it('still requires one NPC and preserves the upper population bounds', () => {
+  it('still requires one NPC and preserves bounded parallel-generation populations', () => {
     const noNpcs = compactWorldManifest()
     noNpcs.npcs = []
     noNpcs.narrative.openingNpcNames = []
@@ -87,7 +87,7 @@ describe('world generation manifest population bounds', () => {
     }))
     crowded.narrative.openingNpcNames = ['Проводник 1']
     const boundedNpcs = worldGenerationManifestSchema.parse(crowded)
-    expect(boundedNpcs.npcs).toHaveLength(20)
+    expect(boundedNpcs.npcs).toHaveLength(12)
 
     const overfullLegends = compactWorldManifest()
     overfullLegends.legends = Array.from({ length: 19 }, (_, index) => ({

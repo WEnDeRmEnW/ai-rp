@@ -7,7 +7,7 @@ import { narrativeEventMagnitudeContracts, narrativeEventMagnitudePromptContract
 import { grantedItemAbilities } from '../shared/effective-abilities.js'
 import { artifactPlayerView } from '../shared/artifacts.js'
 import { legendRepresentsCharacter } from '../shared/legend-identity.js'
-import type { ConceptAnalysis, GeneratedWorld, WorldGenerationManifest, WorldQualityReview } from './schemas.js'
+import type { ConceptAnalysis, GeneratedWorld, GeneratedWorldCharacters, WorldGenerationManifest, WorldQualityReview } from './schemas.js'
 import { detectWorkshopResurrectionIntent } from './workshop-intent.js'
 
 export type WorldGenerationStage = 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
@@ -2154,6 +2154,7 @@ ${worldOriginalityDirective(input)}
 АДАПТИВНЫЙ ИНТЕРФЕЙС, КОТОРЫЙ РОЖДАЕТСЯ ИЗ МИРА:
 - Сначала мысленно выдели уникальные наблюдаемые системы ЭТОГО мира: устройство силы, особый риск, сеть связей, политическое давление, путь превращения, устройство реликвии, состояние территории или иную центральную причинную структуру. Только затем реши, нужны ли world.interfaceBlueprint и world.interfaceModules и как они должны выглядеть. Для богатого системного мира обычно уместны 2–6 разных модулей; для камерного или почти бессистемного — 0–2, а при отсутствии отдельной наблюдаемой системы верни interfaceModules=[]. Не создавай модуль ради квоты.
 - Каждая живая binding в interfaceModules обязана уже разрешаться внутри ЭТОГО ЖЕ итогового JSON. Используй точное существующее имя/key; не привязывай стартовый интерфейс к activeConflict, которого ещё нет. Видимый known/rumored-модуль не может ссылаться на hidden-метрику, hidden-фракцию, hidden-процесс, hidden-давление или ещё не раскрытые характеристики NPC. Не помещай скрытое имя даже в label, title или fallback value. Если факт скрыт, либо сделай скрытым весь модуль, либо не создавай этот элемент до открытия факта.
+- СТРОГАЯ ЖИВАЯ ПРИВЯЗКА: не возвращай non-custom binding без всех ссылок, обязательных для выбранного domain. Если точного существующего key/target нет, полностью опусти binding и оставь только честное статическое value либо не создавай элемент. Не выводи key/target из label, description, жанра или предполагаемого имени сущности.
 - interfaceBlueprint — не смена цветов, а авторская информационная архитектура конкретного мира. Сам выбери понятные русские labels вкладок, defaultTab и порядок dashboardSections. Всегда верни все шесть основных вкладок dashboard, scene, hero, inventory, changes, world с visible=true: переименовывать под мир можно, скрывать или удалять нельзя. dashboard должен давать короткую игровую сводку, а не дублировать все подробные экраны.
 - Это не жанровые пресеты. Запрещено автоматически делать «чакру» для любого восточного мира, «киберимпланты» для любого будущего, «ману» для фэнтези или «репутацию» для политики. Подобный модуль допустим лишь если конкретная система действительно установлена замыслом, каноном, rules/mechanics, ресурсами, предметами или фракциями этого пакета.
 - Каждый модуль должен быть узнаваем только в этом мире по title, description, reason, updatePolicy, составу элементов, терминологии и палитре. reason объясняет причинную связь с уже созданными сущностями, а не говорит «для удобства игрока». updatePolicy точно называет события, после которых custom-элементы или структура должны меняться.
@@ -2287,7 +2288,7 @@ world содержит РОВНО: name, tagline, inspiration, genre, tone, era,
 world содержит РОВНО processes и mysteries. Все ссылки используют точные имена уже созданных персонажей, мест и фракций. Processes, worldEvents и threads образуют единую причинную сеть с уникальными title; causeTitles могут ссылаться только на реально возвращённые в ЭТОМ ответе названия и не могут ссылаться сами на себя. opening использует только существующее место и только существующих присутствующих NPC, не раскрывает hidden-факты и не принимает решения за героя. Не создавай интерфейс.`,
   interface: `ЭТАП «АДАПТИВНЫЙ ИНТЕРФЕЙС МИРА».
 Верни только {"world":{"interfaceModules":[...],"interfaceBlueprint":...,"metrics":[...]}}.
-Проектируй интерфейс ПОСЛЕ всего мира и используй только точные существующие key/id/name из установленных фактов. Каждая binding обязана разрешаться; видимые элементы не раскрывают hidden-сущности. Все шесть основных вкладок dashboard, scene, hero, inventory, changes, world присутствуют и visible=true. Не выдумывай показатели ради виджета: metrics создаются только для реально установленной устойчивой механики. Если отдельный модуль не нужен, массив может быть пустым; качество определяется уместностью, а не количеством.`,
+Проектируй интерфейс ПОСЛЕ всего мира и используй только точные существующие key/id/name из установленных фактов. Каждая binding обязана разрешаться; видимые элементы не раскрывают hidden-сущности. Все шесть основных вкладок dashboard, scene, hero, inventory, changes, world присутствуют и visible=true. Не выдумывай показатели ради виджета: metrics создаются только для реально установленной устойчивой механики. Если отдельный модуль не нужен, массив может быть пустым; качество определяется уместностью, а не количеством. Non-custom binding возвращай только со всеми key/target, обязательными для выбранного domain. Если точной существующей ссылки нет, опусти binding и оставь честное статическое value либо не создавай элемент; не выводи ссылку из label или description.`,
 }
 
 export function worldGenerationManifestPrompt(input: WorldConceptInput, concept: ConceptAnalysis) {
@@ -2355,6 +2356,69 @@ export function worldGenerationStagePrompt(
     {
       role: 'user' as const,
       content: `ИСХОДНЫЙ ЗАМЫСЕЛ:\n${JSON.stringify({ ...input, provider: undefined })}\n\nПРОВЕРЕННЫЙ РАЗБОР КОНЦЕПТА:\n${JSON.stringify(concept)}${manifest === undefined ? '' : `\n\nЕДИНЫЙ НЕИЗМЕНЯЕМЫЙ ПАСПОРТ МИРА:\n${JSON.stringify(manifest)}`}${establishedFacts === undefined ? '' : `\n\nУЖЕ УСТАНОВЛЕННЫЕ НЕИЗМЕНЯЕМЫЕ ФАКТЫ:\n${JSON.stringify(establishedFacts)}`}\n\nСоздай только этап ${stage}.`,
+    },
+  ]
+}
+
+/**
+ * Authors a small set of complete NPC dossiers. Keeping the immutable manifest entries in every
+ * batch lets independent calls run concurrently without shortening abilities, strategy or dossier
+ * fields merely to fit one oversized character response.
+ */
+export function worldGenerationNpcBatchPrompt(
+  input: WorldConceptInput,
+  concept: ConceptAnalysis,
+  manifest: WorldGenerationManifest,
+  plannedNpcs: WorldGenerationManifest['npcs'],
+) {
+  const [architectSystem] = worldArchitectPrompt(input, concept)
+  const relevantManifest = {
+    world: manifest.world,
+    player: { name: manifest.player.name },
+    factions: manifest.factions,
+    places: manifest.places,
+    npcs: plannedNpcs,
+  }
+  return [
+    {
+      role: 'system' as const,
+      content: `${architectSystem.content}\n\nNPC_BATCH — ПОСЛЕДНЕЕ И ОБЯЗАТЕЛЬНОЕ ПРАВИЛО:\nВерни только строгий JSON {"npcs":[...]}. Создай ровно перечисленных NPC, не добавляй и не пропускай имена. В пакете не больше четырёх персонажей. Каждый NPC остаётся ПОЛНЫМ: name, role, description, personality, disposition, relationship, currentGoal, lastSeen, notes, stats, resources, abilities, knowledge и strategy. relationshipDimensions, initiative, threatProfile, recruitment, dossier и voice добавляй только когда они причинно существуют или требуются паспортом; не создавай боевой профиль и возможность найма каждому человеку по шаблону. Если необязательный блок существует, не сокращай его вложенные способности, техники, стратегию, контрмеры, ресурсы, знания или постепенное раскрытие. Не создавай socialLinks, characterArcs, antagonistPlans, worldPressures или influenceAssets — они будут причинно собраны отдельным проходом после всех досье. Все имена мест, фракций, систем, групп и классов бери буквально из переданного паспорта.`,
+    },
+    {
+      role: 'user' as const,
+      content: `ИСХОДНЫЙ ЗАМЫСЕЛ:\n${JSON.stringify({ ...input, provider: undefined })}\n\nПРОВЕРЕННЫЙ РАЗБОР:\n${JSON.stringify(concept)}\n\nНЕИЗМЕНЯЕМЫЙ ПАСПОРТ ЭТОГО NPC-ПАКЕТА:\n${JSON.stringify(relevantManifest)}\n\nПолностью создай только перечисленные досье и верни {"npcs":[...]}.`,
+    },
+  ]
+}
+
+/** Builds only the graph/process layer after every NPC dossier has become an immutable fact. */
+export function worldGenerationCharacterTopologyPrompt(
+  input: WorldConceptInput,
+  concept: ConceptAnalysis,
+  manifest: WorldGenerationManifest,
+  npcs: GeneratedWorldCharacters['npcs'],
+) {
+  const topologyFacts = npcs.map((npc) => ({
+    name: npc.name,
+    role: npc.role,
+    personality: npc.personality,
+    disposition: npc.disposition,
+    currentGoal: npc.currentGoal,
+    lastSeen: npc.lastSeen,
+    abilityNames: npc.abilities.map((ability) => ability.name),
+    initiative: npc.initiative,
+    strategy: npc.strategy,
+    threatProfile: npc.threatProfile,
+    recruitment: npc.recruitment,
+  }))
+  return [
+    {
+      role: 'system' as const,
+      content: `CHARACTER_TOPOLOGY. Ты собираешь только причинные связи уже полностью созданных людей. Верни строгий JSON ровно с ключами socialLinks, characterArcs, antagonistPlans, worldPressures, influenceAssets; ключ npcs запрещён. Не создавай новых персонажей, мест или фракций и используй их буквальные имена из входа.\n\nsocialLinks: массив {fromNpcName,toNpcName,kind,label,score:-100..100,secret:boolean,notes:[]}.\ncharacterArcs: массив {ownerName,title,theme,currentStage,progress:0..100,stages:[минимум 3],turningPoints:[минимум 1],status:'active'|'completed'|'broken',secret:boolean}.\nantagonistPlans: массив {ownerName,title,objective,method,currentStep:0..10,pressure:0..100,resources:[минимум 1],knowledge:[минимум 1],steps:[{title,trigger,consequence,status:'pending'|'active'|'completed'|'failed'|'abandoned'}],weaknesses:[минимум 1],status:'active'|'completed'|'failed'|'abandoned',secret:boolean}.\nworldPressures: массив {sourceKind:'npc'|'faction'|'authority'|'corporation'|'deity'|'cosmic'|'environment'|'other',sourceName,sourceNpcName?,targetNames:[существующие имена],cause,objective,tier:'trace'|'local'|'serious'|'critical'|'legendary'|'mythic',stage:'watching'|'investigating'|'preparing'|'acting'|'cooling'|'resolved',reach,knowledge:[],signs:[],measures:[{name,trigger,method,effects:[],counterplay:[],tradeoffs:[],status:'considered'|'preparing'|'active'|'spent'|'foiled'}],counterplay:[],escalationTrigger,deescalationConditions:[],visibility:'known'|'rumored'|'hidden'}.\ninfluenceAssets: массив {kind:'favor'|'debt'|'leverage'|'contact'|'access'|'reputation'|'oath'|'other',title,description,holderName,targetName?,value:-100..100,status:'active'|'spent'|'repaid'|'lost',source,secret:boolean}.\nНе заполняй массивы ради количества: каждая связь или линия следует из целей, знаний, ресурсов и положения конкретных субъектов.`,
+    },
+    {
+      role: 'user' as const,
+      content: `МИР И ГЕРОЙ:\n${JSON.stringify({ world: manifest.world, playerName: manifest.player.name, factions: manifest.factions, places: manifest.places })}\n\nРАЗБОР ЗАМЫСЛА:\n${JSON.stringify({ recognizedCanon: concept.recognizedCanon, desiredScale: concept.desiredScale, powerFantasy: concept.powerFantasy })}\n\nНЕИЗМЕНЯЕМЫЕ ДОСЬЕ NPC:\n${JSON.stringify(topologyFacts)}\n\nСобери только topology JSON для этих существующих сущностей.`,
     },
   ]
 }

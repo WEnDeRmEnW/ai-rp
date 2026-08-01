@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { demoWorld } from './demo'
-import { normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan } from './model-normalizer'
+import { normalizeGeneratedWorldOutput, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan } from './model-normalizer'
 import { continuityReviewSchema, generatedWorldSchema, memoryCuratorSchema, turnPatchSchema, turnPlanSchema } from './schemas'
 
 const worldRequest = {
@@ -702,6 +702,46 @@ describe('global DeepSeek output normalization', () => {
     expect(normalized.antagonistPlans[0]).toMatchObject({ currentStep: 0, pressure: 75 })
     expect(normalized.antagonistPlans[0].steps).toHaveLength(1)
     expect(normalized.influenceAssets[0].kind).toBe('leverage')
+  })
+
+  it('degrades only incomplete generated interface bindings without inventing references', () => {
+    const raw: any = demoWorld(worldRequest)
+    const playerResource = raw.player.resources[0].key
+    const worldProcess = raw.world.processes[0].title
+    const module = structuredClone(raw.world.interfaceModules[0])
+    module.id = 'binding-recovery'
+    module.elements = [
+      { id: 'static-fallback', label: 'Authored value', kind: 'value', value: 41, state: 'normal', binding: { domain: 'player.resource' }, links: ['missing-live', 'moved-key'] },
+      { id: 'missing-live', label: 'No source', kind: 'value', state: 'normal', binding: { domain: 'player.resource' }, links: [] },
+      { id: 'moved-key', label: 'Resource', kind: 'meter', state: 'normal', binding: { domain: 'player.resource', target: playerResource }, links: [] },
+      { id: 'moved-target', label: 'Process', kind: 'meter', state: 'normal', binding: { domain: 'world.process-momentum', key: worldProcess }, links: [] },
+      { id: 'missing-half', label: 'NPC stat', kind: 'meter', state: 'normal', binding: { domain: 'npc.stat', target: raw.npcs[0].name }, links: [] },
+    ]
+    const emptyModule = structuredClone(module)
+    emptyModule.id = 'binding-empty'
+    emptyModule.elements = [{ id: 'only-broken', label: 'Broken', kind: 'value', state: 'normal', binding: { domain: 'world.metric' }, links: [] }]
+    raw.world.interfaceModules = [module, emptyModule]
+
+    const sanitized: any = normalizeGeneratedWorldOutput(raw)
+    expect(sanitized.world.interfaceModules).toHaveLength(1)
+    expect(sanitized.world.interfaceModules[0].elements).toEqual([
+      expect.objectContaining({ id: 'static-fallback', value: 41, links: ['moved-key'] }),
+      expect.objectContaining({ id: 'moved-key', binding: { domain: 'player.resource', target: playerResource, key: playerResource } }),
+      expect.objectContaining({ id: 'moved-target', binding: { domain: 'world.process-momentum', key: worldProcess, target: worldProcess } }),
+    ])
+    expect(sanitized.world.interfaceModules[0].elements[0]).not.toHaveProperty('binding')
+
+    const parsed = generatedWorldSchema.parse(raw)
+    expect(parsed.world.interfaceModules).toHaveLength(1)
+    expect(parsed.world.interfaceModules[0].elements.map((element) => element.id)).toEqual(['static-fallback', 'moved-key', 'moved-target'])
+
+    // Ordinary scene patches remain strict: generated-world recovery is never applied here.
+    expect(turnPatchSchema.safeParse({
+      world: { interfaceModuleChanges: [{
+        moduleId: 'existing-module',
+        upsertElements: [{ id: 'runtime-broken', label: 'Resource', kind: 'meter', state: 'normal', binding: { domain: 'player.resource' }, links: [] }],
+      }] },
+    }).success).toBe(false)
   })
 
   it('keeps a generated NPC when optional initiative is incomplete and strips cost display metadata', () => {

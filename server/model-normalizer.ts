@@ -1378,6 +1378,85 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
   return enumFor(value, key, path)
 }
 
+const GENERATED_INTERFACE_KEY_BINDINGS = new Set([
+  'player.resource', 'player.stat', 'player.currency', 'player.condition-count', 'inventory.category-count',
+])
+const GENERATED_INTERFACE_TARGET_BINDINGS = new Set([
+  'conflict.participant-readiness', 'conflict.participant-morale', 'world.process-momentum', 'world.pressure',
+  'inventory.item-charges', 'inventory.item-quantity', 'inventory.item-durability', 'artifact.mastery',
+  'artifact.attunement', 'artifact.bond', 'quest.objective-progress', 'mystery.progress',
+  'npc.initiative-urgency', 'npc.relationship',
+])
+const GENERATED_INTERFACE_KEY_AND_TARGET_BINDINGS = new Set([
+  'artifact.power-mastery', 'npc.stat', 'npc.resource', 'npc.relationship-dimension',
+])
+const GENERATED_INTERFACE_KEY_OR_TARGET_BINDINGS = new Set([
+  'player.ability-mastery', 'world.metric', 'world.location-danger', 'faction.reputation', 'faction.power',
+])
+
+const authoredBindingReference = (value: unknown): value is string => typeof value === 'string' && Boolean(value.trim())
+
+/**
+ * Generated interface modules are optional presentation. A missing live-binding reference must
+ * not force DeepSeek to regenerate an otherwise complete world, and the server must never guess
+ * a resource, item or NPC from a label. Preserve an already-authored reference when it was merely
+ * placed in the sibling field; otherwise retain only an explicitly authored static value or drop
+ * the unusable element. Runtime patches intentionally do not pass through this sanitizer.
+ */
+export function normalizeGeneratedWorldOutput(value: unknown): unknown {
+  const normalized = normalizeModelOutput(value)
+  if (!isRecord(normalized)) return normalized
+  const generatedRoot = Array.isArray(normalized.npcs) && normalized.npcs.length > 12
+    ? { ...normalized, npcs: normalized.npcs.slice(0, 12) }
+    : normalized
+  if (isRecord(generatedRoot.interface) && Array.isArray(generatedRoot.interface.moduleIds) && generatedRoot.interface.moduleIds.length > 6) {
+    generatedRoot.interface = { ...generatedRoot.interface, moduleIds: generatedRoot.interface.moduleIds.slice(0, 6) }
+  }
+  if (!isRecord(generatedRoot.world) || !Array.isArray(generatedRoot.world.interfaceModules)) return generatedRoot
+
+  const interfaceModules = generatedRoot.world.interfaceModules.slice(0, 6).flatMap((module) => {
+    if (!isRecord(module) || !Array.isArray(module.elements)) return [module]
+
+    const elements = module.elements.flatMap((sourceElement) => {
+      if (!isRecord(sourceElement) || !isRecord(sourceElement.binding)) return [sourceElement]
+      const element = { ...sourceElement }
+      const binding = { ...sourceElement.binding }
+      const domain = binding.domain
+      if (typeof domain !== 'string' || domain === 'custom') return [{ ...element, binding }]
+
+      const needsOnlyKey = GENERATED_INTERFACE_KEY_BINDINGS.has(domain)
+      const needsOnlyTarget = GENERATED_INTERFACE_TARGET_BINDINGS.has(domain)
+      if (needsOnlyKey && !authoredBindingReference(binding.key) && authoredBindingReference(binding.target)) binding.key = binding.target
+      if (needsOnlyTarget && !authoredBindingReference(binding.target) && authoredBindingReference(binding.key)) binding.target = binding.key
+
+      const hasKey = authoredBindingReference(binding.key)
+      const hasTarget = authoredBindingReference(binding.target)
+      const incomplete = (needsOnlyKey && !hasKey)
+        || (needsOnlyTarget && !hasTarget)
+        || (GENERATED_INTERFACE_KEY_AND_TARGET_BINDINGS.has(domain) && (!hasKey || !hasTarget))
+        || (GENERATED_INTERFACE_KEY_OR_TARGET_BINDINGS.has(domain) && !hasKey && !hasTarget)
+      if (!incomplete) return [{ ...element, binding }]
+
+      if (Object.hasOwn(element, 'value') && element.value !== undefined) {
+        delete element.binding
+        return [element]
+      }
+      return []
+    })
+
+    if (!elements.length) return []
+    const survivingIds = new Set(elements.flatMap((element) => isRecord(element) && typeof element.id === 'string' ? [element.id] : []))
+    const linkedElements = elements.map((sourceElement) => {
+      if (!isRecord(sourceElement) || !Array.isArray(sourceElement.links)) return sourceElement
+      const links = sourceElement.links.filter((link) => typeof link === 'string' && link !== sourceElement.id && survivingIds.has(link))
+      return { ...sourceElement, links }
+    })
+    return [{ ...module, elements: linkedElements }]
+  })
+
+  return { ...generatedRoot, world: { ...generatedRoot.world, interfaceModules } }
+}
+
 const TURN_PLAN_WRAPPER_KEYS = [
   'plan', 'turnPlan', 'turn_plan', 'directorPlan', 'director_plan', 'response', 'data',
   'payload', 'output', 'final', 'answer', 'json', 'план', 'ответ', 'результат',
