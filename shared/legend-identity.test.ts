@@ -42,6 +42,16 @@ describe('legend character identity', () => {
     expect(legendCharacterDisplayName(legacy, { id: 'player', name: 'Герой' }, [])).toBe('Король-Феникс')
   })
 
+  it('does not mistake events mentioned inside an individual role for the legend itself', () => {
+    expect(legendRepresentsCharacter({
+      ...base,
+      name: 'Итачи Учиха',
+      aliases: [],
+      titles: ['Отступник Конохи'],
+      role: 'Шиноби клана Учиха, уничтоживший свой клан по приказу Конохи, чтобы предотвратить гражданскую войну.',
+    })).toBe(true)
+  })
+
   it('always displays the actual linked player or NPC name', () => {
     const linked = { ...base, characterId: 'npc-1', name: 'Пророчество о возвращении' }
     expect(legendCharacterDisplayName(linked, { id: 'player', name: 'Герой' }, [{ id: 'npc-1', name: 'Лиора Вейн' }])).toBe('Лиора Вейн')
