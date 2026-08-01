@@ -99,6 +99,29 @@ describe('world generation manifest population bounds', () => {
     const boundedLegends = worldGenerationManifestSchema.parse(overfullLegends)
     expect(boundedLegends.legends).toHaveLength(18)
   })
+
+  it('keeps historical legends and places while removing only unresolved optional links', () => {
+    const raw = compactWorldManifest() as any
+    raw.places.push(
+      { name: 'Коноха', kind: 'settlement', parentName: 'Land of Fire' },
+      { name: 'Резиденция Хокаге', kind: 'district', parentName: '  КОНОХА  ' },
+    )
+    raw.legends = [
+      { name: 'Hashirama Senju', characterName: 'Hashirama Senju', stage: 'mythic', lifeStatus: 'dead', era: 'Эпоха основания' },
+      { name: 'Madara Uchiha', characterName: 'Madara Uchiha', stage: 'mythic', lifeStatus: 'dead', era: 'Эпоха основания' },
+      { name: 'Проводник', characterName: '  ПРОВОДНИК ', stage: 'notable', lifeStatus: 'living', era: 'Нынешняя эпоха' },
+    ]
+
+    const parsed = worldGenerationManifestSchema.parse(raw)
+    expect(parsed.places.find((place) => place.name === 'Коноха')).not.toHaveProperty('parentName')
+    expect(parsed.places.find((place) => place.name === 'Резиденция Хокаге')?.parentName).toBe('Коноха')
+    expect(parsed.legends[0]).toMatchObject({ name: 'Hashirama Senju', lifeStatus: 'dead' })
+    expect(parsed.legends[0]).not.toHaveProperty('characterName')
+    expect(parsed.legends[1]).not.toHaveProperty('characterName')
+    expect(parsed.legends[2]).toMatchObject({ name: 'Проводник', characterName: 'Проводник' })
+    expect(parsed.places.some((place) => place.name === 'Land of Fire')).toBe(false)
+    expect(parsed.npcs).toHaveLength(1)
+  })
 })
 
 describe('campaign editor contract', () => {

@@ -1396,6 +1396,67 @@ const GENERATED_INTERFACE_KEY_OR_TARGET_BINDINGS = new Set([
 
 const authoredBindingReference = (value: unknown): value is string => typeof value === 'string' && Boolean(value.trim())
 
+const generatedManifestReferenceToken = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.normalize('NFKC').trim().toLocaleLowerCase('ru-RU').replaceAll('ё', 'е').replace(/\s+/gu, ' ')
+  return normalized || undefined
+}
+
+const generatedManifestNameIndex = (entries: unknown[], key = 'name') => new Map(entries.flatMap((entry) => {
+  if (!isRecord(entry)) return []
+  const value = entry[key]
+  const token = generatedManifestReferenceToken(value)
+  return token && typeof value === 'string' ? [[token, value.trim()] as const] : []
+}))
+
+/**
+ * The manifest is a routing passport, not the final authored world. Optional links must never
+ * invalidate otherwise usable entities. DeepSeek often names a correct canonical country only in
+ * parentName, or attaches a historical legend to a character that was intentionally not selected
+ * for the active NPC roster. Keep the place/legend and remove only the unverifiable link; never
+ * invent a parent place or NPC. Existing links are canonicalized to the exact manifest spelling.
+ */
+function normalizeGeneratedWorldManifestReferences(root: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(root.places) || !Array.isArray(root.npcs) || !Array.isArray(root.legends) || !isRecord(root.player)) return root
+
+  const placeNames = generatedManifestNameIndex(root.places)
+  const factionNames = Array.isArray(root.factions) ? generatedManifestNameIndex(root.factions) : new Map<string, string>()
+  const characterNames = generatedManifestNameIndex([root.player, ...root.npcs])
+
+  const places = root.places.map((source) => {
+    if (!isRecord(source)) return source
+    const place = { ...source }
+    const ownName = generatedManifestReferenceToken(place.name)
+    const parentToken = generatedManifestReferenceToken(place.parentName)
+    const canonicalParent = parentToken ? placeNames.get(parentToken) : undefined
+    if (canonicalParent && parentToken !== ownName) place.parentName = canonicalParent
+    else delete place.parentName
+
+    const factionToken = generatedManifestReferenceToken(place.controllingFactionName)
+    const canonicalFaction = factionToken ? factionNames.get(factionToken) : undefined
+    if (canonicalFaction) place.controllingFactionName = canonicalFaction
+    else delete place.controllingFactionName
+    return place
+  })
+
+  const legends = root.legends.map((source) => {
+    if (!isRecord(source)) return source
+    const legend = { ...source }
+    const characterToken = generatedManifestReferenceToken(legend.characterName)
+    const canonicalCharacter = characterToken ? characterNames.get(characterToken) : undefined
+    if (canonicalCharacter) {
+      legend.characterName = canonicalCharacter
+      // A linked legend is the character. Epithets belong to the later full profile.
+      legend.name = canonicalCharacter
+    } else {
+      delete legend.characterName
+    }
+    return legend
+  })
+
+  return { ...root, places, legends }
+}
+
 /**
  * Generated interface modules are optional presentation. A missing live-binding reference must
  * not force DeepSeek to regenerate an otherwise complete world, and the server must never guess
@@ -1406,12 +1467,13 @@ const authoredBindingReference = (value: unknown): value is string => typeof val
 export function normalizeGeneratedWorldOutput(value: unknown): unknown {
   const normalized = normalizeModelOutput(value)
   if (!isRecord(normalized)) return normalized
-  const generatedRoot = Array.isArray(normalized.npcs) && normalized.npcs.length > 12
+  let generatedRoot = Array.isArray(normalized.npcs) && normalized.npcs.length > 12
     ? { ...normalized, npcs: normalized.npcs.slice(0, 12) }
     : normalized
   if (isRecord(generatedRoot.interface) && Array.isArray(generatedRoot.interface.moduleIds) && generatedRoot.interface.moduleIds.length > 6) {
-    generatedRoot.interface = { ...generatedRoot.interface, moduleIds: generatedRoot.interface.moduleIds.slice(0, 6) }
+    generatedRoot = { ...generatedRoot, interface: { ...generatedRoot.interface, moduleIds: generatedRoot.interface.moduleIds.slice(0, 6) } }
   }
+  generatedRoot = normalizeGeneratedWorldManifestReferences(generatedRoot)
   if (!isRecord(generatedRoot.world) || !Array.isArray(generatedRoot.world.interfaceModules)) return generatedRoot
 
   const interfaceModules = generatedRoot.world.interfaceModules.slice(0, 6).flatMap((module) => {
