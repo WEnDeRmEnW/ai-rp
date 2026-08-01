@@ -440,6 +440,101 @@ function extractJson(text: string): unknown {
   }
 }
 
+const JSON_CONTINUATION_CHUNK_CHARACTERS = 16_000
+const MAX_JSON_CONTINUATION_CHUNKS = 16
+
+function continuationBoolean(value: unknown): boolean {
+  if (value === true) return true
+  if (typeof value !== 'string') return false
+  return ['true', 'yes', 'done', 'complete', 'готово', 'завершено'].includes(value.trim().toLocaleLowerCase('ru-RU'))
+}
+
+function mergeJsonContinuation(prefix: string, fragment: string): string {
+  if (fragment.startsWith(prefix)) return fragment
+  if (prefix.endsWith(fragment)) return prefix
+  // Matching braces at a boundary are often two legitimate nested closings. Remove only a
+  // substantial exact overlap when the model repeated context around the cutoff.
+  const maximum = Math.min(16_384, prefix.length, fragment.length)
+  for (let overlap = maximum; overlap >= 64; overlap -= 1) {
+    if (prefix.endsWith(fragment.slice(0, overlap))) return prefix + fragment.slice(overlap)
+  }
+  return prefix + fragment
+}
+
+/**
+ * A JSON document larger than the provider ceiling cannot be repaired by regenerating it again
+ * at the same ceiling. Preserve the complete prefix and request small escaped suffix chunks.
+ * The JSON envelope keeps leading spaces, quotes and backslashes intact even when the cutoff
+ * happened in the middle of a string.
+ */
+async function continueTruncatedJson(
+  config: ProviderConfig,
+  originalMessages: ChatMessage[],
+  prefix: string,
+  transportAttempts: number,
+  timeoutMs: number,
+): Promise<unknown> {
+  let accumulated = prefix
+  let parseDetail = ''
+
+  for (let chunkIndex = 0; chunkIndex < MAX_JSON_CONTINUATION_CHUNKS; chunkIndex += 1) {
+    const continuationMessages: ChatMessage[] = [
+      ...originalMessages,
+      { role: 'assistant', content: accumulated },
+      {
+        role: 'user',
+        content: `JSON_CONTINUATION_CHUNK ${chunkIndex + 1}. The assistant JSON above is an exact prefix cut by the provider. Continue from the very next character without rewriting or repeating that prefix. Return only {"fragment":"the next exact substring","done":true|false}. The decoded fragment must contain at most ${JSON_CONTINUATION_CHUNK_CHARACTERS} characters. Preserve every field and array entry; do not summarize. Set done=true only after the original JSON final closing bracket is included.${parseDetail}`,
+      },
+    ]
+    const completion = await scopedRequestCompletion(
+      config,
+      continuationMessages,
+      true,
+      32_768,
+      true,
+      'reduce',
+      transportAttempts,
+      timeoutMs,
+      true,
+    )
+    if (completion.truncated) {
+      throw new Error(`Фрагмент автоматического продолжения JSON снова достиг лимита (finish_reason=${completion.finishReason ?? 'length'}).`)
+    }
+
+    const envelope = extractJson(completion.content)
+    if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
+      throw new Error('Провайдер не вернул конверт автоматического продолжения JSON.')
+    }
+    const record = envelope as Record<string, unknown>
+    const rawFragment = record.fragment ?? record.continuation ?? record.suffix ?? record.content
+    if (typeof rawFragment !== 'string' || !rawFragment.length) {
+      throw new Error('Провайдер вернул пустой фрагмент автоматического продолжения JSON.')
+    }
+
+    // Some models ignore the suffix protocol and return a complete replacement. It is usable
+    // only when it independently parses; a nested-object suffix falls through to normal merging.
+    const trimmedFragment = rawFragment.trim()
+    if ((trimmedFragment.startsWith('{') || trimmedFragment.startsWith('[')) && (trimmedFragment.endsWith('}') || trimmedFragment.endsWith(']'))) {
+      try { return extractJson(trimmedFragment) } catch { /* Continue with the real suffix. */ }
+    }
+
+    const merged = mergeJsonContinuation(accumulated, rawFragment)
+    if (merged.length <= accumulated.length) throw new Error('Автоматическое продолжение JSON не добавило новых данных.')
+    accumulated = merged
+
+    try {
+      // A syntactically complete document is authoritative even when done was accidentally false.
+      return extractJson(accumulated)
+    } catch (error) {
+      parseDetail = continuationBoolean(record.done ?? record.complete ?? record.finished)
+        ? ` The previous fragment claimed completion, but the combined JSON is still open (${error instanceof Error ? error.message : String(error)}). Supply only the genuinely missing suffix.`
+        : ''
+    }
+  }
+
+  throw new Error(`Автоматическое продолжение не закрыло JSON после ${MAX_JSON_CONTINUATION_CHUNKS} фрагментов.`)
+}
+
 export async function completeJson(config: ProviderConfig, messages: ChatMessage[], options?: CompletionOptions): Promise<unknown> {
   let repairMessages = messages
   let lastError: unknown
@@ -461,7 +556,14 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
     if (completion.truncated) {
       truncationAttempts += 1
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
-      if (maxOutputTokens >= 131_072 || truncationAttempts >= 3) break
+      if (maxOutputTokens >= 131_072 || truncationAttempts >= 3) {
+        try {
+          return await continueTruncatedJson(config, messages, raw, transportAttempts, timeoutMs)
+        } catch (continuationError) {
+          lastError = new Error(`${lastError instanceof Error ? lastError.message : String(lastError)} Автоматическое продолжение: ${continuationError instanceof Error ? continuationError.message : String(continuationError)}`)
+          break
+        }
+      }
       maxOutputTokens = expandedOutputLimit(maxOutputTokens)
       repairMessages = [
         ...messages,

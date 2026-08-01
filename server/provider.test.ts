@@ -283,6 +283,31 @@ describe('structured provider recovery', () => {
     )).rejects.toThrow(/обрезал обязательный JSON.*finish_reason=length/i)
   })
 
+  it('continues JSON beyond the provider hard ceiling without regenerating its valid prefix', async () => {
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      bodies.push(body)
+      const continuation = String(body.messages.at(-1)?.content ?? '').includes('JSON_CONTINUATION_CHUNK')
+      return new Response(JSON.stringify({
+        choices: continuation
+          ? [{ message: { content: JSON.stringify({ fragment: ' продолжение мира"}}', done: true }) }, finish_reason: 'stop' }]
+          : [{ message: { content: '{"world":{"description":"Начало' }, finish_reason: 'length' }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+
+    const result = await completeJson(
+      { provider: 'ollama', model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', apiKey: 'test', temperature: 0.8 },
+      [{ role: 'system', content: 'Создай полный большой мир.' }],
+      { stage: 'world', maxAttempts: 1, maxOutputTokens: 131_072 },
+    )
+
+    expect(result).toEqual({ world: { description: 'Начало продолжение мира' } })
+    expect(bodies).toHaveLength(2)
+    expect(bodies[1].max_tokens).toBe(32_768)
+    expect(bodies[1].messages.at(-2).content).toBe('{"world":{"description":"Начало')
+  })
+
   it('regenerates a truncated narrative instead of returning a broken final sentence', async () => {
     const bodies: any[] = []
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
