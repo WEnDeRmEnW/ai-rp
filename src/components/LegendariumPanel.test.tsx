@@ -45,4 +45,32 @@ describe('legendarium progressive disclosure', () => {
     expect(html).not.toContain('Имя, которого герой не знает')
     expect(html).not.toContain('Предупредил три северные станции')
   })
+
+  it('shows people rather than event records and resolves the real linked character name', () => {
+    const campaign = normalizeWorld(generatedWorldSchema.parse(demoWorld(request)), request)
+    const source = structuredClone(campaign.world.legends![0])
+    const eventRecord = {
+      ...structuredClone(source),
+      id: 'legend-event-record',
+      characterId: undefined,
+      name: 'Падение Первозданного Эфира',
+      role: 'Катастрофа, изменившая мир',
+      discovery: { ...source.discovery, visibility: 'known' as const },
+    }
+    const linkedPerson = {
+      ...structuredClone(source),
+      id: 'legend-linked-person',
+      characterId: campaign.npcs[0].id,
+      name: 'Восхождение Рин',
+      role: 'Легендарная путешественница и защитница пути',
+      discovery: { ...source.discovery, visibility: 'known' as const },
+    }
+    campaign.world.legends!.push(eventRecord, linkedPerson)
+
+    const html = renderToStaticMarkup(<LegendariumPanel campaign={campaign} />)
+
+    expect(html).toContain(campaign.npcs[0].name)
+    expect(html).not.toContain('Восхождение Рин')
+    expect(html).not.toContain('Падение Первозданного Эфира')
+  })
 })

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { assessLegendEcology, assessStrongCharacterEcology } from '../shared/legend-ecology.js'
 import { itemOwnedAbilityMatch } from '../shared/ability-ownership.js'
+import { legendNameLooksLikeEvent, legendRepresentsCharacter, linkedLegendNameMatchesCharacter } from '../shared/legend-identity.js'
 import { normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
 
 const stringifyScalar = (value: unknown) => typeof value === 'number' || typeof value === 'boolean' ? String(value) : value
@@ -556,7 +557,18 @@ const legendaryFigurePatchSchema = legendaryFigureSchema.extend({
   discovery: legendDiscoveryPatchSchema,
   createdTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
   lastChangedTurn: optionalModelNumber(z.number().int().min(0).max(1_000_000)),
-}).strict()
+}).strict().superRefine((legend, context) => {
+  if (!legendRepresentsCharacter(legend)) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['role'],
+    message: 'Legendarium figures must be individual characters; events, places, prophecies, factions and artifacts belong to their own world collections',
+  })
+  if (legendNameLooksLikeEvent(legend.name)) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['name'],
+    message: 'Legend name must identify the character, not a deed, life chapter or historical event; put the event in deeds',
+  })
+})
 
 const generatedLegendDeedSchema = legendDeedSchema.omit({ id: true, scopeIds: true }).extend({
   scopeNames: z.array(shortText).max(24),
@@ -587,7 +599,18 @@ const generatedLegendaryFigureSchema = legendaryFigureSchema.omit({
   currentState: generatedLegendCurrentStateSchema,
   emergence: generatedLegendEmergenceSchema,
   discovery: generatedLegendDiscoverySchema,
-}).strict()
+}).strict().superRefine((legend, context) => {
+  if (!legendRepresentsCharacter({ ...legend, characterId: legend.characterName })) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['role'],
+    message: 'Generated legend must be an individual character, never an event, place, organization, prophecy, artifact or natural phenomenon',
+  })
+  if (legendNameLooksLikeEvent(legend.name)) context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['name'],
+    message: 'Generated legend name must be the person name or stable personal identity; move event-like wording into deeds or myths',
+  })
+})
 
 const generatedWorldLawSchema = worldLawSchema.omit({ id: true, createdTurn: true, lastChangedTurn: true })
 const generatedWorldMechanicSchema = worldMechanicSchema.omit({ id: true, createdTurn: true, lastChangedTurn: true })
@@ -2863,6 +2886,8 @@ const worldGenerationManifestContract = z.object({
   })
   manifest.legends.forEach((legend, index) => {
     if (legend.characterName && !characterNames.has(legend.characterName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['legends', index, 'characterName'], message: 'Manifest legend character must match player or NPC' })
+    if (!linkedLegendNameMatchesCharacter(legend.name, legend.characterName)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['legends', index, 'name'], message: 'A linked legend name must exactly identify its player or NPC; put monikers in titles and events in deeds' })
+    if (legendNameLooksLikeEvent(legend.name)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['legends', index, 'name'], message: 'Manifest legends list characters, not events or biographical chapter titles' })
   })
   if (!placeNames.has(manifest.narrative.openingLocationName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['narrative', 'openingLocationName'], message: 'Unknown manifest opening location' })
   manifest.narrative.openingNpcNames.forEach((name, index) => {
@@ -3144,6 +3169,11 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
       code: z.ZodIssueCode.custom,
       path: ['world', 'legends', index, 'characterName'],
       message: `Legend character must exactly match the player or an NPC name: ${legend.characterName}`,
+    })
+    if (!linkedLegendNameMatchesCharacter(legend.name, legend.characterName)) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['world', 'legends', index, 'name'],
+      message: `Linked legendary figure must use the character name «${legend.characterName}»; titles and events have separate fields`,
     })
     if (['living', 'returned'].includes(legend.lifeStatus) && !legend.characterName) context.addIssue({
       code: z.ZodIssueCode.custom,

@@ -10,6 +10,7 @@ import type {
   LegendTruthStatus,
   LegendaryFigure,
 } from '../../shared/types'
+import { legendCharacterDisplayName, legendRepresentsCharacter } from '../../shared/legend-identity'
 
 type LegendFilter = 'all' | 'living' | 'historical' | 'emerging' | 'rumored'
 
@@ -84,12 +85,13 @@ function ListBlock({ title, values }: { title: string; values: string[] }) {
   return <div className="legend-detail-list"><b>{title}</b>{values.map((value) => <span key={value}>{value}</span>)}</div>
 }
 
-function RumorCard({ legend }: { legend: LegendaryFigure }) {
+function RumorCard({ campaign, legend }: { campaign: Campaign; legend: LegendaryFigure }) {
   const visibleMyths = hasSection(legend, 'myths') ? legend.myths.filter((myth) => myth.visibility !== 'hidden') : []
+  const displayName = legendCharacterDisplayName(legend, campaign.player, campaign.npcs)
   return <details className="legend-card is-rumored">
     <summary>
       <span className="legend-sigil"><ShieldQuestion size={16} /></span>
-      <span className="legend-heading"><small>Сведения требуют проверки</small><strong>{legend.name}</strong>{legend.epithet && <em>{legend.epithet}</em>}</span>
+      <span className="legend-heading"><small>Сведения требуют проверки</small><strong>{displayName}</strong>{legend.epithet && <em>{legend.epithet}</em>}</span>
       <span className="legend-awareness"><b>{Math.round(legend.discovery.awareness)}%</b><small>изучено</small></span>
       <ChevronDown size={15} />
     </summary>
@@ -107,7 +109,8 @@ function RumorCard({ legend }: { legend: LegendaryFigure }) {
 }
 
 function LegendCard({ campaign, legend }: { campaign: Campaign; legend: LegendaryFigure }) {
-  if (legend.discovery.visibility === 'rumored') return <RumorCard legend={legend} />
+  if (legend.discovery.visibility === 'rumored') return <RumorCard campaign={campaign} legend={legend} />
+  const displayName = legendCharacterDisplayName(legend, campaign.player, campaign.npcs)
   const location = legend.currentState.locationId
     ? campaign.world.places?.find((place) => place.id === legend.currentState.locationId)?.name
     : undefined
@@ -122,7 +125,7 @@ function LegendCard({ campaign, legend }: { campaign: Campaign; legend: Legendar
       <span className="legend-sigil"><Crown size={16} /></span>
       <span className="legend-heading">
         <small>{hasSection(legend, 'status') ? stageLabels[legend.stage] : 'Известная личность'}</small>
-        <strong>{legend.name}</strong>
+        <strong>{displayName}</strong>
         {legend.epithet && <em>{legend.epithet}</em>}
       </span>
       <span className="legend-awareness"><b>{Math.round(legend.discovery.awareness)}%</b><small>изучено</small></span>
@@ -211,7 +214,7 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
   const [filter, setFilter] = useState<LegendFilter>('all')
   const legendarium = campaign.world.legendarium
   const discoverableLegends = useMemo(
-    () => (campaign.world.legends ?? []).filter((legend) => legend.discovery.visibility !== 'hidden'),
+    () => (campaign.world.legends ?? []).filter((legend) => legend.discovery.visibility !== 'hidden' && legendRepresentsCharacter(legend)),
     [campaign.world.legends],
   )
   const overview = useMemo(() => ({
@@ -225,6 +228,7 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
     return discoverableLegends
       .filter((legend) => legendMatchesFilter(legend, filter))
       .filter((legend) => !normalized || [
+        legendCharacterDisplayName(legend, campaign.player, campaign.npcs),
         legend.name,
         ...legend.aliases,
         ...legend.titles,
@@ -233,9 +237,9 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
         hasSection(legend, 'summary') ? legend.summary : '',
       ].join(' ').toLocaleLowerCase('ru-RU').includes(normalized))
       .sort((left, right) => right.discovery.awareness - left.discovery.awareness || right.renown - left.renown)
-  }, [discoverableLegends, filter, query])
+  }, [campaign.npcs, campaign.player, discoverableLegends, filter, query])
 
-  if (!legendarium && !(campaign.world.legends ?? []).some((legend) => legend.discovery.visibility !== 'hidden')) {
+  if (!legendarium && !(campaign.world.legends ?? []).some((legend) => legend.discovery.visibility !== 'hidden' && legendRepresentsCharacter(legend))) {
     return <div className="mini-empty">Исторические личности и предания этого мира ещё не выделены в отдельную систему.</div>
   }
 

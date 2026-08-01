@@ -233,6 +233,7 @@ describe('legend ecosystem patch contract', () => {
     }
     const generated = demoWorld(request)
     generated.world.legends[0].characterName = generated.player.name
+    generated.world.legends[0].name = generated.player.name
     generated.world.legends[0].lifeStatus = 'living'
     generated.player.abilities.push({
       name: 'Право открытого имени', description: 'Позволяет удерживать и размыкать сложные печати через их публично установленное имя.', rank: 'Мастер', source: 'Практика свидетелей', kind: 'active', mastery: 82,
@@ -242,6 +243,31 @@ describe('legend ecosystem patch contract', () => {
 
     const campaign = normalizeWorld(generatedWorldSchema.parse(generated), request)
     expect(campaign.world.legends?.[0]?.characterId).toBe(campaign.player.id)
+  })
+
+  it('rejects events, places and biographical chapters disguised as legendary characters', () => {
+    const request = {
+      inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
+      characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
+      provider: { provider: 'demo' as const, model: 'demo', baseUrl: '', temperature: 0.8 },
+    }
+    const eventInsteadOfPerson = demoWorld(request)
+    Object.assign(eventInsteadOfPerson.world.legends[0], {
+      name: 'Падение Первозданного Эфира',
+      role: 'Катастрофа, изменившая мир',
+      characterName: undefined,
+    })
+    const eventResult = generatedWorldSchema.safeParse(eventInsteadOfPerson)
+    expect(eventResult.success).toBe(false)
+    if (!eventResult.success) expect(eventResult.error.issues.some((issue) => issue.message.includes('individual character'))).toBe(true)
+
+    const linkedChapter = demoWorld(request)
+    linkedChapter.world.legends[0].characterName = linkedChapter.player.name
+    linkedChapter.world.legends[0].name = 'Восхождение Эрэна'
+    linkedChapter.world.legends[0].lifeStatus = 'living'
+    const linkedResult = generatedWorldSchema.safeParse(linkedChapter)
+    expect(linkedResult.success).toBe(false)
+    if (!linkedResult.success) expect(linkedResult.error.issues.some((issue) => issue.message.includes('character name'))).toBe(true)
   })
 
   it('preserves a world pressure aimed at a real legendary entity without turning it into an NPC', () => {

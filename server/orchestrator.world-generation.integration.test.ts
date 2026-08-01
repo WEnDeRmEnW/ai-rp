@@ -216,6 +216,7 @@ describe('multi-stage world generation', () => {
     if (!factualNpc?.threatProfile || !legend) return
     legend.lifeStatus = 'living'
     legend.characterName = factualNpc.name
+    legend.name = factualNpc.name
     const sections = splitGeneratedWorldSections(completeWorld)
     const manifest = manifestFromWorld(completeWorld)
     const brokenCharacters = structuredClone(sections.characters)
