@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { demoWorld } from './demo'
 import { generateWorld, normalizeGeneratedWorldReferences, splitGeneratedWorldSections } from './orchestrator'
-import { generatedWorldSchema } from './schemas'
+import { generatedWorldDraftSchema, generatedWorldSchema } from './schemas'
 
 type CompletionBody = { messages: Array<{ role: string; content: string }> }
 type Stage = 'manifest' | 'core' | 'civilization' | 'characters' | 'legends' | 'narrative' | 'interface'
@@ -132,7 +132,7 @@ describe('multi-stage world generation', () => {
     }))
 
     await expect(generateWorld({ ...request, generationMode: 'fast' })).resolves.toEqual(completeWorld)
-    expect(calls.get('legends')).toBe(3)
+    expect(calls.get('legends')).toBe(Math.ceil(manifest.legends.length / 3) + 2)
     expect(calls.get('core')).toBe(1)
     expect(calls.get('civilization')).toBe(1)
     expect(calls.get('narrative')).toBe(1)
@@ -178,7 +178,9 @@ describe('multi-stage world generation', () => {
 
     const generated = await generateWorld(request)
 
-    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'characters'])
+    expect(requestedStages.filter((stage) => stage === 'manifest')).toHaveLength(1)
+    expect(requestedStages.filter((stage) => stage === 'legends')).toHaveLength(Math.ceil(manifest.legends.length / 3))
+    expect(requestedStages.filter((stage) => stage === 'characters')).toHaveLength(2)
     expect(peakWorldSections).toBe(6)
     expect(generated).toEqual(completeWorld)
   })
@@ -202,7 +204,9 @@ describe('multi-stage world generation', () => {
     }))
 
     await expect(generateWorld(request)).resolves.toEqual(completeWorld)
-    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'characters'])
+    expect(requestedStages.filter((stage) => stage === 'manifest')).toHaveLength(1)
+    expect(requestedStages.filter((stage) => stage === 'legends')).toHaveLength(Math.ceil(manifest.legends.length / 3))
+    expect(requestedStages.filter((stage) => stage === 'characters')).toHaveLength(2)
   })
 
   it('authors omitted ability profiles separately without regenerating the complete core section', async () => {
@@ -318,10 +322,12 @@ describe('multi-stage world generation', () => {
     expect(generated.world.interfaceModules.flatMap((module) => module.elements).some((element) => (
       element.binding?.domain === 'world.metric' && element.binding.key === 'missing-metric'
     ))).toBe(false)
-    expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface', 'characters'])
+    expect(requestedStages.filter((stage) => stage === 'manifest')).toHaveLength(1)
+    expect(requestedStages.filter((stage) => stage === 'legends')).toHaveLength(Math.ceil(manifest.legends.length / 3))
+    expect(requestedStages.filter((stage) => stage === 'characters')).toHaveLength(2)
   })
 
-  it('repairs a living legend through its factual NPC before touching the legend again', async () => {
+  it('keeps a structurally complete world instead of reprinting a huge section for a late cross-link warning', async () => {
     const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
     const factualNpc = completeWorld.npcs.find((npc) => npc.threatProfile?.tier === 'elite')
     const legend = completeWorld.world.legends.find((entry) => entry.stage === 'legendary' && entry.powerStanding.classification === 'elite')
@@ -360,10 +366,14 @@ describe('multi-stage world generation', () => {
       return providerResponse(originalConcept)
     }))
 
-    await expect(generateWorld(request)).resolves.toEqual(completeWorld)
-    expect(characterCalls).toBe(3)
-    expect(legendCalls).toBe(1)
-    expect(requestedStages.slice(-1)).toEqual(['characters'])
+    const generated = await generateWorld(request)
+    expect(generated.world.name).toBe(completeWorld.world.name)
+    expect(generatedWorldDraftSchema.safeParse(generated).success).toBe(true)
+    expect(generatedWorldSchema.safeParse(generated).success).toBe(false)
+    expect(generated.npcs.find((npc) => npc.name === factualNpc.name)?.threatProfile?.tier).toBe('capable')
+    expect(characterCalls).toBe(2)
+    expect(legendCalls).toBe(Math.ceil(manifest.legends.length / 3))
+    expect(requestedStages.filter((stage) => stage === 'characters')).toHaveLength(2)
   })
 
   it('returns the best valid world when only an optional final rewrite gets an empty provider response', async () => {

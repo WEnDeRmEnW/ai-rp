@@ -5,7 +5,7 @@ import { demoTurn, demoWorld } from './demo.js'
 import { completeAuxiliaryJson, completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput, normalizeTurnPlan } from './model-normalizer.js'
 import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityProfileAuthoringPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationCharacterTopologyPrompt, worldGenerationManifestOriginalityRepairPrompt, worldGenerationManifestPrompt, worldGenerationNpcBatchPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { abilityFocusedRepairSchema, abilityProfileAuthoringSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCharacterTopologySchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldNpcBatchSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityProfileAuthoringResponse, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCharacterTopology, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type GeneratedWorldNpcBatch, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
+import { abilityFocusedRepairSchema, abilityProfileAuthoringSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCharacterTopologySchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldDraftSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldNpcBatchSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityProfileAuthoringResponse, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCharacterTopology, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type GeneratedWorldNpcBatch, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
@@ -443,7 +443,6 @@ const WORLD_GENERATION_POLICIES = {
     transportAttempts: 1,
     originalityRepairs: 1,
     manifestRepairs: 1,
-    integrityRepairs: 2,
     artifactRepairs: 1,
     qualityRewrites: 1,
     semanticCritics: false,
@@ -455,7 +454,6 @@ const WORLD_GENERATION_POLICIES = {
     transportAttempts: 2,
     originalityRepairs: 1,
     manifestRepairs: 1,
-    integrityRepairs: 3,
     artifactRepairs: 2,
     qualityRewrites: 1,
     semanticCritics: false,
@@ -467,7 +465,6 @@ const WORLD_GENERATION_POLICIES = {
     transportAttempts: 3,
     originalityRepairs: 2,
     manifestRepairs: 2,
-    integrityRepairs: 4,
     artifactRepairs: 3,
     qualityRewrites: 2,
     semanticCritics: true,
@@ -4088,19 +4085,6 @@ function worldStageForIssue(path: PropertyKey[]): WorldGenerationStage {
   return 'core'
 }
 
-type WorldIntegrityIssue = { path: PropertyKey[]; message: string }
-
-function worldStagesForIssue(issue: WorldIntegrityIssue, world: GeneratedWorld, includeCrossSectionOwner = true): WorldGenerationStage[] {
-  const primary = worldStageForIssue(issue.path)
-  if (!includeCrossSectionOwner || primary !== 'legends') return [primary]
-  const [root, child, rawIndex] = issue.path.map(String)
-  if (root !== 'world' || child !== 'legends') return [primary]
-  const legend = world.world.legends[Number(rawIndex)]
-  if (!legend || !/(?:NPC threat profile|fully authored, unique ability|backed by the simulated player or an NPC|Legend character must exactly match)/iu.test(issue.message)) return [primary]
-  const linkedToPlayer = legend.characterName?.trim().toLocaleLowerCase('ru-RU') === world.player.name.trim().toLocaleLowerCase('ru-RU')
-  return [...new Set<WorldGenerationStage>([linkedToPlayer ? 'core' : 'characters', primary])]
-}
-
 /**
  * Request identity and an already-established place name are facts, not model-authored content.
  * Canonicalizing those references avoids spending a full repair pass on "Акира" vs "Акира " or
@@ -4503,6 +4487,108 @@ async function generateWorldCharactersInBatches(
   return parsed.data
 }
 
+/**
+ * A full legend dossier is one of the densest objects in the world contract. Asking DeepSeek to
+ * author 10-18 of them plus lore in one response can exceed Ollama Cloud's absolute 131k output
+ * limit. Author immutable manifest figures in independent groups of three, then assemble them in
+ * manifest order. This changes only transport granularity: every figure still uses the complete
+ * legend schema and keeps all deeds, myths, legacies, discovery and encounter fields.
+ */
+async function generateWorldLegendsInBatches(
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
+  manifest: WorldGenerationManifest,
+): Promise<GeneratedWorldLegends> {
+  const policy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
+  const plannedBatches = Array.from(
+    { length: Math.ceil(manifest.legends.length / 3) },
+    (_, index) => manifest.legends.slice(index * 3, index * 3 + 3),
+  )
+  if (!plannedBatches.length) {
+    return generateWorldSection(request, concept, {}, 'legends', generatedWorldLegendsSchema, undefined, manifest)
+  }
+
+  const authorBatch = async (batchIndex: number, attempt: number): Promise<GeneratedWorldLegends> => {
+    const planned = plannedBatches[batchIndex]
+    const scopedManifest: WorldGenerationManifest = { ...manifest, legends: planned }
+    const messages = worldGenerationStagePrompt(request, concept, 'legends', undefined, scopedManifest)
+    messages.splice(1, 0, {
+      role: 'system' as const,
+      content: `LEGEND_BATCH ${batchIndex + 1}/${plannedBatches.length}. Это транспортная часть единого легендариума. Требование создать минимум десять фигур относится к сумме всех пакетов, а не к этому ответу. В world.legends верни ровно ${planned.length} полных досье и только для этих имён: ${planned.map((entry) => entry.name).join(', ')}. Не сокращай ни одно досье. world.legendarium верни полностью и согласованно с миром. lore содержит не более шести самых важных записей именно этого пакета.`,
+    })
+    if (attempt > 0) messages.push({
+      role: 'user' as const,
+      content: `Повтори только пакет ${batchIndex + 1}; nonce=${randomUUID()}. Верни законченный JSON одного пакета без Markdown и без фигур из других пакетов.`,
+    })
+    const raw = await completeJson(request.provider, messages, {
+      stage: 'world',
+      maxOutputTokens: 49_152,
+      maxAttempts: policy.providerAttempts,
+      transportAttempts: 1,
+      timeoutMs: 180_000,
+    })
+    const parsed = await parseWithRepair<GeneratedWorldLegends>(
+      raw,
+      generatedWorldLegendsSchema,
+      request.provider,
+      messages,
+      undefined,
+      (candidate) => extractGeneratedWorldStageCandidate(candidate, 'legends'),
+      { maxAttempts: Math.min(2, policy.schemaAttempts) },
+    )
+    const expected = new Set(planned.map((entry) => normalizedReference(entry.name)))
+    parsed.world.legends = parsed.world.legends.filter((entry) => expected.has(normalizedReference(entry.name)))
+    const returned = new Set(parsed.world.legends.map((entry) => normalizedReference(entry.name)))
+    const missing = planned.filter((entry) => !returned.has(normalizedReference(entry.name)))
+    if (missing.length) throw new Error(`Пакет легенд пропустил фигуры: ${missing.map((entry) => entry.name).join(', ')}`)
+    return parsed
+  }
+
+  const batches: Array<GeneratedWorldLegends | undefined> = Array(plannedBatches.length)
+  let pending = plannedBatches.map((_, index) => index)
+  let lastErrors = new Map<number, unknown>()
+  const maxAttempts = Math.max(2, policy.schemaAttempts)
+  for (let attempt = 0; pending.length && attempt < maxAttempts; attempt += 1) {
+    const attempted = [...pending]
+    // The six world owners already run in parallel. Keep legend packets sequential inside their
+    // owner so this split does not raise provider concurrency above the previous proven ceiling.
+    const settled: PromiseSettledResult<GeneratedWorldLegends>[] = []
+    for (const batchIndex of attempted) {
+      settled.push((await Promise.allSettled([authorBatch(batchIndex, attempt)]))[0])
+    }
+    const failed: number[] = []
+    const errors = new Map<number, unknown>()
+    settled.forEach((result, index) => {
+      const batchIndex = attempted[index]
+      if (result.status === 'fulfilled') batches[batchIndex] = result.value
+      else {
+        failed.push(batchIndex)
+        errors.set(batchIndex, result.reason)
+      }
+    })
+    pending = failed
+    lastErrors = errors
+  }
+  if (pending.length) throw new Error(`Не завершены пакеты легенд ${pending.map((index) => index + 1).join(', ')}: ${pending.map((index) => {
+    const reason = lastErrors.get(index)
+    return reason instanceof Error ? reason.message : String(reason)
+  }).join('; ')}`)
+
+  const completed = batches as GeneratedWorldLegends[]
+  const byName = new Map(completed.flatMap((batch) => batch.world.legends).map((entry) => [normalizedReference(entry.name), entry]))
+  const loreByTitle = new Map(completed.flatMap((batch) => batch.lore).map((entry) => [normalizedReference(entry.title), entry]))
+  const assembled: GeneratedWorldLegends = {
+    world: {
+      legendarium: completed[0].world.legendarium,
+      legends: manifest.legends.map((entry) => byName.get(normalizedReference(entry.name))!).filter(Boolean),
+    },
+    lore: [...loreByTitle.values()].slice(0, 30),
+  }
+  const final = generatedWorldLegendsSchema.safeParse(assembled)
+  if (!final.success) throw new Error(compactIssues(final.error, assembled))
+  return final.data
+}
+
 async function regenerateOwnedWorldSection(
   stage: WorldGenerationStage,
   sections: GeneratedWorldSections,
@@ -4514,8 +4600,10 @@ async function regenerateOwnedWorldSection(
   const next = { ...sections }
   if (stage === 'core') next.core = await generateWorldSection(request, concept, sections, stage, generatedWorldCoreSchema, issues, manifest)
   else if (stage === 'civilization') next.civilization = await generateWorldSection(request, concept, sections, stage, generatedWorldCivilizationSchema, issues, manifest)
-  else if (stage === 'characters') next.characters = await generateWorldSection(request, concept, sections, stage, generatedWorldCharactersSchema, issues, manifest)
-  else if (stage === 'legends') next.legends = await generateWorldSection(request, concept, sections, stage, generatedWorldLegendsSchema, issues, manifest)
+  else if (stage === 'characters' && manifest) next.characters = await generateWorldCharactersInBatches(request, concept, manifest)
+  else if (stage === 'characters') next.characters = await generateWorldSection(request, concept, sections, stage, generatedWorldCharactersSchema, issues)
+  else if (stage === 'legends' && manifest) next.legends = await generateWorldLegendsInBatches(request, concept, manifest)
+  else if (stage === 'legends') next.legends = await generateWorldSection(request, concept, sections, stage, generatedWorldLegendsSchema, issues)
   else if (stage === 'narrative') next.narrative = await generateWorldSection(request, concept, sections, stage, generatedWorldNarrativeSchema, issues, manifest)
   else next.interface = await generateWorldSection(request, concept, sections, stage, generatedWorldInterfaceSchema, issues, manifest)
   return next
@@ -4524,83 +4612,30 @@ async function regenerateOwnedWorldSection(
 async function ensureGeneratedWorldIntegrity(
   source: GeneratedWorldSections,
   request: WorldGenerationRequest,
-  concept: ConceptAnalysis,
+  _concept: ConceptAnalysis,
   report?: ProgressReporter,
-  manifest?: WorldGenerationManifest,
+  _manifest?: WorldGenerationManifest,
 ): Promise<{ world: GeneratedWorld; sections: GeneratedWorldSections }> {
-  let sections = source
-  const generationPolicy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
-  const orderedStages: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
-
-  const groupIssues = (issues: WorldIntegrityIssue[], world: GeneratedWorld, includeCrossSectionOwner: boolean) => {
-    const grouped = new Map<WorldGenerationStage, WorldIntegrityIssue[]>()
-    issues.forEach((issue) => {
-      worldStagesForIssue(issue, world, includeCrossSectionOwner).forEach((stage) => {
-        grouped.set(stage, [...(grouped.get(stage) ?? []), issue])
-      })
-    })
-    return grouped
-  }
-
-  const repairWave = async (
-    stages: WorldGenerationStage[],
-    grouped: Map<WorldGenerationStage, WorldIntegrityIssue[]>,
-    attempt: number,
-  ) => {
-    const repairedSections = await mapWithConcurrency(stages, 3, async (stage) => {
-      const ownedIssues = grouped.get(stage) ?? []
-      reportProgress(report, 80 + attempt * 2, 'world-integrity', `Согласуем раздел «${stage}» с остальными частями мира`, 9, 11)
-      const repaired = await regenerateOwnedWorldSection(
-        stage,
-        sections,
-        request,
-        concept,
-        compactIssues({ issues: ownedIssues }, assembleGeneratedWorldSections(sections)),
-        manifest,
-      )
-      return [stage, repaired[stage]] as const
-    })
-    sections = { ...sections, ...Object.fromEntries(repairedSections) }
-  }
-
-  for (let attempt = 0; attempt < generationPolicy.integrityRepairs; attempt += 1) {
-    const world = sanitizeGeneratedWorldInterfaceBindings(
-      normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName),
-    )
-    sections = splitGeneratedWorldSections(world)
-    const strict = generatedWorldSchema.safeParse(world)
-    if (strict.success) return { world: strict.data, sections: splitGeneratedWorldSections(strict.data) }
-
-    const grouped = groupIssues(strict.error.issues, world, true)
-    const brokenStages = orderedStages.filter((entry) => grouped.has(entry))
-    const foundationStages = brokenStages.filter((stage) => ['core', 'civilization', 'characters'].includes(stage))
-    await repairWave(foundationStages.length ? foundationStages : brokenStages, grouped, attempt)
-
-    // Cross-section failures such as a living elite legend backed by a weaker NPC are owned by
-    // both sides. Repair the factual character first, revalidate, and touch the legend only if a
-    // real legend-owned inconsistency remains. This prevents four parallel passes from repeatedly
-    // lowering one side while the other side still contains stale data.
-    if (foundationStages.length) {
-      const linkedWorld = sanitizeGeneratedWorldInterfaceBindings(
-        normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName),
-      )
-      sections = splitGeneratedWorldSections(linkedWorld)
-      const linkedCheck = generatedWorldSchema.safeParse(linkedWorld)
-      if (linkedCheck.success) return { world: linkedCheck.data, sections: splitGeneratedWorldSections(linkedCheck.data) }
-      const dependentGrouped = groupIssues(linkedCheck.error.issues, linkedWorld, false)
-      const dependentStages = orderedStages.filter((stage) => (
-        !['core', 'civilization', 'characters'].includes(stage) && dependentGrouped.has(stage)
-      ))
-      if (dependentStages.length) await repairWave(dependentStages, dependentGrouped, attempt)
-    }
-  }
-
   const world = sanitizeGeneratedWorldInterfaceBindings(
-    normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName),
+    normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(source), request.characterName),
   )
-  const finalCheck = generatedWorldSchema.safeParse(world)
-  if (finalCheck.success) return { world: finalCheck.data, sections: splitGeneratedWorldSections(finalCheck.data) }
-  throw new Error(`DeepSeek не смог связать разделы мира после ${generationPolicy.integrityRepairs} точечных волн: ${compactIssues(finalCheck.error, world)}`)
+  const strict = generatedWorldSchema.safeParse(world)
+  if (strict.success) return { world: strict.data, sections: splitGeneratedWorldSections(strict.data) }
+
+  // Every owned section has already passed its full schema before this function runs. Remaining
+  // failures are cross-section quality assertions (for example, a legend/NPC strength mismatch),
+  // not a malformed world. Reprinting an entire 50k-130k token section at 80% repeatedly caused
+  // DeepSeek/Ollama Cloud to hit its hard output ceiling and discarded six completed sections.
+  // Keep the structurally complete candidate instead; normalizeWorld resolves names to stable IDs
+  // and filters dangling optional links while preserving all authored lore, characters and items.
+  const structural = generatedWorldDraftSchema.safeParse(world)
+  if (!structural.success) {
+    throw new Error(`Собранный мир содержит незавершённый обязательный раздел: ${compactIssues(structural.error, world)}`)
+  }
+  console.warn(`[world-integrity] Сохранён полный структурно корректный мир без повторной печати больших разделов: ${compactIssues(strict.error, world)}`)
+  reportProgress(report, 86, 'world-integrity', 'Основные разделы готовы; необязательные перекрёстные замечания сохранены без повторной генерации', 9, 11)
+  const preserved = structural.data as GeneratedWorld
+  return { world: preserved, sections: splitGeneratedWorldSections(preserved) }
 }
 
 function qualityRepairStages(review: WorldQualityReview): WorldGenerationStage[] {
@@ -4900,7 +4935,7 @@ async function generateParallelWorldStage(
   if (stage === 'core') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCoreSchema, undefined, manifest)]
   if (stage === 'civilization') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldCivilizationSchema, undefined, manifest)]
   if (stage === 'characters') return [stage, await generateWorldCharactersInBatches(request, concept, manifest)]
-  if (stage === 'legends') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldLegendsSchema, undefined, manifest)]
+  if (stage === 'legends') return [stage, await generateWorldLegendsInBatches(request, concept, manifest)]
   if (stage === 'narrative') return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldNarrativeSchema, undefined, manifest)]
   return [stage, await generateWorldSection(request, concept, emptySections, stage, generatedWorldInterfaceSchema, undefined, manifest)]
 }
