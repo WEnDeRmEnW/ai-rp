@@ -1419,9 +1419,10 @@ const generatedManifestNameIndex = (entries: unknown[], key = 'name') => new Map
 function normalizeGeneratedWorldManifestReferences(root: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(root.places) || !Array.isArray(root.npcs) || !Array.isArray(root.legends) || !isRecord(root.player)) return root
 
+  const player = root.player
   const placeNames = generatedManifestNameIndex(root.places)
   const factionNames = Array.isArray(root.factions) ? generatedManifestNameIndex(root.factions) : new Map<string, string>()
-  const characterNames = generatedManifestNameIndex([root.player, ...root.npcs])
+  const characterNames = generatedManifestNameIndex([player, ...root.npcs])
 
   const places = root.places.map((source) => {
     if (!isRecord(source)) return source
@@ -1439,6 +1440,24 @@ function normalizeGeneratedWorldManifestReferences(root: Record<string, unknown>
     return place
   })
 
+  const npcs = root.npcs.map((source) => {
+    if (!isRecord(source)) return source
+    const npc = { ...source }
+    const locationToken = generatedManifestReferenceToken(npc.locationName)
+    const canonicalLocation = locationToken ? placeNames.get(locationToken) : undefined
+    if (canonicalLocation) npc.locationName = canonicalLocation
+    else delete npc.locationName
+
+    if (Array.isArray(npc.factionNames)) {
+      npc.factionNames = [...new Set(npc.factionNames.flatMap((value) => {
+        const factionToken = generatedManifestReferenceToken(value)
+        const canonicalFaction = factionToken ? factionNames.get(factionToken) : undefined
+        return canonicalFaction ? [canonicalFaction] : []
+      }))]
+    }
+    return npc
+  })
+
   const legends = root.legends.map((source) => {
     if (!isRecord(source)) return source
     const legend = { ...source }
@@ -1454,7 +1473,20 @@ function normalizeGeneratedWorldManifestReferences(root: Record<string, unknown>
     return legend
   })
 
-  return { ...root, places, legends }
+  let narrative = root.narrative
+  if (isRecord(narrative) && Array.isArray(narrative.openingNpcNames)) {
+    narrative = {
+      ...narrative,
+      openingNpcNames: [...new Set(narrative.openingNpcNames.flatMap((value) => {
+        const characterToken = generatedManifestReferenceToken(value)
+        const canonicalCharacter = characterToken ? characterNames.get(characterToken) : undefined
+        const playerToken = generatedManifestReferenceToken(player.name)
+        return canonicalCharacter && characterToken !== playerToken ? [canonicalCharacter] : []
+      }))],
+    }
+  }
+
+  return { ...root, places, npcs, legends, narrative }
 }
 
 /**

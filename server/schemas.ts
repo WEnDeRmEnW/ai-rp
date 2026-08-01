@@ -2869,7 +2869,7 @@ const worldGenerationManifestContract = z.object({
   npcs: z.array(z.object({
     name: shortText,
     role: longText,
-    locationName: shortText,
+    locationName: shortText.optional(),
     factionNames: z.array(shortText).max(8),
     threatTier: threatTierSchema,
     hidden: modelBoolean,
@@ -2913,7 +2913,7 @@ const worldGenerationManifestContract = z.object({
     if (place.controllingFactionName && !factionNames.has(place.controllingFactionName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['places', index, 'controllingFactionName'], message: 'Unknown manifest controlling faction' })
   })
   manifest.npcs.forEach((npc, index) => {
-    if (!placeNames.has(npc.locationName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['npcs', index, 'locationName'], message: 'Unknown manifest NPC location' })
+    if (npc.locationName && !placeNames.has(npc.locationName.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['npcs', index, 'locationName'], message: 'Unknown manifest NPC location' })
     npc.factionNames.forEach((name, factionIndex) => {
       if (!factionNames.has(name.toLocaleLowerCase('ru-RU'))) context.addIssue({ code: z.ZodIssueCode.custom, path: ['npcs', index, 'factionNames', factionIndex], message: 'Unknown manifest NPC faction' })
     })

@@ -122,6 +122,22 @@ describe('world generation manifest population bounds', () => {
     expect(parsed.places.some((place) => place.name === 'Land of Fire')).toBe(false)
     expect(parsed.npcs).toHaveLength(1)
   })
+
+  it('keeps hidden NPCs whose exact location is not established', () => {
+    const raw = compactWorldManifest() as any
+    raw.npcs.push(
+      { name: 'Наблюдатель', role: 'Следит за городом из неизвестного укрытия.', locationName: 'Unknown', factionNames: ['Неизвестная группа'], threatTier: 'dangerous', hidden: true },
+      { name: 'Странник', role: 'Появляется у моста только по ночам.', locationName: '  МОСТОВАЯ ', factionNames: [], threatTier: 'capable', hidden: true },
+    )
+    raw.narrative.openingNpcNames.push('Несуществующий свидетель')
+
+    const parsed = worldGenerationManifestSchema.parse(raw)
+    expect(parsed.npcs).toHaveLength(3)
+    expect(parsed.npcs.find((npc) => npc.name === 'Наблюдатель')).toMatchObject({ hidden: true, factionNames: [] })
+    expect(parsed.npcs.find((npc) => npc.name === 'Наблюдатель')).not.toHaveProperty('locationName')
+    expect(parsed.npcs.find((npc) => npc.name === 'Странник')?.locationName).toBe('Мостовая')
+    expect(parsed.narrative.openingNpcNames).toEqual(['Проводник'])
+  })
 })
 
 describe('campaign editor contract', () => {
