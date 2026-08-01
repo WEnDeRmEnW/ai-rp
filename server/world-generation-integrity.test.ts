@@ -32,6 +32,30 @@ describe('generated world integrity pipeline', () => {
     expect(generatedWorldSchema.safeParse(assembleGeneratedWorldSections(sections)).success).toBe(true)
   })
 
+  it('keeps valid world sections when an authored ability profile is absent or malformed', () => {
+    const world = validWorld()
+    const sections = splitGeneratedWorldSections(world)
+    const playerAbility = sections.core.player.abilities[0]
+    const npcAbility = sections.characters.npcs.flatMap((npc) => npc.abilities)[0]
+    expect(playerAbility).toBeDefined()
+    expect(npcAbility).toBeDefined()
+    if (!playerAbility || !npcAbility) return
+
+    delete playerAbility.profile
+    ;(npcAbility as unknown as Record<string, unknown>).profile = {
+      availability: { state: 'available' },
+      facets: { control: 100 },
+    }
+
+    const parsedCore = generatedWorldCoreSchema.safeParse(sections.core)
+    const parsedCharacters = generatedWorldCharactersSchema.safeParse(sections.characters)
+    expect(parsedCore.success).toBe(true)
+    expect(parsedCharacters.success).toBe(true)
+    if (!parsedCore.success || !parsedCharacters.success) return
+    expect(parsedCore.data.player.abilities[0].profile).toBeUndefined()
+    expect(parsedCharacters.data.npcs.flatMap((npc) => npc.abilities)[0].profile).toBeUndefined()
+  })
+
   it('accepts a compact cast without forcing filler NPCs or legends', () => {
     const world = validWorld()
     world.npcs = world.npcs.slice(0, 1)

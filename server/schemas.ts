@@ -1429,6 +1429,17 @@ const abilityProfileDraftSchema = z.object({
   availability: abilityAvailabilitySchema.optional(),
   developmentSeeds: z.array(abilityDevelopmentSeedDraftSchema).max(12),
 }).strict()
+
+/**
+ * A world section is much larger than one authored ability card. If DeepSeek omits a profile
+ * or returns a partial one, preserve the already valid mechanics and let the dedicated
+ * profile-authoring stage rebuild only this layer. No content is invented here.
+ */
+const generatedAbilityProfileSchema = z.preprocess((value) => {
+  if (value === undefined || value === null) return undefined
+  const parsed = abilityProfileDraftSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}, abilityProfileDraftSchema.optional())
 const abilityDiscoverySchema = abilityDiscoveryDraftSchema.extend({
   evidence: z.array(abilityDiscoveryEvidenceDraftSchema.extend({
     id: idSchema,
@@ -2445,7 +2456,7 @@ const generatedAbilitySchema = z.object({
   techniques: z.array(generatedPowerTechniqueSchema).max(48).default([]),
   canonStatus: canonStatusSchema,
   canonReference: longText.optional(),
-  profile: abilityProfileDraftSchema.optional(),
+  profile: generatedAbilityProfileSchema,
 }).strict()
 const generatedArtifactPowerSchema = artifactPowerDraftSchema.extend({
   id: idSchema,
@@ -2617,7 +2628,15 @@ export const abilityFocusedRepairSchema = z.preprocess((value) => normalizeModel
   ability: abilityDraftSchema,
 }).strict())
 
+export const abilityProfileAuthoringSchema = z.preprocess((value) => normalizeModelOutput(value), z.object({
+  profiles: z.array(z.object({
+    requestId: shortText,
+    profile: abilityProfileDraftSchema,
+  }).strict()).min(1).max(3),
+}).strict())
+
 export type AbilityQualityReview = z.infer<typeof abilityQualityReviewSchema>
+export type AbilityProfileAuthoringResponse = z.infer<typeof abilityProfileAuthoringSchema>
 const generatedMysteryCaseSchema = z.object({
   title: shortText,
   premise: longText,
@@ -2922,11 +2941,6 @@ const generatedWorldCoreContract = z.object({
     message: 'Every newly generated world requires its own capabilitySystem',
   })
   section.player.abilities.forEach((ability, index) => {
-    if (!ability.profile) context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['player', 'abilities', index, 'profile'],
-      message: 'Every newly generated player ability requires a complete authored profile',
-    })
     const itemOwned = itemOwnedAbilityMatch(ability, section.inventory)
     if (itemOwned) context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -2954,15 +2968,7 @@ const generatedWorldCharactersContract = generatedWorldStructuralContract.pick({
   antagonistPlans: true,
   worldPressures: true,
   influenceAssets: true,
-}).strict().superRefine((section, context) => {
-  section.npcs.forEach((npc, npcIndex) => npc.abilities.forEach((ability, abilityIndex) => {
-    if (!ability.profile) context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['npcs', npcIndex, 'abilities', abilityIndex, 'profile'],
-      message: 'Every newly generated NPC ability requires a complete authored profile',
-    })
-  }))
-})
+}).strict()
 
 const generatedWorldLegendsContract = z.object({
   world: generatedWorldStructuralContract.shape.world.pick({

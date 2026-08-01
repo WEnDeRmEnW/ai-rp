@@ -174,6 +174,84 @@ describe('multi-stage world generation', () => {
     expect(requestedStages).toEqual(['manifest', 'core', 'civilization', 'characters', 'legends', 'narrative', 'interface'])
   })
 
+  it('authors omitted ability profiles separately without regenerating the complete core section', async () => {
+    const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
+    const incompleteWorld = structuredClone(completeWorld)
+    incompleteWorld.player.abilities.forEach((ability) => { delete ability.profile })
+    const firstNpcAbility = incompleteWorld.npcs.flatMap((npc) => npc.abilities)[0]
+    if (firstNpcAbility) delete firstNpcAbility.profile
+    const sections = splitGeneratedWorldSections(incompleteWorld)
+    const manifest = manifestFromWorld(completeWorld)
+    const profiles = new Map<string, NonNullable<typeof completeWorld.player.abilities[number]['profile']>>()
+    completeWorld.player.abilities.forEach((ability) => {
+      if (ability.profile) profiles.set(`${completeWorld.player.name}::${ability.name}`, ability.profile)
+    })
+    completeWorld.npcs.forEach((npc) => npc.abilities.forEach((ability) => {
+      if (ability.profile) profiles.set(`${npc.name}::${ability.name}`, ability.profile)
+    }))
+    let coreCalls = 0
+    let profileCalls = 0
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
+      if (system.includes('дополняешь ТОЛЬКО авторские profile')) {
+        profileCalls += 1
+        const input = JSON.parse(body.messages.find((message) => message.role === 'user')?.content ?? '{}') as {
+          targets?: Array<{ requestId: string; owner: { name: string }; ability: { name: string } }>
+        }
+        return providerResponse({
+          profiles: (input.targets ?? []).map((target) => ({
+            requestId: target.requestId,
+            profile: profiles.get(`${target.owner.name}::${target.ability.name}`),
+          })),
+        })
+      }
+      const stage = requestedGenerationStage(system)
+      if (stage) {
+        if (stage === 'manifest') return providerResponse(manifest)
+        if (stage === 'core') coreCalls += 1
+        return providerResponse(sections[stage])
+      }
+      if (system.includes('Составь coverageAudit')) return providerResponse(passedQualityReview)
+      return providerResponse(originalConcept)
+    }))
+
+    await expect(generateWorld(request)).resolves.toEqual(completeWorld)
+    expect(coreCalls).toBe(1)
+    expect(profileCalls).toBeGreaterThan(0)
+  })
+
+  it('keeps the completed world when the separate profile service returns an incomplete object', async () => {
+    const incompleteWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
+    const firstAbility = incompleteWorld.player.abilities[0]
+    expect(firstAbility).toBeDefined()
+    if (!firstAbility) return
+    delete firstAbility.profile
+    const sections = splitGeneratedWorldSections(incompleteWorld)
+    const manifest = manifestFromWorld(incompleteWorld)
+    let coreCalls = 0
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
+      if (system.includes('дополняешь ТОЛЬКО авторские profile')) return providerResponse({ profiles: [] })
+      const stage = requestedGenerationStage(system)
+      if (stage) {
+        if (stage === 'manifest') return providerResponse(manifest)
+        if (stage === 'core') coreCalls += 1
+        return providerResponse(sections[stage])
+      }
+      if (system.includes('Составь coverageAudit')) return providerResponse(passedQualityReview)
+      return providerResponse(originalConcept)
+    }))
+
+    const generated = await generateWorld(request)
+    expect(generated.player.abilities[0].profile).toBeUndefined()
+    expect(generated.world.name).toBe(incompleteWorld.world.name)
+    expect(coreCalls).toBe(1)
+  })
+
   it('repairs only the section that owns a broken cross-world binding', async () => {
     const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
     const sections = splitGeneratedWorldSections(completeWorld)

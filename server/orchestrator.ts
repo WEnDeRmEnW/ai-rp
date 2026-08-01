@@ -1,11 +1,11 @@
-import type { Ability, AbilityDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, NarrativeEventProposal, NarrativeEventRequirement, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorkshopEventDirective, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
+import type { Ability, AbilityDraft, AbilityProfileDraft, Campaign, CampaignEditRequest, CampaignEditResponse, InventoryItem, NarrativeEventDecision, NarrativeEventProposal, NarrativeEventRequirement, OperationProgress, TurnPatch, TurnRequest, TurnResponse, WorkshopEventDirective, WorldCapabilitySystem, WorldCapabilitySystemDraft, WorldGenerationRequest, WorldQuestionRequest, WorldQuestionResponse } from '../shared/types.js'
 import { randomUUID } from 'node:crypto'
 import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, narrativeEventKnownIds, normalizeEventDirectorState, normalizeNarrativeEventProposal, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeAuxiliaryJson, completeJson, completeText, completionScopeStats } from './provider.js'
 import { normalizeModelOutput, normalizeTurnPlan } from './model-normalizer.js'
-import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestOriginalityRepairPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
-import { abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
+import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityProfileAuthoringPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestOriginalityRepairPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
+import { abilityFocusedRepairSchema, abilityProfileAuthoringSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityProfileAuthoringResponse, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
 import { artifactNoveltyIssues, artifactNoveltyScore, updateArtifactRegistry } from '../shared/artifacts.js'
 import { resolveActionCheck } from './resolution.js'
@@ -84,17 +84,17 @@ function capabilitySystemCandidate(
 function abilityDraftForSystem(draft: AbilityDraft, system: WorldCapabilitySystem | undefined): AbilityDraft {
   if (!draft.profile || !system) return draft
   const normalizedGroup = draft.profile.nature.groupId.trim().toLocaleLowerCase('ru-RU')
-  const groupId = system.groups.find((group) => group.id === draft.profile!.nature.groupId || group.label.trim().toLocaleLowerCase('ru-RU') === normalizedGroup)?.id
-    ?? draft.profile.nature.groupId
+  const group = system.groups.find((entry) => entry.id === draft.profile!.nature.groupId || entry.label.trim().toLocaleLowerCase('ru-RU') === normalizedGroup)
+  const groupId = group?.id ?? draft.profile.nature.groupId
   const normalizedTier = draft.profile.standing.tierId.trim().toLocaleLowerCase('ru-RU')
-  const tierId = system.tiers.find((tier) => tier.id === draft.profile!.standing.tierId || tier.label.trim().toLocaleLowerCase('ru-RU') === normalizedTier)?.id
-    ?? draft.profile.standing.tierId
+  const tier = system.tiers.find((entry) => entry.id === draft.profile!.standing.tierId || entry.label.trim().toLocaleLowerCase('ru-RU') === normalizedTier)
+  const tierId = tier?.id ?? draft.profile.standing.tierId
   return {
     ...draft,
     profile: {
       ...draft.profile,
-      nature: { ...draft.profile.nature, groupId },
-      standing: { ...draft.profile.standing, systemId: system.id, tierId },
+      nature: { ...draft.profile.nature, groupId, ...(group ? { label: group.label } : {}) },
+      standing: { ...draft.profile.standing, systemId: system.id, tierId, ...(tier ? { tierLabel: tier.label } : {}) },
     },
   }
 }
@@ -2230,6 +2230,7 @@ function generatedWorldArtifactQuality(world: GeneratedWorld) {
 function generatedWorldAbilityQuality(world: GeneratedWorld) {
   const systemDraft = world.world.capabilitySystem
   const hardIssues: string[] = []
+  const repairableHardIssues: string[] = []
   const noveltyIssues: string[] = []
   if (!systemDraft) return { issues: ['Новый мир не создал собственную capabilitySystem.'], hardIssues: ['Новый мир не создал собственную capabilitySystem.'], noveltyIssues, registry: [] as NonNullable<Campaign['abilityRegistry']> }
   const system = capabilitySystemCandidate(systemDraft, undefined, 0)
@@ -2257,9 +2258,14 @@ function generatedWorldAbilityQuality(world: GeneratedWorld) {
       },
     } : draft
     const candidate = abilityStateCandidate(candidateDraft, 0)
-    hardIssues.push(...abilityProfileIssues(candidate, system, resources))
-    noveltyIssues.push(...abilityNoveltyIssues(candidate, registry))
-    if (!draft.profile) hardIssues.push(`Новая способность «${draft.name}» не имеет полного авторского профиля.`)
+    const profileIssues = abilityProfileIssues(candidate, system, resources)
+    hardIssues.push(...profileIssues)
+    if (draft.profile) {
+      repairableHardIssues.push(...profileIssues)
+      noveltyIssues.push(...abilityNoveltyIssues(candidate, registry))
+    } else {
+      hardIssues.push(`Новая способность «${draft.name}» не имеет полного авторского профиля.`)
+    }
     registry = updateAbilityRegistry(registry, candidate, ownerId, ownerKind, 'active', 0)
   }
   world.player.abilities.forEach((ability) => inspect('generated-player', 'player', world.player.resources.map((resource) => resource.key), ability as AbilityDraft))
@@ -2270,8 +2276,9 @@ function generatedWorldAbilityQuality(world: GeneratedWorld) {
     ability as AbilityDraft,
   )))
   const uniqueHardIssues = [...new Set(hardIssues)]
+  const uniqueRepairableHardIssues = [...new Set(repairableHardIssues)]
   const uniqueNoveltyIssues = [...new Set(noveltyIssues)]
-  return { issues: [...new Set([...uniqueHardIssues, ...uniqueNoveltyIssues])], hardIssues: uniqueHardIssues, noveltyIssues: uniqueNoveltyIssues, registry }
+  return { issues: [...new Set([...uniqueRepairableHardIssues, ...uniqueNoveltyIssues])], hardIssues: uniqueHardIssues, noveltyIssues: uniqueNoveltyIssues, registry }
 }
 
 async function repairGeneratedWorldArtifacts(
@@ -4411,6 +4418,215 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
   return results
 }
 
+type MissingGeneratedAbilityProfile = {
+  requestId: string
+  ownerKind: 'player' | 'npc'
+  ownerId: string
+  ownerName: string
+  ownerContext: unknown
+  resources: string[]
+  ability: AbilityDraft
+  siblingAbilities: Array<Pick<AbilityDraft, 'name' | 'description' | 'source' | 'capabilities' | 'effects'>>
+  apply: (profile: AbilityProfileDraft) => void
+}
+
+type AuthoredProfileResult = {
+  target: MissingGeneratedAbilityProfile
+  profile?: AbilityProfileDraft
+  issues: string[]
+}
+
+function generatedProfileBatches<T>(values: T[], size: number): T[][] {
+  const result: T[][] = []
+  for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size))
+  return result
+}
+
+/**
+ * DeepSeek can finish a large core/character section while omitting the heaviest nested profile
+ * objects. Re-author those profiles in small parallel batches instead of discarding and repeating
+ * the complete world section. A failed profile remains on the legacy card; the valid world itself
+ * is never lost because an auxiliary presentation layer timed out.
+ */
+export async function authorGeneratedWorldAbilityProfiles(
+  source: GeneratedWorld,
+  request: WorldGenerationRequest,
+  concept: ConceptAnalysis,
+  report?: ProgressReporter,
+): Promise<GeneratedWorld> {
+  const world = structuredClone(source)
+  const system = capabilitySystemCandidate(world.world.capabilitySystem, undefined, 0)
+  if (!system) return world
+
+  const targets: MissingGeneratedAbilityProfile[] = []
+  const playerSiblings = world.player.abilities.map((ability) => ({
+    name: ability.name,
+    description: ability.description,
+    source: ability.source,
+    capabilities: ability.capabilities,
+    effects: ability.effects,
+  }))
+  world.player.abilities.forEach((ability, abilityIndex) => {
+    if (ability.profile) return
+    targets.push({
+      requestId: `player-${abilityIndex}`,
+      ownerKind: 'player',
+      ownerId: 'generated-player',
+      ownerName: world.player.name,
+      ownerContext: { characterConcept: request.characterConcept, personality: world.player.personality, goal: world.player.goal, stats: world.player.stats },
+      resources: world.player.resources.map((resource) => resource.key),
+      ability,
+      siblingAbilities: playerSiblings,
+      apply: (profile) => { ability.profile = profile },
+    })
+  })
+  world.npcs.forEach((npc, npcIndex) => {
+    const siblingAbilities = npc.abilities.map((ability) => ({
+      name: ability.name,
+      description: ability.description,
+      source: ability.source,
+      capabilities: ability.capabilities,
+      effects: ability.effects,
+    }))
+    npc.abilities.forEach((ability, abilityIndex) => {
+      if (ability.profile) return
+      targets.push({
+        requestId: `npc-${npcIndex}-${abilityIndex}`,
+        ownerKind: 'npc',
+        ownerId: `generated-npc-${npcIndex}`,
+        ownerName: npc.name,
+        ownerContext: { role: npc.role, personality: npc.personality, goal: npc.currentGoal, strategy: npc.strategy },
+        resources: npc.resources.map((resource) => resource.key),
+        ability,
+        siblingAbilities,
+        apply: (profile) => { ability.profile = profile },
+      })
+    })
+  })
+  if (!targets.length) return world
+
+  reportProgress(
+    report,
+    77,
+    'ability-profiles',
+    `Отдельно дописываем авторские карточки способностей: ${targets.length}`,
+    8,
+    11,
+    generatedProfileBatches(targets, 3).map((batch) => batch.map((target) => target.ability.name).join(' · ')),
+  )
+
+  let registry: NonNullable<Campaign['abilityRegistry']> = []
+  const registerExisting = (ownerId: string, ownerKind: 'player' | 'npc', ability: AbilityDraft, abilityId: string) => {
+    if (!ability.profile) return
+    const candidate = abilityStateCandidate(abilityDraftForSystem({ ...ability, id: abilityId }, system), 0)
+    registry = updateAbilityRegistry(registry, candidate, ownerId, ownerKind, 'active', 0)
+  }
+  world.player.abilities.forEach((ability, index) => registerExisting('generated-player', 'player', ability, `generated-player-ability-${index}`))
+  world.npcs.forEach((npc, npcIndex) => npc.abilities.forEach((ability, abilityIndex) => (
+    registerExisting(`generated-npc-${npcIndex}`, 'npc', ability, `generated-npc-${npcIndex}-ability-${abilityIndex}`)
+  )))
+
+  const generationPolicy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
+  const worldContext = {
+    name: world.world.name,
+    genre: world.world.genre,
+    tone: world.world.tone,
+    era: world.world.era,
+    rules: world.world.rules,
+    system: world.world.system,
+    capabilitySystem: world.world.capabilitySystem,
+  }
+  const compactRegistry = () => registry.slice(-64).map((entry) => ({
+    abilityId: entry.abilityId,
+    ownerKind: entry.ownerKind,
+    ownerId: entry.ownerId,
+    name: entry.name,
+    lineageId: entry.lineageId,
+    canonStatus: entry.canonStatus,
+    fingerprint: entry.fingerprint,
+  }))
+
+  const authorBatch = async (
+    batch: MissingGeneratedAbilityProfile[],
+    priorIssues: Record<string, string[]> = {},
+  ): Promise<AuthoredProfileResult[]> => {
+    const messages = abilityProfileAuthoringPrompt({
+      world: worldContext,
+      concept,
+      canonMode: request.canonMode,
+      targets: batch.map((target) => ({
+        requestId: target.requestId,
+        owner: { kind: target.ownerKind, id: target.ownerId, name: target.ownerName, context: target.ownerContext, resources: target.resources },
+        ability: { ...target.ability, profile: undefined },
+        siblingAbilities: target.siblingAbilities,
+      })),
+      registry: compactRegistry(),
+      ...(Object.keys(priorIssues).length ? { issues: priorIssues } : {}),
+    })
+    try {
+      const raw = await completeJson(request.provider, messages, {
+        stage: 'world',
+        maxOutputTokens: Math.min(32_768, Math.max(8_192, batch.length * 8_192)),
+        maxAttempts: generationPolicy.providerAttempts,
+        transportAttempts: generationPolicy.transportAttempts,
+        timeoutMs: 120_000,
+      })
+      const authored = await parseWithRepair<AbilityProfileAuthoringResponse>(
+        raw,
+        abilityProfileAuthoringSchema,
+        request.provider,
+        messages,
+        undefined,
+        undefined,
+        { maxAttempts: generationPolicy.schemaAttempts },
+      )
+      const responseById = new Map(authored.profiles.map((entry) => [entry.requestId, entry.profile]))
+      return batch.map((target, batchIndex) => {
+        const profile = responseById.get(target.requestId)
+        if (!profile) return { target, issues: [`Ответ не содержит profile для requestId=${target.requestId}.`] }
+        const normalizedDraft = abilityDraftForSystem({ ...target.ability, id: `generated-profile-${target.requestId}-${batchIndex}`, profile }, system)
+        const normalizedProfile = normalizedDraft.profile
+        if (!normalizedProfile) return { target, issues: ['Авторский profile отсутствует после структурной проверки.'] }
+        // Cost references and duplicate technique names belong to the base ability and are repaired
+        // by cross-world integrity. They must not invalidate a correctly authored profile.
+        const issues = abilityProfileIssues(abilityStateCandidate(normalizedDraft, 0), system, target.resources)
+          .filter((issue) => !issue.startsWith('Цена ссылается на неизвестный ресурс:') && issue !== 'Техники способности имеют повторяющиеся имена.')
+        return issues.length ? { target, issues } : { target, profile: normalizedProfile, issues: [] }
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return batch.map((target) => ({ target, issues: [`Точечная генерация profile: ${detail}`] }))
+    }
+  }
+
+  const primaryGroups = await mapWithConcurrency(generatedProfileBatches(targets, 3), 3, (batch) => authorBatch(batch))
+  let results = primaryGroups.flat()
+  const unresolved = results.filter((result) => !result.profile)
+  if (unresolved.length) {
+    const retries = await mapWithConcurrency(unresolved, 3, (result) => authorBatch(
+      [result.target],
+      { [result.target.requestId]: result.issues },
+    ))
+    const retriedById = new Map(retries.flat().map((result) => [result.target.requestId, result]))
+    results = results.map((result) => retriedById.get(result.target.requestId) ?? result)
+  }
+
+  results.forEach((result) => {
+    if (!result.profile) {
+      console.warn(`[ability-profile] «${result.target.ability.name}» оставлена на совместимой карточке: ${result.issues.join(' ')}`)
+      return
+    }
+    result.target.apply(result.profile)
+    const abilityId = `generated-${result.target.requestId}`
+    const candidate = abilityStateCandidate(abilityDraftForSystem({ ...result.target.ability, id: abilityId, profile: result.profile }, system), 0)
+    registry = updateAbilityRegistry(registry, candidate, result.target.ownerId, result.target.ownerKind, 'active', 0)
+  })
+
+  const authoredCount = results.filter((result) => result.profile).length
+  reportProgress(report, 79, 'ability-profiles', `Готово авторских карточек: ${authoredCount} из ${targets.length}`, 8, 11)
+  return world
+}
+
 const WORLD_GENERATION_STAGES: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
 
 function missingManifestValues(label: string, planned: string[], actual: string[]): string[] {
@@ -4580,6 +4796,14 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     })
     sections = { ...sections, ...Object.fromEntries(repairedEntries) }
   }
+
+  const worldWithAuthoredProfiles = await authorGeneratedWorldAbilityProfiles(
+    normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName),
+    request,
+    concept,
+    report,
+  )
+  sections = splitGeneratedWorldSections(worldWithAuthoredProfiles)
 
   reportProgress(report, 80, 'world-integrity', 'Проверяем все связи между разделами мира', 9, 11)
   let integrity = await ensureGeneratedWorldIntegrity(sections, request, concept, report, manifest)

@@ -1571,6 +1571,30 @@ ${abilityCreativeContract}
   ]
 }
 
+export function abilityProfileAuthoringPrompt(input: {
+  world: unknown
+  concept: unknown
+  canonMode: unknown
+  targets: unknown
+  registry: unknown
+  issues?: unknown
+}) {
+  return [
+    {
+      role: 'system' as const,
+      content: `Ты дополняешь ТОЛЬКО авторские profile для 1–3 уже созданных способностей. Мир, владелец, имя, источник, возможности, эффекты, техники, цены и ограничения уже установлены: не переписывай их и не создавай новую способность. Для каждого входного requestId верни ровно одну запись с тем же requestId. Профили разных сил и владельцев должны отличаться механикой, манерой, показателями и визуальным мотивом, а не только названием или цветом.
+
+${abilityCreativeContract}
+
+Точный контракт ответа:
+{"profiles":[{"requestId":"точно из входа","profile":{"nature":{"kind":"innate|trained|technological|social|authority|access|economic|organizational|contractual|divine|psionic|magical|biological|other","groupId":"точный id группы мира","label":"понятная категория","explanation":"..."},"creativeIdentity":{"coreFantasy":"...","centralPrinciple":"...","originPattern":"...","interactionModel":"...","signatureExperience":"...","mechanicVerbs":["...","..."],"sensoryMotifs":["..."],"differentiation":["..."]},"ownerExpression":{"summary":"...","priorities":["..."],"habits":[],"signatures":["..."],"avoids":[]},"standing":{"systemId":"точный id capabilitySystem","tierId":"точный id tier","tierLabel":"точный label tier","basis":"...","ceiling":"...","scope":"...","evidence":["..."],"uncertainties":[]},"facets":[{"key":"...","label":"...","value":50,"description":"..."},{"key":"...","label":"...","value":50,"description":"..."}],"presentation":{"layout":"discipline|protocol|network|mandate|mutation|constellation|arsenal|minimal","icon":"spark|eye|shield|network|pulse|compass|crown|rune|gear|flame|star|moon","symbol":"...","motif":"...","accent":"#RRGGBB","secondary":"#RRGGBB","density":"comfortable|cinematic","sectionOrder":["identity","principle","standing"],"summary":"..."},"discovery":{"awareness":50,"revealedSections":[],"techniqueKnowledge":{},"evidence":[]},"developmentSeeds":[]}}]}.
+
+availability полностью опускай, если нет настоящей блокировки, отката, конечных зарядов или особого условия. Если она нужна, форма только {"state":"ready|limited|cooldown|blocked|disabled","reasons":[],"nextReady"?:{"unit":"turn|scene|day|condition","value"?:1,"condition"?:"..."},"charges"?:{"current":1,"max":1,"label":"..."},"lastUsedTurn"?:0}. Не добавляй поля costs/cooldown/limitations/requirements/drawbacks внутрь profile. Верни только JSON, без Markdown и пояснений.`,
+    },
+    { role: 'user' as const, content: JSON.stringify(input) },
+  ]
+}
+
 export function progressionAuditPrompt(campaign: Campaign, input: string, plan: unknown) {
   const currentMaterial = `${input}\n${JSON.stringify(plan)}`
   // Only the just-finished turn is eligible for automatic recovery. This still repairs a
