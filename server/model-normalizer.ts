@@ -1089,6 +1089,25 @@ function canonicalizePatchContainer(value: Record<string, unknown>): Record<stri
   return result
 }
 
+function narrativeRecordText(value: Record<string, unknown>, kind: 'red-herring' | 'revelation-rule'): string | undefined {
+  const text = (key: string) => typeof value[key] === 'string' && value[key].trim() ? value[key].trim() : undefined
+  if (kind === 'red-herring') {
+    const title = text('title') ?? text('name') ?? text('claim')
+    const detail = text('detail') ?? text('description') ?? text('summary')
+    const location = text('location') ?? text('place')
+    const source = text('source') ?? text('origin')
+    const core = title && detail ? `${title}: ${detail}` : title ?? detail
+    if (!core) return undefined
+    const context = [location ? `место — ${location}` : '', source ? `источник — ${source}` : ''].filter(Boolean)
+    return context.length ? `${core} (${context.join('; ')})` : core
+  }
+
+  const condition = text('condition') ?? text('trigger') ?? text('requirement') ?? text('when')
+  const effect = text('effect') ?? text('result') ?? text('revelation') ?? text('consequence')
+  if (condition && effect) return `${condition} → ${effect}`
+  return condition ?? effect
+}
+
 function canonicalizeAbilityCost(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([key]) => ABILITY_COST_KEYS.has(key)))
 }
@@ -1296,6 +1315,15 @@ function canonicalizeAntagonistPlanRecord(value: Record<string, unknown>, path: 
 export function normalizeModelOutput(value: unknown, path: string[] = []): unknown {
   const key = path.at(-1)
   const parent = path.at(-2) === '[]' ? path.at(-3) : path.at(-2)
+
+  if (isRecord(value) && isArrayEntryOf(path, 'redHerrings')) {
+    const normalized = narrativeRecordText(value, 'red-herring')
+    if (normalized) return normalized
+  }
+  if (isRecord(value) && isArrayEntryOf(path, 'revelationRules')) {
+    const normalized = narrativeRecordText(value, 'revelation-rule')
+    if (normalized) return normalized
+  }
 
   if (isRecord(value)) {
     let record = canonicalizeAbilityRecord(value, path)

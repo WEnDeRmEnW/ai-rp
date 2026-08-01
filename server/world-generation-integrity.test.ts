@@ -115,6 +115,31 @@ describe('generated world integrity pipeline', () => {
     })
   })
 
+  it('preserves detailed object-shaped mystery notes as narrative strings', () => {
+    const sections = splitGeneratedWorldSections(validWorld())
+    const mystery = sections.narrative.mysteryCases[0]
+    expect(mystery).toBeDefined()
+    if (!mystery) return
+    ;(mystery as unknown as Record<string, unknown>).redHerrings = [{
+      title: 'Слух о причастности Акацуки',
+      detail: 'Шиноби связывают исчезновение с замеченными у ворот людьми, хотя это совпадение.',
+      location: 'Улица шиноби',
+      source: 'Слухи жителей',
+    }]
+    ;(mystery as unknown as Record<string, unknown>).revelationRules = [
+      { condition: 'Собрать три улики', effect: 'Открывается имя заказчика' },
+      { condition: 'Найти тайник', effect: 'Раскрывается полная картина заговора' },
+    ]
+
+    const parsed = generatedWorldNarrativeSchema.safeParse(sections.narrative)
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(parsed.data.mysteryCases[0].redHerrings[0]).toContain('Слух о причастности Акацуки')
+    expect(parsed.data.mysteryCases[0].redHerrings[0]).toContain('Улица шиноби')
+    expect(parsed.data.mysteryCases[0].revelationRules[0]).toBe('Собрать три улики → Открывается имя заказчика')
+  })
+
   it('accepts a compact cast without forcing filler NPCs or legends', () => {
     const world = validWorld()
     world.npcs = world.npcs.slice(0, 1)
