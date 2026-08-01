@@ -1087,9 +1087,27 @@ function canonicalizePatchContainer(value: Record<string, unknown>): Record<stri
 
 const ABILITY_RECORD_COLLECTIONS = new Set(['abilities', 'addAbilities', 'upsertAbilities', 'abilityChanges'])
 const ABILITY_AVAILABILITY_KEYS = new Set(['state', 'reasons', 'nextReady', 'charges', 'lastUsedTurn'])
+const ABSENT_ABILITY_MECHANIC = new Set([
+  '', '-', '—', 'none', 'no', 'n/a', 'not applicable', 'absent', 'unlimited',
+  'нет', 'нет требований', 'без требований', 'нет ограничений', 'без ограничений',
+  'нет отката', 'без отката', 'отсутствует', 'не требуется', 'неограниченно',
+])
+
+function isAbsentAbilityMechanic(value: unknown): boolean {
+  return typeof value === 'string' && ABSENT_ABILITY_MECHANIC.has(enumToken(value))
+}
 
 function canonicalizeAbilityAvailability(value: Record<string, unknown>): Record<string, unknown> {
   const result = { ...value }
+  if (isRecord(result.nextReady)) {
+    const nextReady = canonicalizeNextReady(result.nextReady)
+    const value = parseNumberLike(nextReady.value)
+    const readyNow = typeof result.state === 'string'
+      && ['ready', 'available', 'usable', 'prepared', 'active'].includes(enumToken(result.state))
+      && typeof value === 'number' && value <= 0
+    if (readyNow || Object.keys(nextReady).length === 0) delete result.nextReady
+    else result.nextReady = nextReady
+  }
   const charges = result.charges
   if (charges === undefined || charges === null) {
     delete result.charges
@@ -1102,7 +1120,12 @@ function canonicalizeAbilityAvailability(value: Record<string, unknown>): Record
     return result
   }
 
-  if (!isRecord(charges)) return result
+  // A scalar or partial charge count has no stable maximum, label or consumption rule.
+  // Dropping that ambiguous optional mechanic is safer than inventing the missing rules.
+  if (!isRecord(charges)) {
+    delete result.charges
+    return result
+  }
   const maximum = parseNumberLike(charges.max)
   const current = parseNumberLike(charges.current)
   const label = typeof charges.label === 'string' ? charges.label.trim() : ''
@@ -1113,10 +1136,14 @@ function canonicalizeAbilityAvailability(value: Record<string, unknown>): Record
     && onlyChargeShape
     && (current === undefined || (typeof current === 'number' && Number.isFinite(current) && current <= 0))
 
+  const completeChargeMechanic = typeof maximum === 'number' && Number.isFinite(maximum) && maximum > 0
+    && typeof current === 'number' && Number.isFinite(current) && current >= 0 && current <= maximum
+    && label.length > 0
+
   // DeepSeek sometimes emits { current: 0, max: 0 } to mean that an ability
   // does not use discrete charges. The whole optional mechanic must be absent;
   // inventing a positive capacity or a label would change the authored ability.
-  if (explicitlyHasNoCapacity || emptyNoChargeSentinel) delete result.charges
+  if (explicitlyHasNoCapacity || emptyNoChargeSentinel || !completeChargeMechanic) delete result.charges
   return result
 }
 
@@ -1178,6 +1205,8 @@ function currentAvailabilityReasons(availability: Record<string, unknown>): unkn
 function canonicalizeAbilityRecord(value: Record<string, unknown>, path: string[]): Record<string, unknown> {
   if (path.at(-1) !== '[]' || !ABILITY_RECORD_COLLECTIONS.has(path.at(-2) ?? '')) return value
   let result = { ...value }
+
+  if (isAbsentAbilityMechanic(result.cooldown)) delete result.cooldown
 
   for (const profileKey of ['profile', 'profileChanges'] as const) {
     const profile = result[profileKey]
@@ -1261,9 +1290,21 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
 
   if (Array.isArray(value)) {
     const normalized = value.map((entry) => normalizeModelOutput(entry, [...path, '[]']))
-    const withStringIds = key && ID_ARRAY_KEYS.has(key)
+    let withStringIds = key && ID_ARRAY_KEYS.has(key)
       ? normalized.map((entry) => typeof entry === 'number' ? String(entry) : entry)
       : normalized
+    if (key === 'costs') {
+      // Empty/zero entries are a common DeepSeek representation of "free". They are
+      // not persisted as fake mana/energy mechanics and therefore cannot create a resource.
+      withStringIds = withStringIds.filter((entry) => isRecord(entry)
+        && typeof entry.resource === 'string' && Boolean(entry.resource.trim())
+        && typeof entry.amount === 'number' && Number.isFinite(entry.amount) && entry.amount > 0)
+    }
+    if ((key === 'requirements' || key === 'limitations') && path.some((segment) => (
+      ['abilities', 'addAbilities', 'upsertAbilities', 'abilityChanges', 'techniques', 'addTechniques', 'techniqueChanges', 'powers', 'addPowers', 'powerChanges'].includes(segment)
+    ))) {
+      withStringIds = withStringIds.filter((entry) => !isAbsentAbilityMechanic(entry))
+    }
     const limit = key ? ARRAY_LIMITS[key] : undefined
     const mustPreserveEveryEntry = key === 'abilityChanges' || key === 'artifactChanges'
     return limit && !mustPreserveEveryEntry ? withStringIds.slice(0, limit) : withStringIds

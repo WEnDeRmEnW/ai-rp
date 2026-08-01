@@ -206,7 +206,7 @@ export function createDemoCampaign(): Campaign {
       authorsNote: 'Сохраняй тайну, давай персонажам собственную волю и всегда оставляй пространство для решения игрока.',
       resolutionMode: 'hidden',
       contextProfile: 'million',
-      qualityMode: 'deep',
+      qualityMode: 'balanced',
       scenePace: 'balanced',
       proseStyle: 'literary',
       dialogueDensity: 'balanced',

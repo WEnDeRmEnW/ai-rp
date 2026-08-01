@@ -30,13 +30,12 @@ describe('structured provider recovery', () => {
     expect(bodies[0].max_tokens).toBe(4_096)
   })
 
-  it('falls back to the primary model when the fast review fails its compact contract', async () => {
+  it('propagates an auxiliary contract failure and keeps the open circuit off the primary model', async () => {
     const bodies: any[] = []
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body))
       bodies.push(body)
-      const content = body.model === 'gpt-oss:20b' ? '{"unexpected":true}' : '{"verdict":"ok"}'
-      return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }), {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"unexpected":true}' }, finish_reason: 'stop' }] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -50,8 +49,30 @@ describe('structured provider recovery', () => {
       useAuxiliaryModel: true,
     }
 
-    await expect(completeAuxiliaryJson(provider, [{ role: 'user', content: 'Проверь кратко.' }], undefined, (value) => typeof (value as any)?.verdict === 'string')).resolves.toEqual({ verdict: 'ok' })
-    expect(bodies.map((body) => body.model)).toEqual(['gpt-oss:20b', 'deepseek-v4-flash:cloud'])
+    const review = () => completeAuxiliaryJson(provider, [{ role: 'user', content: 'Проверь кратко.' }], undefined, (value) => typeof (value as any)?.verdict === 'string')
+    await expect(review()).rejects.toThrow(/не прошла контракт/i)
+    await expect(review()).rejects.toThrow(/временно недоступна/i)
+    expect(bodies.map((body) => body.model)).toEqual(['gpt-oss:20b'])
+  })
+
+  it('uses the primary model normally when no auxiliary model is configured', async () => {
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"ok"}' }, finish_reason: 'stop' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+    const provider = {
+      provider: 'ollama' as const,
+      model: 'local-review-model',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      temperature: 0.8,
+    }
+
+    await expect(completeAuxiliaryJson(provider, [{ role: 'user', content: 'Проверь кратко.' }])).resolves.toEqual({ verdict: 'ok' })
+    expect(bodies.map((body) => body.model)).toEqual(['local-review-model'])
   })
 
   it('never redirects local Ollama or a disabled configuration to Ollama Cloud', () => {

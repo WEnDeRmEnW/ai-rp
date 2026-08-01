@@ -264,10 +264,10 @@ function normalizePowerTechnique(draft: PowerTechniqueDraft, existing?: PowerTec
     mastery: clamp(draft.mastery, 0, 100),
     activation: draft.activation.trim(),
     scale: draft.scale.trim(),
-    costs: draft.costs.slice(0, 8),
+    costs: (draft.costs ?? existing?.costs ?? []).slice(0, 8),
     effects: draft.effects.slice(0, 12),
-    requirements: draft.requirements.slice(0, 12),
-    limitations: draft.limitations.slice(0, 12),
+    requirements: (draft.requirements ?? existing?.requirements ?? []).slice(0, 12),
+    limitations: (draft.limitations ?? existing?.limitations ?? []).slice(0, 12),
     synergies: draft.synergies?.slice(0, 16),
     counters: draft.counters?.slice(0, 16),
     examples: draft.examples?.slice(0, 12),
@@ -1338,7 +1338,7 @@ export function applyPatch(
       if (!artifact.powers.some((candidate) => candidate.id === power.id || candidate.name.toLocaleLowerCase('ru-RU') === power.name.toLocaleLowerCase('ru-RU'))) {
         artifact.powers.push({
           ...power, id: power.id ?? id(), mastery: clamp(power.mastery, 0, 100),
-          costs: power.costs.slice(0, 8), limitations: power.limitations.slice(0, 48),
+          costs: (power.costs ?? []).slice(0, 8), limitations: (power.limitations ?? []).slice(0, 48),
           capabilities: power.capabilities?.slice(0, 64) ?? [], synergies: power.synergies?.slice(0, 32) ?? [],
           counters: power.counters?.slice(0, 32) ?? [], examples: power.examples?.slice(0, 24) ?? [],
           techniques: materializePowerTechniques([], power.techniques),

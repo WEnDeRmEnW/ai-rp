@@ -112,10 +112,10 @@ async function runJob<T>(kind: 'turn' | 'world' | 'edit' | 'question', payload: 
   let recreated = false
   try {
     while (job.status === 'pending') {
-      // Polling does not accelerate generation. A calmer interval keeps the public endpoint
-      // healthy during long world builds and still updates progress promptly.
+      // Keep completion latency low even after a long build: the former 10-second interval made
+      // an already finished world look as if it were still generating.
       const elapsed = job.progress?.elapsedMs ?? 0
-      await abortableDelay(elapsed > 120_000 ? 10_000 : elapsed > 30_000 ? 5_000 : 2_000, signal)
+      await abortableDelay(elapsed > 30_000 ? 2_000 : 1_000, signal)
       try {
         job = await fetchJson<JobState<T>>(`/api/jobs/${kind}/${job.id}`, { method: 'GET' }, signal)
         connectionLostAt = undefined

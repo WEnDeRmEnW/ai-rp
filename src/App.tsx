@@ -1,23 +1,28 @@
 import { AlertCircle, LoaderCircle, X } from 'lucide-react'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from 'react'
 import type { ActionType, MemoryEntry, StoryMessage } from '../shared/types'
 import { Composer } from './components/Composer'
-import { CommandPalette } from './components/CommandPalette'
-import { CampaignEditorDialog } from './components/CampaignEditorDialog'
 import { HeroVitals } from './components/HeroVitals'
-import { Inspector, type InspectorTab } from './components/Inspector'
-import { NewWorldDialog } from './components/NewWorldDialog'
-import { SettingsDialog } from './components/SettingsDialog'
+import type { InspectorTab } from './components/Inspector'
 import { Sidebar } from './components/Sidebar'
 import { StoryView } from './components/StoryView'
 import { TopBar } from './components/TopBar'
-import { WorldQuestionPanel } from './components/WorldQuestionPanel'
-import { AccountDialog } from './components/AccountDialog'
-import { AdminPanel } from './components/AdminPanel'
 import { useApp } from './state/AppContext'
 import { useAuth } from './state/AuthContext'
 import { getWorldPresentation } from './lib/world-customization'
 import { loadInterfacePreferences, saveInterfacePreferences, type InterfacePreferences } from './lib/interface-preferences'
+
+const Inspector = lazy(() => import('./components/Inspector').then((module) => ({ default: module.Inspector })))
+const NewWorldDialog = lazy(() => import('./components/NewWorldDialog').then((module) => ({ default: module.NewWorldDialog })))
+const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })))
+const CampaignEditorDialog = lazy(() => import('./components/CampaignEditorDialog').then((module) => ({ default: module.CampaignEditorDialog })))
+const WorldQuestionPanel = lazy(() => import('./components/WorldQuestionPanel').then((module) => ({ default: module.WorldQuestionPanel })))
+const AccountDialog = lazy(() => import('./components/AccountDialog').then((module) => ({ default: module.AccountDialog })))
+const AdminPanel = lazy(() => import('./components/AdminPanel').then((module) => ({ default: module.AdminPanel })))
+const CommandPalette = lazy(() => import('./components/CommandPalette').then((module) => ({ default: module.CommandPalette })))
+
+const isCompactViewport = () => typeof window !== 'undefined'
+  && (window.matchMedia?.('(max-width: 800px)').matches ?? window.innerWidth <= 800)
 
 export function App() {
   const app = useApp()
@@ -31,9 +36,10 @@ export function App() {
   const [adminOpen, setAdminOpen] = useState(false)
   const [focusMode, setFocusMode] = useState(false)
   const [interfacePreferences, setInterfacePreferences] = useState<InterfacePreferences>(() => loadInterfacePreferences())
+  const [compactViewport, setCompactViewport] = useState(isCompactViewport)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth <= 800 ? false : localStorage.getItem('letopis-sidebar-visible') !== 'false')
-  const [inspectorOpen, setInspectorOpen] = useState(() => window.innerWidth > 800)
+  const [sidebarVisible, setSidebarVisible] = useState(() => isCompactViewport() ? false : localStorage.getItem('letopis-sidebar-visible') !== 'false')
+  const [inspectorOpen, setInspectorOpen] = useState(() => !isCompactViewport())
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('dashboard')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [mode, setMode] = useState<ActionType>('do')
@@ -53,6 +59,22 @@ export function App() {
   useEffect(() => {
     saveInterfacePreferences(interfacePreferences)
   }, [interfacePreferences])
+
+  useEffect(() => {
+    const media = window.matchMedia?.('(max-width: 800px)')
+    const syncViewport = () => {
+      const compact = media?.matches ?? window.innerWidth <= 800
+      setCompactViewport(compact)
+      setSidebarOpen(false)
+      if (compact) setInspectorOpen(false)
+    }
+    media?.addEventListener?.('change', syncViewport)
+    window.addEventListener('resize', syncViewport)
+    return () => {
+      media?.removeEventListener?.('change', syncViewport)
+      window.removeEventListener('resize', syncViewport)
+    }
+  }, [])
 
   if (app.loading) return <div className="app-loading"><div className="brand-mark brand-mark--large"><span /></div><LoaderCircle className="spin" size={22} /><span>Открываем летопись…</span></div>
   if (!app.activeCampaign) return null
@@ -95,7 +117,7 @@ export function App() {
 
   const toggleSidebar = () => {
     if (focusMode) setFocusMode(false)
-    if (window.innerWidth <= 800) {
+    if (compactViewport) {
       setInspectorOpen(false)
       setSidebarOpen((value) => !value)
       return
@@ -137,7 +159,7 @@ export function App() {
       <TopBar
         campaign={campaign}
         canUndo={campaign.snapshots.length > 0 && !app.generating}
-        sidebarOpen={window.innerWidth <= 800 ? sidebarOpen : sidebarVisible}
+        sidebarOpen={compactViewport ? sidebarOpen : sidebarVisible}
         inspectorOpen={inspectorOpen}
         focusMode={focusMode}
         onMenu={toggleSidebar}
@@ -166,18 +188,19 @@ export function App() {
       />
       <Composer value={draft} mode={mode} generating={app.generating} progress={app.operationProgress} labels={presentation.labels} onValue={setDraft} onMode={setMode} onSend={() => void send()} onCancel={app.cancelGeneration} />
     </div>
-    <Inspector
+    <Suspense fallback={null}>
+    {inspectorOpen && <Inspector
       campaign={campaign}
-      open={inspectorOpen}
+      open
       activeTab={inspectorTab}
       onTabChange={setInspectorTab}
       onClose={() => setInspectorOpen(false)}
       onUpdate={app.updateActiveCampaign}
       designingInterface={app.generating}
       onDesignInterface={(instruction) => void app.aiEditCampaign(instruction?.trim() || 'Полностью и безопасно перестрой правую панель именно под этот мир. Сохрани все шесть основных вкладок видимыми, создай или обнови world.interfaceBlueprint, настоящие world.metrics и 2–6 уникальных адаптивных модулей с живыми привязками. Сохрани закреплённые пользователем модули, не раскрывай скрытые знания и не меняй сюжет, время или установленные факты.')}
-    />
+    />}
 
-    <NewWorldDialog
+    {newWorldOpen && <NewWorldDialog
       open={newWorldOpen}
       generating={app.generating}
       progress={app.operationProgress}
@@ -185,15 +208,15 @@ export function App() {
       isDemo={app.provider.provider === 'demo'}
       onClose={() => setNewWorldOpen(false)}
       onCreate={app.createCampaign}
-    />
-    <SettingsDialog open={settingsOpen} provider={app.provider} theme={app.theme} interfacePreferences={interfacePreferences} campaign={campaign} onClose={() => setSettingsOpen(false)} onProvider={app.setProvider} onTheme={app.setTheme} onInterface={setInterfacePreferences} onCampaign={app.updateActiveCampaign} />
-    <CampaignEditorDialog open={editorOpen} campaign={campaign} generating={app.generating} progress={app.operationProgress} onClose={() => setEditorOpen(false)} onManual={app.updateActiveCampaign} onAi={app.aiEditCampaign} onUndoEdit={app.undoLastEdit} canUndoEdit={app.canUndoEdit} />
-    <WorldQuestionPanel key={campaign.id} open={worldQuestionOpen} campaign={campaign} provider={app.provider} onClose={() => setWorldQuestionOpen(false)} />
-    <AccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} onAdmin={() => { setAccountOpen(false); setAdminOpen(true) }} />
-    <AdminPanel open={adminOpen && auth.user?.role === 'admin'} onClose={() => setAdminOpen(false)} />
+    />}
+    {settingsOpen && <SettingsDialog open provider={app.provider} theme={app.theme} interfacePreferences={interfacePreferences} campaign={campaign} onClose={() => setSettingsOpen(false)} onProvider={app.setProvider} onTheme={app.setTheme} onInterface={setInterfacePreferences} onCampaign={app.updateActiveCampaign} />}
+    {editorOpen && <CampaignEditorDialog open campaign={campaign} generating={app.generating} progress={app.operationProgress} onClose={() => setEditorOpen(false)} onManual={app.updateActiveCampaign} onAi={app.aiEditCampaign} onUndoEdit={app.undoLastEdit} canUndoEdit={app.canUndoEdit} />}
+    {worldQuestionOpen && <WorldQuestionPanel key={campaign.id} open campaign={campaign} provider={app.provider} onClose={() => setWorldQuestionOpen(false)} />}
+    {accountOpen && <AccountDialog open onClose={() => setAccountOpen(false)} onAdmin={() => { setAccountOpen(false); setAdminOpen(true) }} />}
+    {adminOpen && auth.user?.role === 'admin' && <AdminPanel open onClose={() => setAdminOpen(false)} />}
 
-    <CommandPalette
-      open={commandOpen}
+    {commandOpen && <CommandPalette
+      open
       campaign={campaign}
       campaigns={app.campaigns}
       focusMode={focusMode}
@@ -208,7 +231,8 @@ export function App() {
       onSettings={() => setSettingsOpen(true)}
       onEdit={() => setEditorOpen(true)}
       onUndo={() => void app.undoTurn()}
-    />
+    />}
+    </Suspense>
 
     {app.error && <div className="error-toast" role="alert"><AlertCircle size={18} /><div><strong>{app.errorTitle}</strong><span>{app.error}</span>{app.canRetryFailedTurn && <button className="error-retry" disabled={app.generating} onClick={() => void app.retryFailedTurn()}>Повторить ход</button>}</div><button onClick={app.dismissError} aria-label="Закрыть ошибку"><X size={16} /></button></div>}
   </div>

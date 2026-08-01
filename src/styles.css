@@ -3320,3 +3320,292 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 @media (prefers-reduced-motion: reduce) {
   .artifact-glow-pulse .artifact-symbol { animation: none; }
 }
+
+/* Unified shell polish: clearer surfaces, resilient resizing and compact mobile navigation. */
+:root {
+  --panel-raised: color-mix(in srgb, var(--surface-1) 96%, var(--text) 1.5%);
+  --panel-edge: color-mix(in srgb, var(--border) 72%, var(--text) 4%);
+  --reading-gutter: clamp(18px, 4.5vw, 52px);
+}
+
+html { background: var(--bg); }
+body { min-width: 280px; overscroll-behavior: none; }
+
+.app-shell,
+.workspace,
+.topbar,
+.topbar-actions,
+.hero-vitals,
+.story-scroll,
+.story-column,
+.composer-wrap,
+.composer,
+.inspector,
+.inspector-body,
+.modal-panel,
+.modal-panel--large {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-shell {
+  isolation: isolate;
+  width: 100%;
+  overflow: hidden;
+}
+
+.workspace {
+  border-inline: 1px solid color-mix(in srgb, var(--border-soft) 70%, transparent);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.topbar {
+  border-bottom-color: var(--panel-edge);
+  background: color-mix(in srgb, var(--glass) 97%, var(--surface-1));
+  box-shadow: 0 7px 24px rgba(0, 0, 0, .12);
+}
+
+.hero-vitals {
+  border-bottom-color: color-mix(in srgb, var(--panel-edge) 78%, transparent);
+  background: color-mix(in srgb, var(--glass) 94%, var(--surface-1));
+}
+
+.sidebar,
+.inspector {
+  border-color: var(--panel-edge);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 92%, var(--bg-deep)), color-mix(in srgb, var(--bg-deep) 91%, var(--surface-1)));
+}
+
+.sidebar { box-shadow: 16px 0 44px rgba(0, 0, 0, .18); }
+.inspector { box-shadow: -16px 0 44px rgba(0, 0, 0, .2); }
+
+.campaign-row.is-active,
+.composer,
+.scene-card,
+.world-card,
+.pacing-card,
+.conflict-card,
+.adaptive-module,
+.world-pulse-card,
+.world-process-card,
+.world-place-card,
+.world-law-card,
+.world-mechanic-card {
+  border-color: color-mix(in srgb, var(--panel-edge) 84%, transparent);
+}
+
+.composer {
+  background: color-mix(in srgb, var(--panel-raised) 96%, transparent);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, .3), inset 0 1px color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.story-scroll {
+  overflow-x: clip;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding: 72px 0 210px;
+}
+
+.story-column {
+  padding-right: var(--reading-gutter);
+  padding-bottom: 190px;
+  padding-left: var(--reading-gutter);
+}
+
+.story-prose,
+.player-turn p,
+.inspector-body :where(p, li, dd, dt, strong, small, span),
+.modal-panel :where(p, li, dd, dt, strong, small, span) {
+  overflow-wrap: anywhere;
+}
+
+.story-prose :where(img, video, svg, canvas),
+.inspector-body :where(img, video, svg, canvas) { max-width: 100%; }
+.story-prose :where(pre, table) { display: block; max-width: 100%; overflow-x: auto; }
+.story-prose pre { padding: 12px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-1); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.inspector-body {
+  scrollbar-gutter: stable;
+  scroll-padding-block: 18px 96px;
+}
+
+.inspector-body > *,
+.inspector-body :where(article, section, details, dl, ul, ol, header, footer, div) { min-width: 0; }
+
+.modal-backdrop,
+.account-backdrop,
+.command-backdrop { overscroll-behavior: contain; }
+.modal-panel,
+.modal-panel--large,
+.account-dialog { border-color: var(--panel-edge); background: var(--panel-raised); }
+
+.error-toast {
+  max-height: min(50dvh, 420px);
+  overflow: auto;
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--panel-edge));
+  background: color-mix(in srgb, var(--panel-raised) 94%, var(--danger) 6%);
+}
+
+/* Keep the reader comfortably wide while the inspector behaves as an overlay on medium screens. */
+@media (min-width: 801px) and (max-width: 1679px) {
+  :root { --sidebar-width: clamp(224px, 17vw, 250px); }
+  .app-shell,
+  .app-shell:not(.has-inspector) { grid-template-columns: 0 minmax(0, 1fr); }
+  .app-shell.has-sidebar,
+  .app-shell.has-sidebar:not(.has-inspector) { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+  .inspector {
+    position: fixed;
+    z-index: 70;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(var(--inspector-width), calc(100vw - 72px));
+    border-left: 1px solid var(--panel-edge);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(105%);
+  }
+  .app-shell:not(.has-inspector) .inspector { transform: translateX(105%); }
+  .inspector.is-open { opacity: 1; pointer-events: auto; transform: translateX(0); }
+  .inspector-scrim {
+    position: fixed;
+    z-index: 69;
+    inset: 0;
+    display: block;
+    background: rgba(2, 5, 7, .5);
+    backdrop-filter: blur(3px);
+  }
+  .inspector-mobile-heading { display: flex; }
+}
+
+@media (min-width: 1680px) {
+  .app-shell { grid-template-columns: 0 minmax(0, 1fr) var(--inspector-width); }
+  .app-shell.has-sidebar { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); }
+  .app-shell:not(.has-inspector) { grid-template-columns: 0 minmax(0, 1fr) 0; }
+  .app-shell.has-sidebar:not(.has-inspector) { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0; }
+  .inspector-scrim { display: none; }
+}
+
+@media (max-width: 1100px) and (min-width: 801px) {
+  .topbar { padding-right: 12px; padding-left: 14px; }
+  .topbar-title span { max-width: 42vw; }
+  .hero-vitals-conditions > span { display: none; }
+  .hero-vitals-conditions { flex-basis: auto; }
+}
+
+@media (max-width: 800px) {
+  :root { --reading-gutter: clamp(13px, 4vw, 20px); }
+
+  .workspace {
+    border: 0;
+    padding-right: env(safe-area-inset-right);
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .topbar {
+    padding-right: max(6px, env(safe-area-inset-right));
+    padding-left: max(6px, env(safe-area-inset-left));
+  }
+
+  .topbar-title strong { font-size: 12.5px; }
+  .topbar-title span { display: none; }
+  .topbar-actions { flex: 0 0 auto; }
+  .topbar .command-button,
+  .topbar .topbar-divider { display: none; }
+  .topbar-actions .topbar-overflow-wrap > .icon-button { display: grid !important; }
+  .topbar-overflow { right: max(0px, env(safe-area-inset-right)); }
+
+  .hero-vitals {
+    padding-right: max(9px, env(safe-area-inset-right));
+    padding-left: max(9px, env(safe-area-inset-left));
+  }
+  .hero-vitals-resources { scroll-snap-type: x proximity; }
+  .vital-resource { scroll-snap-align: start; }
+
+  .story-scroll {
+    scrollbar-gutter: auto;
+    scroll-padding-bottom: 230px;
+  }
+  .story-column { padding-top: 26px; padding-bottom: 220px; }
+  .scene-intro { margin-left: 18px; }
+  .story-prose { line-height: 1.74; }
+  .player-turn { max-width: none; }
+
+  .composer-wrap {
+    padding: 28px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .composer-modes {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
+    gap: 3px;
+  }
+  .composer-modes button {
+    min-width: 0;
+    justify-content: center;
+    padding: 0 5px;
+  }
+  .composer-modes button span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .composer-input-row { padding-left: 12px; }
+  .send-button { width: 42px; height: 42px; }
+
+  .inspector {
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: min(88dvh, 820px);
+    border-right: 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -22px 70px rgba(0, 0, 0, .46);
+  }
+  .inspector-tabs {
+    grid-auto-flow: initial;
+    grid-auto-columns: initial;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    overflow: hidden;
+    gap: 2px;
+  }
+  .inspector-tabs button { padding-inline: 2px; }
+  .inspector-tabs button span {
+    overflow: hidden;
+    font-size: clamp(8px, 2.35vw, 10px);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .modal-panel,
+  .modal-panel--large {
+    max-height: min(94dvh, calc(100dvh - env(safe-area-inset-top)));
+    overscroll-behavior: contain;
+  }
+  .modal-heading { padding-top: max(17px, env(safe-area-inset-top)); }
+
+  .error-toast {
+    top: max(62px, calc(env(safe-area-inset-top) + 10px));
+    right: max(10px, env(safe-area-inset-right));
+    bottom: auto;
+    left: max(10px, env(safe-area-inset-left));
+    width: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .topbar { gap: 3px; }
+  .topbar-title { margin-right: 2px; }
+  .topbar .icon-button,
+  .topbar .account-button,
+  .topbar .topbar-ask-button { width: 40px; height: 40px; }
+  .story-column { padding-right: var(--reading-gutter); padding-left: var(--reading-gutter); }
+  .assistant-turn { grid-template-columns: 19px minmax(0, 1fr); }
+  .player-turn { margin-left: 18px; padding-right: 13px; padding-left: 14px; }
+  .composer-modes button { gap: 3px; font-size: 9px; }
+  .composer-modes button svg { width: 12px; height: 12px; }
+  .inspector-tabs { padding-right: 4px; padding-left: 4px; }
+  .inspector-tabs button { gap: 3px; }
+}

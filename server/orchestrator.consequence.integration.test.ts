@@ -140,7 +140,7 @@ describe('runTurn consequence reconciliation', () => {
     expect(auditUser).toContain('ФИНАЛЬНАЯ СЦЕНА:')
     expect(auditUser).toContain(finalNarrative)
 
-    expect(requestBodies.filter((body) => systemPrompt(body).includes('выдающийся ведущий'))).toHaveLength(2)
+    expect(requestBodies.filter((body) => systemPrompt(body).includes('выдающийся ведущий'))).toHaveLength(1)
     expect(requestBodies.some((body) => systemPrompt(body).includes('аудитор свободы игрока'))).toBe(false)
     expect(requestBodies.some((body) => systemPrompt(body).includes('архивариус'))).toBe(false)
   })
@@ -242,7 +242,7 @@ describe('runTurn consequence reconciliation', () => {
     expect(result.narrative).toBe(correctedNarrative)
     expect(result.statePatch.resourceDeltas).toEqual({ health: -3 })
     expect(result.statePatch.upsertStatusEffects?.[0]).toMatchObject({ id: 'bleeding', duration: { unit: 'turns', remaining: 2 } })
-    expect(auditCalls).toBe(2)
+    expect(auditCalls).toBe(1)
     expect(revisionCalls).toBe(1)
   })
 
@@ -395,7 +395,7 @@ describe('runTurn consequence reconciliation', () => {
     expect(result.statePatch.memories?.map((memory) => memory.content)).toEqual(['Мира использовала манёвр и украла предмет у героя.'])
   })
 
-  it('rejects an invalid director statePatch after repair attempts instead of salvaging it as empty', async () => {
+  it('quarantines an invalid optional state field without discarding the completed turn', async () => {
     let directorCalls = 0
     let auditCalls = 0
 
@@ -415,21 +415,27 @@ describe('runTurn consequence reconciliation', () => {
           statePatch: { notARealPatchField: true },
         }))
       }
-      if (system.includes('последний обязательный аудитор причин и последствий')) auditCalls += 1
+      if (system.includes('выдающийся ведущий живой текстовой ролевой игры')) return providerResponse('Удар достигает брони и оставляет на ней глубокую царапину.')
+      if (system.includes('последний обязательный аудитор причин и последствий')) {
+        auditCalls += 1
+        return providerResponse(JSON.stringify({ pass: true, narrativePass: true, narrativeIssues: [], verifiedDomains: consequenceDomains, omissions: [], statePatch: {} }))
+      }
 
       return new Response(`Unexpected completion stage: ${system.slice(0, 120)}`, { status: 418 })
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(runTurn({
+    const result = await runTurn({
       campaign: createDemoCampaign(),
       input: 'Я принимаю удар на себя.',
       actionType: 'do',
       provider,
-    })).rejects.toThrow(/statePatch|обязательную структуру|структур/i)
+    })
 
-    expect(directorCalls).toBe(5)
-    expect(auditCalls).toBe(0)
+    expect(result.narrative).toContain('Удар достигает брони')
+    expect(result.statePatch).toEqual(expect.not.objectContaining({ notARealPatchField: true }))
+    expect(directorCalls).toBe(1)
+    expect(auditCalls).toBe(1)
   })
 
   it('binds a quest mutation by an exact unique title instead of rejecting a model-authored target id', async () => {

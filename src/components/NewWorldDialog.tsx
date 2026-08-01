@@ -31,6 +31,7 @@ export function NewWorldDialog({ open, generating, progress, providerName, isDem
   const [opening, setOpening] = useState('Начать с события, которое сразу требует решения, но не навязывает действие герою')
   const [canonMode, setCanonMode] = useState<CampaignSettings['canonMode']>('flexible')
   const [contentBoundaries, setContentBoundaries] = useState('')
+  const [generationMode, setGenerationMode] = useState<NonNullable<WorldGenerationRequest['generationMode']>>('balanced')
   const [submitError, setSubmitError] = useState<string>()
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export function NewWorldDialog({ open, generating, progress, providerName, isDem
   const submit = async () => {
     setSubmitError(undefined)
     try {
-      await onCreate({ inspiration, genre, tone, characterName, characterConcept, opening, canonMode, contentBoundaries })
+      await onCreate({ inspiration, genre, tone, characterName, characterConcept, opening, canonMode, contentBoundaries, generationMode })
       onClose()
       setStep(1)
     } catch (cause) {
@@ -92,6 +93,7 @@ export function NewWorldDialog({ open, generating, progress, providerName, isDem
           ] as const).map(([value, title, caption]) => <label className={`choice-card ${canonMode === value ? 'is-selected' : ''}`} key={value}><input type="radio" name="canon" checked={canonMode === value} onChange={() => setCanonMode(value)} /><span className="choice-check">{canonMode === value && <Check size={13} />}</span><span><strong>{title}</strong><small>{caption}</small></span></label>)}
         </fieldset>
         <label className="field"><span>Границы контента <i>необязательно</i></span><textarea value={contentBoundaries} onChange={(event) => setContentBoundaries(event.target.value)} rows={3} placeholder="Темы, которых рассказчик должен избегать…" maxLength={2000} /></label>
+        {!isDemo && <label className="field"><span>Сборка мира</span><select value={generationMode} onChange={(event) => setGenerationMode(event.target.value as typeof generationMode)}><option value="fast">Быстро — полный мир без редакторских повторов</option><option value="balanced">Умно — точечные проверки только при проблемах</option><option value="deep">Максимум — полный дополнительный разбор</option></select></label>}
         <div className={`generation-summary ${isDemo ? 'is-demo' : ''}`}>
           <div>{isDemo ? <Dices size={19} /> : <WandSparkles size={19} />}</div>
           <span><strong>{isDemo ? 'Быстрая демо-генерация' : 'Глубокая генерация мира'}</strong><small>{isDemo ? 'Создаст рабочий адаптивный мир. Для уникального подробного лора подключите модель в настройках.' : `${providerName} создаст законы, фракции, персонажей, лорбук, героя и стартовую сцену.`}</small></span>

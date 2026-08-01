@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { assessLegendEcology, assessStrongCharacterEcology } from '../shared/legend-ecology.js'
 import { itemOwnedAbilityMatch } from '../shared/ability-ownership.js'
 import { legendNameLooksLikeEvent, legendRepresentsCharacter, linkedLegendNameMatchesCharacter } from '../shared/legend-identity.js'
 import { normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
@@ -814,7 +813,9 @@ const statusEffectDraftSchema = z.object({
 }).strict()
 const abilityCostSchema = z.object({
   resource: shortText,
-  amount: modelNumber(z.number().min(0).max(100_000)),
+  // Zero is a model sentinel for "this ability has no price", not a real mechanic.
+  // The normalizer removes such entries; every persisted cost must consume something.
+  amount: modelNumber(z.number().positive().max(100_000)),
 }).strict()
 const capabilityNatureKindSchema = z.preprocess((value) => {
   if (typeof value !== 'string') return value
@@ -851,7 +852,7 @@ const abilityAvailabilityStateSchema = z.preprocess(alias({
 }), z.enum(['ready', 'limited', 'cooldown', 'blocked', 'disabled']))
 const abilityAvailabilitySchema = z.object({
   state: abilityAvailabilityStateSchema,
-  reasons: z.array(longText).max(16),
+  reasons: z.array(longText).max(16).default([]),
   nextReady: z.object({
     unit: z.enum(['turn', 'scene', 'day', 'condition']),
     value: optionalModelNumber(z.number().int().min(0).max(100_000)),
@@ -916,10 +917,10 @@ const powerTechniqueDraftSchema = z.object({
   mastery: modelNumber(z.number().min(0).max(100)),
   activation: longText,
   scale: longText,
-  costs: z.array(abilityCostSchema).max(8),
+  costs: z.array(abilityCostSchema).max(8).default([]),
   effects: z.array(longText).min(1).max(12),
-  requirements: z.array(longText).max(12),
-  limitations: z.array(longText).max(12),
+  requirements: z.array(longText).max(12).default([]),
+  limitations: z.array(longText).max(12).default([]),
   unlocked: modelBoolean,
   role: longText.optional(),
   signature: longText.optional(),
@@ -1165,9 +1166,9 @@ const artifactPowerDraftSchema = z.object({
   name: shortText,
   description: longText,
   mastery: modelNumber(z.number().min(0).max(100)),
-  costs: z.array(abilityCostSchema).max(8),
+  costs: z.array(abilityCostSchema).max(8).default([]),
   trigger: longText.optional(),
-  limitations: z.array(longText).max(48),
+  limitations: z.array(longText).max(48).default([]),
   category: powerCategorySchema.optional(),
   scale: longText.optional(),
   activation: longText.optional(),
@@ -2084,7 +2085,9 @@ export const progressionAuditSchema = z.preprocess((value) => normalizeModelOutp
 const turnPlanContract = z.object({
   outcome: z.string().trim().min(1).max(2000),
   beats: z.array(z.string().trim().min(1).max(800)).min(1).max(8),
-  suggestions: z.array(z.string().trim().min(1).max(300)).min(2).max(4),
+  // Suggestions are useful UI affordances, not campaign state. A valid turn must never be
+  // discarded solely because a model omitted them; the free-form composer remains available.
+  suggestions: z.array(z.string().trim().min(1).max(300)).max(4),
   abilityExecutions: z.array(z.object({
     ownerKind: z.enum(['player', 'npc']),
     ownerId: idSchema,
@@ -2092,8 +2095,8 @@ const turnPlanContract = z.object({
     techniqueId: idSchema.optional(),
     intent: longText,
     outcome: z.enum(['success', 'partial', 'failed', 'blocked']),
-    costs: z.array(abilityCostSchema).max(8),
-    requirementsUsed: z.array(longText).max(16),
+    costs: z.array(abilityCostSchema).max(8).default([]),
+    requirementsUsed: z.array(longText).max(16).default([]),
     effects: z.array(longText).max(24),
     evidence: longText,
   }).strict()).max(24).default([]),
@@ -2370,7 +2373,7 @@ export const campaignEditResponseSchema = z.object({
     authorsNote: z.string().trim().max(4000).optional(),
     resolutionMode: z.enum(['off', 'hidden', 'visible']).optional(),
     contextProfile: z.enum(['standard', 'long', 'million']).optional(),
-    qualityMode: z.enum(['balanced', 'deep']).optional(),
+    qualityMode: z.enum(['fast', 'balanced', 'deep']).optional(),
     scenePace: z.enum(['slow', 'balanced', 'fast', 'montage']).optional(),
     proseStyle: z.enum(['literary', 'cinematic', 'direct']).optional(),
     dialogueDensity: z.enum(['low', 'balanced', 'high']).optional(),
@@ -2424,20 +2427,20 @@ const generatedAbilitySchema = z.object({
   cooldown: shortText.optional(),
   kind: abilityKindSchema,
   mastery: modelNumber(z.number().min(0).max(100)),
-  costs: z.array(abilityCostSchema).max(8),
+  costs: z.array(abilityCostSchema).max(8).default([]),
   effects: z.array(longText).min(1).max(48),
-  limitations: z.array(longText).max(48),
-  requirements: z.array(longText).max(48),
-  progression: longText,
-  evolutionPaths: z.array(generatedEvolutionPathSchema).max(24),
-  history: z.array(z.object({ title: shortText, description: longText }).strict()).min(1).max(24),
-  tags: z.array(shortText).min(1).max(32),
+  limitations: z.array(longText).max(48).default([]),
+  requirements: z.array(longText).max(48).default([]),
+  progression: longText.optional(),
+  evolutionPaths: z.array(generatedEvolutionPathSchema).max(24).default([]),
+  history: z.array(z.object({ title: shortText, description: longText }).strict()).max(24).default([]),
+  tags: z.array(shortText).max(32).default([]),
   category: powerCategorySchema,
   scale: longText,
   activation: longText,
   capabilities: z.array(longText).min(1).max(64),
-  synergies: z.array(longText).max(32),
-  counters: z.array(longText).max(32),
+  synergies: z.array(longText).max(32).default([]),
+  counters: z.array(longText).max(32).default([]),
   examples: z.array(longText).min(1).max(24),
   techniques: z.array(generatedPowerTechniqueSchema).max(48).default([]),
   canonStatus: canonStatusSchema,
@@ -2839,14 +2842,14 @@ const worldGenerationManifestContract = z.object({
     factionNames: z.array(shortText).max(8),
     threatTier: threatTierSchema,
     hidden: modelBoolean,
-  }).strict()).min(4).max(20),
+  }).strict()).min(1).max(20),
   legends: z.array(z.object({
     name: shortText,
     characterName: shortText.optional(),
     stage: legendStageSchema,
     lifeStatus: legendLifeStatusSchema,
     era: shortText,
-  }).strict()).min(10).max(18),
+  }).strict()).max(18),
   narrative: z.object({
     processTitles: z.array(shortText).max(14),
     eventTitles: z.array(shortText).max(20),
@@ -3270,12 +3273,9 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
       })
     })
   })
-  const legendEcology = assessLegendEcology(world.world.legends)
-  legendEcology.deficits.forEach((deficit) => context.addIssue({
-    code: z.ZodIssueCode.custom,
-    path: ['world', 'legends'],
-    message: `Legend ecology requires ${deficit.key} >= ${deficit.target}; received ${deficit.current}`,
-  }))
+  // Population targets are creative guidance, not structural integrity. Small intimate worlds
+  // and focused canon eras remain playable without manufacturing filler legends just to satisfy
+  // a quota; the ecology assessor is still available to prompts and UI as a non-blocking signal.
   const combatIdentities = new Set<string>()
   world.npcs.forEach((npc, index) => {
     if (!npc.threatProfile) return
@@ -3309,12 +3309,6 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
       })
     })
   })
-  const strongCharacterEcology = assessStrongCharacterEcology(world.npcs)
-  strongCharacterEcology.deficits.forEach((deficit) => context.addIssue({
-    code: z.ZodIssueCode.custom,
-    path: ['npcs'],
-    message: `Strong character ecology requires ${deficit.key} >= ${deficit.target}; received ${deficit.current}`,
-  }))
   world.influenceAssets.forEach((asset, index) => {
     requireEntity(asset.holderName, ['influenceAssets', index, 'holderName'])
     if (asset.targetName) requireEntity(asset.targetName, ['influenceAssets', index, 'targetName'])

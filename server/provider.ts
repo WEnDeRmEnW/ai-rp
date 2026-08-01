@@ -397,9 +397,10 @@ function auxiliaryCircuitKey(config: ProviderConfig): string {
 }
 
 /**
- * Runs a compact optional review on the configured small Ollama Cloud model. Transport, JSON,
- * and caller-contract failures fall back to the primary model. The primary creative path never
- * passes through this function.
+ * Runs a compact optional review on the configured small Ollama Cloud model. When that explicitly
+ * selected auxiliary path is unavailable, the error is left to the caller so an optional stage can
+ * use its deterministic fallback without repeating the same review on the primary model. When no
+ * auxiliary model is configured, this remains a normal primary-model completion.
  */
 export async function completeAuxiliaryJson(
   config: ProviderConfig,
@@ -412,7 +413,7 @@ export async function completeAuxiliaryJson(
 
   const circuitKey = auxiliaryCircuitKey(config)
   if ((auxiliaryUnavailableUntil.get(circuitKey) ?? 0) > Date.now()) {
-    return completeJson(config, messages, options)
+    throw new Error(`Вспомогательная модель ${auxiliary.model} временно недоступна после недавней ошибки.`)
   }
 
   try {
@@ -429,8 +430,8 @@ export async function completeAuxiliaryJson(
     return value
   } catch (error) {
     auxiliaryUnavailableUntil.set(circuitKey, Date.now() + 5 * 60_000)
-    console.warn(`[provider] Auxiliary model ${auxiliary.model} skipped; primary fallback engaged: ${error instanceof Error ? error.message : String(error)}`)
-    return completeJson(config, messages, options)
+    console.warn(`[provider] Auxiliary model ${auxiliary.model} skipped; caller fallback engaged: ${error instanceof Error ? error.message : String(error)}`)
+    throw error
   }
 }
 

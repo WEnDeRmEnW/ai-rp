@@ -112,6 +112,8 @@ function migrateItem(item: InventoryItem, turn: number): InventoryItem {
       components: artifact.components ?? [],
       powers: (artifact.powers ?? []).map((power) => ({
         ...power,
+        costs: power.costs ?? [],
+        limitations: power.limitations ?? [],
         capabilities: power.capabilities ?? [],
         synergies: power.synergies ?? [],
         counters: power.counters ?? [],
@@ -388,7 +390,7 @@ export function migrateCampaign(campaign: Campaign): Campaign {
       responseLength: campaign.settings.responseLength ?? 'adaptive',
       resolutionMode: campaign.settings.resolutionMode ?? 'hidden',
       contextProfile: campaign.settings.contextProfile ?? 'million',
-      qualityMode: campaign.settings.qualityMode ?? 'deep',
+      qualityMode: campaign.settings.qualityMode ?? 'balanced',
       scenePace: campaign.settings.scenePace ?? 'balanced',
       proseStyle: campaign.settings.proseStyle ?? 'literary',
       dialogueDensity: campaign.settings.dialogueDensity ?? 'balanced',

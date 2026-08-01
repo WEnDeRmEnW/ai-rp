@@ -57,7 +57,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
   const [playerAgency, setPlayerAgency] = useState(campaign?.settings.playerAgency ?? 'strict')
   const [resolutionMode, setResolutionMode] = useState(campaign?.settings.resolutionMode ?? 'hidden')
   const [contextProfile, setContextProfile] = useState(campaign?.settings.contextProfile ?? 'million')
-  const [qualityMode, setQualityMode] = useState(campaign?.settings.qualityMode ?? 'deep')
+  const [qualityMode, setQualityMode] = useState(campaign?.settings.qualityMode ?? 'balanced')
   const [scenePace, setScenePace] = useState(campaign?.settings.scenePace ?? 'balanced')
   const [proseStyle, setProseStyle] = useState(campaign?.settings.proseStyle ?? 'literary')
   const [dialogueDensity, setDialogueDensity] = useState(campaign?.settings.dialogueDensity ?? 'balanced')
@@ -90,7 +90,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
     setPlayerAgency(campaign?.settings.playerAgency ?? 'strict')
     setResolutionMode(campaign?.settings.resolutionMode ?? 'hidden')
     setContextProfile(campaign?.settings.contextProfile ?? 'million')
-    setQualityMode(campaign?.settings.qualityMode ?? 'deep')
+    setQualityMode(campaign?.settings.qualityMode ?? 'balanced')
     setScenePace(campaign?.settings.scenePace ?? 'balanced')
     setProseStyle(campaign?.settings.proseStyle ?? 'literary')
     setDialogueDensity(campaign?.settings.dialogueDensity ?? 'balanced')
@@ -179,7 +179,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
               </button>
             </div>
             {draft.useAuxiliaryModel !== false && <label className="field"><span>Быстрая модель</span><input value={draft.auxiliaryModel ?? 'gpt-oss:20b'} onChange={(event) => setDraft({ ...draft, auxiliaryModel: event.target.value })} placeholder="gpt-oss:20b" /></label>}
-            <div className="settings-note settings-note--real"><strong>Без потери обязательных проверок</strong><span>Если быстрая модель недоступна, возвращает неверный JSON или не проходит контракт, запрос автоматически повторяется на основной модели. Программная проверка данных никогда не отключается.</span></div>
+            <div className="settings-note settings-note--real"><strong>Без задержки основной модели</strong><span>Если быстрая модель недоступна или не проходит контракт, необязательная оценка пропускается и применяется локальная программная проверка. Сюжетный запрос не повторяется на основной модели и не ждёт лишний таймаут.</span></div>
           </div>}
         </div>}
       </section>
@@ -192,7 +192,7 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
           <label className="field"><span>Сложность</span><select value={difficulty} onChange={(event) => { const value = event.target.value as typeof difficulty; setDifficulty(value); persistCampaignSettings({ difficulty: value }) }}><option value="story">Сюжетная</option><option value="balanced">Честная</option><option value="harsh">Суровая</option></select></label>
           <label className="field"><span>Свобода героя</span><select value={playerAgency} onChange={(event) => { const value = event.target.value as typeof playerAgency; setPlayerAgency(value); persistCampaignSettings({ playerAgency: value }) }}><option value="strict">Только мои решения</option><option value="cinematic">Кинематографично</option></select></label>
           <label className="field"><span>Контекст истории</span><select value={contextProfile} onChange={(event) => { const value = event.target.value as typeof contextProfile; setContextProfile(value); persistCampaignSettings({ contextProfile: value }) }}><option value="standard">Стандартный</option><option value="long">Долгий</option><option value="million">DeepSeek 1M</option></select></label>
-          <label className="field"><span>Качество сцены</span><select value={qualityMode} onChange={(event) => { const value = event.target.value as typeof qualityMode; setQualityMode(value); persistCampaignSettings({ qualityMode: value }) }}><option value="balanced">Один черновик без критика</option><option value="deep">Два черновика + критик</option></select></label>
+          <label className="field"><span>Качество сцены</span><select value={qualityMode} onChange={(event) => { const value = event.target.value as typeof qualityMode; setQualityMode(value); persistCampaignSettings({ qualityMode: value }) }}><option value="fast">Быстро — только обязательные проверки</option><option value="balanced">Умно — проверять только риск</option><option value="deep">Максимум — два черновика и полный аудит</option></select></label>
           <label className="field"><span>Темп сцены</span><select value={scenePace} onChange={(event) => { const value = event.target.value as typeof scenePace; setScenePace(value); persistCampaignSettings({ scenePace: value }) }}><option value="slow">Медленное погружение</option><option value="balanced">Сбалансированный</option><option value="fast">Динамичный</option><option value="montage">Монтаж и пропуск рутины</option></select></label>
           <label className="field"><span>Проверки риска</span><select value={resolutionMode} onChange={(event) => { const value = event.target.value as typeof resolutionMode; setResolutionMode(value); persistCampaignSettings({ resolutionMode: value }) }}><option value="off">Выключены</option><option value="hidden">Скрытые</option><option value="visible">Показывать бросок</option></select></label>
           <label className="field"><span>Стиль прозы</span><select value={proseStyle} onChange={(event) => { const value = event.target.value as typeof proseStyle; setProseStyle(value); persistCampaignSettings({ proseStyle: value }) }}><option value="literary">Живой литературный</option><option value="cinematic">Кинематографичный</option><option value="direct">Прямой и ясный</option></select></label>
@@ -203,8 +203,8 @@ export function SettingsDialog({ open, provider, theme, interfacePreferences, ca
         </div>
         <label className="field settings-boundaries"><span>Границы контента</span><textarea value={contentBoundaries} onChange={(event) => setContentBoundaries(event.target.value)} onBlur={() => persistCampaignSettings({ contentBoundaries: contentBoundaries.trim() })} rows={3} maxLength={2000} placeholder="Темы и детали, которые рассказчик обязан исключить…" /></label>
         <div className={`settings-note settings-note--save-state ${campaignSaveState === 'error' ? 'is-error' : ''}`} role="status"><strong>{campaignSaveState === 'saving' ? 'Сохраняем изменения…' : campaignSaveState === 'error' ? 'Не удалось сохранить' : 'Автосохранение включено'}</strong><span>{campaignSaveState === 'saved' ? 'Изменение уже записано локально и отправлено в очередь облачной синхронизации.' : campaignSaveState === 'error' ? 'Локальное изменение не записалось. Нажмите «Сохранить настройки», чтобы повторить.' : 'Игровые настройки сохраняются сразу после выбора и не требуют прокрутки к кнопке внизу.'}</span></div>
-        <div className="settings-note settings-note--real"><strong>Эти настройки действуют</strong><span>Они передаются режиссёру, рассказчику и фоновому симулятору каждого хода. Сложность меняет проверки, качество — число черновиков и критика, контекст — реальный объём долгой памяти.</span></div>
-        <div className="settings-note"><strong>Долгая память</strong><span>Профиль DeepSeek 1M хранит исходную переписку целиком, подаёт свежие сцены дословно и извлекает старые главы, факты и канон по смыслу. Окно не заполняется всей историей подряд.</span></div>
+        <div className="settings-note settings-note--real"><strong>Эти настройки действуют</strong><span>Они передаются режиссёру, рассказчику и симулятору каждого хода. Быстрый режим сохраняет механику и защиту данных, но убирает повторные редакторские проходы; умный запускает их только при реальном риске; максимальный всегда проводит полный разбор.</span></div>
+        <div className="settings-note"><strong>Долгая память</strong><span>Профиль DeepSeek 1M сохраняет доступ ко всей переписке и архивам. Каждый этап получает только релевантную выборку своего размера, поэтому старые факты остаются доступными, но один и тот же гигантский контекст больше не пересылается во все служебные проверки.</span></div>
       </section>}
 
       {campaign && <section className="settings-section event-director-settings">

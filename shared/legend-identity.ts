@@ -22,10 +22,14 @@ export function legendNameLooksLikeEvent(value: string): boolean {
  */
 export function legendRepresentsCharacter(legend: LegendIdentityLike): boolean {
   if (legend.characterId) return true
+  // A role such as "воин" or "провидец" must not turn "Война…" or "Пророчество…"
+  // into a person. A legacy biographical heading is retained only when it also contains a clean
+  // human alias/title that the UI can display instead of the event heading.
+  if (legendNameLooksLikeEvent(legend.name)) return Boolean(humanFallbackName(legend) && characterRolePattern.test(legend.role))
+  if (collectiveOrObjectPattern.test(`${legend.name} ${legend.epithet ?? ''}`)) return false
   if (characterRolePattern.test(legend.role)) return true
   if (nonCharacterRolePattern.test(legend.role)) return false
-  if (collectiveOrObjectPattern.test(`${legend.name} ${legend.epithet ?? ''}`)) return false
-  return !legendNameLooksLikeEvent(legend.name)
+  return true
 }
 
 function humanFallbackName(legend: LegendIdentityLike): string | undefined {

@@ -32,20 +32,14 @@ describe('generated world integrity pipeline', () => {
     expect(generatedWorldSchema.safeParse(assembleGeneratedWorldSections(sections)).success).toBe(true)
   })
 
-  it('separates a complete JSON shape from cross-entity ecology validation', () => {
+  it('accepts a compact cast without forcing filler NPCs or legends', () => {
     const world = validWorld()
     world.npcs = world.npcs.slice(0, 1)
     world.world.legends = world.world.legends.slice(0, 2)
 
     expect(generatedWorldDraftSchema.safeParse(world).success).toBe(true)
     const strict = generatedWorldSchema.safeParse(world)
-    expect(strict.success).toBe(false)
-    if (!strict.success) {
-      expect(strict.error.issues).toEqual(expect.arrayContaining([
-        expect.objectContaining({ path: ['npcs'] }),
-        expect.objectContaining({ path: ['world', 'legends'] }),
-      ]))
-    }
+    expect(strict.success).toBe(true)
   })
 
   it('restores the requested hero identity and canonical atlas names without inventing data', () => {

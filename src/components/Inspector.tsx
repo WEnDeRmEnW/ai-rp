@@ -3,7 +3,7 @@ import {
   Brain, Clock3, FileUp, HeartPulse, Minus, Network, PackagePlus, Plus, Route, Search, Shield, ShieldAlert, Sparkles, Swords, Target, Trash2, UserRound, Users, X,
 } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { Ability, ArtifactPower, ArtifactSection, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldCapabilitySystem, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
+import type { Ability, AbilityProfileSection, ArtifactPower, ArtifactSection, Campaign, InspectorTabId, InventoryItem, LoreEntry, NarrativeEventStage, NPC, NPCDossierSection, PowerTechnique, Rarity, StateChange, WorldCapabilitySystem, WorldChronicleKind, WorldPresentation, WorldScale } from '../../shared/types'
 import { buildContextSelection } from '../../shared/context'
 import { assessItemRarity } from '../../shared/rarity'
 import { grantedItemAbilities, type GrantedItemAbility } from '../../shared/effective-abilities'
@@ -21,6 +21,7 @@ import { AdaptiveWorldModules } from './AdaptiveWorldModules'
 import { getNpcDisclosure } from '../lib/npc-disclosure'
 import { WorldCockpit } from './WorldCockpit'
 import { LegendariumPanel } from './LegendariumPanel'
+import '../ability-dossier.css'
 
 export type InspectorTab = InspectorTabId
 type ChangeFilter = 'all' | 'character' | 'inventory' | 'social' | 'world'
@@ -140,11 +141,29 @@ const availabilityLabels = {
   ready: 'Готова', limited: 'Доступна частично', cooldown: 'Восстанавливается', blocked: 'Заблокирована', disabled: 'Недоступна',
 } as const
 
+const safeAbilityHex = (value: string | undefined, fallback: string) => /^#[0-9a-f]{6}$/iu.test(value ?? '') ? value! : fallback
+
+function nextReadyLabel(nextReady: NonNullable<NonNullable<Ability['profile']>['availability']>['nextReady']) {
+  if (!nextReady) return undefined
+  if (nextReady.unit === 'condition') return nextReady.condition
+  if (nextReady.unit === 'turn') return nextReady.value === undefined ? 'после следующего хода' : `на ходу ${nextReady.value}`
+  if (nextReady.unit === 'scene') return nextReady.value === undefined ? 'в следующей сцене' : `через ${nextReady.value} сцен.`
+  return nextReady.value === undefined ? 'на следующий день' : `через ${nextReady.value} дн.`
+}
+
+function LazyDossierSection({ title, children, className = '', defaultOpen = false }: { title: string; children: React.ReactNode; className?: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return <details className={`ability-dossier-section ability-dossier-fold ${className}`.trim()} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary><span>{title}</span><ChevronDown size={15} /></summary>
+    {open && <div className="ability-dossier-section-body">{children}</div>}
+  </details>
+}
+
 function abilityGroup(system: WorldCapabilitySystem | undefined, ability: Ability) {
   return system?.groups.find((group) => group.id === ability.profile?.nature.groupId)
 }
 
-function AbilityCard({ ability, expanded, onToggle, onOpenSource, resources, access, capabilitySystem }: { ability: Ability; expanded: boolean; onToggle: () => void; onOpenSource?: () => void; resources?: Campaign['player']['resources']; access?: Pick<GrantedItemAbility, 'available' | 'blockers' | 'itemName' | 'itemPresentation'>; capabilitySystem?: WorldCapabilitySystem }) {
+export function AbilityCard({ ability, expanded, onToggle, onOpenSource, resources, access, capabilitySystem }: { ability: Ability; expanded: boolean; onToggle: () => void; onOpenSource?: () => void; resources?: Campaign['player']['resources']; access?: Pick<GrantedItemAbility, 'available' | 'blockers' | 'itemName' | 'itemPresentation'>; capabilitySystem?: WorldCapabilitySystem }) {
   const techniqueCount = visibleTechniqueCount(ability)
   const profile = ability.profile
   if (profile) {
@@ -153,26 +172,31 @@ function AbilityCard({ ability, expanded, onToggle, onOpenSource, resources, acc
     const identityKnown = abilitySectionKnown(ability, 'identity')
     const standingKnown = abilitySectionKnown(ability, 'standing')
     const availability = profile.availability
+    const availabilityLabel = access?.available === false
+      ? 'Недоступна'
+      : availability
+        ? availabilityLabels[availability.state]
+        : 'Без отдельного счётчика'
     const currentFact = availability?.reasons[0]
       ?? (standingKnown ? profile.standing.ceiling : undefined)
       ?? (abilitySectionKnown(ability, 'source') ? profile.creativeIdentity.originPattern : undefined)
     const style = {
-      '--ability-accent': profile.presentation.accent,
-      '--ability-secondary': profile.presentation.secondary,
+      '--ability-accent': safeAbilityHex(profile.presentation.accent, '#65d6bd'),
+      '--ability-secondary': safeAbilityHex(profile.presentation.secondary, '#a985ff'),
     } as CSSProperties
-    return <article className={`ability-card ability-card--authored layout-${profile.presentation.layout} ${access && !access.available ? 'is-unavailable' : ''}`} style={style}>
-      <button className="ability-main ability-main--authored" onClick={onToggle}>
+    return <article className={`ability-card ability-card--authored layout-${profile.presentation.layout} density-${profile.presentation.density} ${access && !access.available ? 'is-unavailable' : ''}`} style={style} data-ability-layout={profile.presentation.layout}>
+      <button className="ability-main ability-main--authored" onClick={onToggle} aria-haspopup="dialog" aria-label={`Открыть досье способности «${ability.name}»`}>
         <span className="ability-icon ability-icon--symbol" aria-hidden="true">{profile.presentation.symbol || '✦'}</span>
         <span className="ability-copy">
-          <span className="ability-kicker">{group?.label ?? profile.nature.label}{standingKnown ? ` · ${profile.standing.tierLabel}` : ''}</span>
+          <span className="ability-kicker">{group?.label ?? profile.nature.label}</span>
           <strong>{ability.name}</strong>
           <p>{identityKnown ? profile.creativeIdentity.coreFantasy : ability.description}</p>
-          <span className="ability-compact-meta">
-            <i><b>{Math.round(ability.mastery ?? 0)}%</b> освоения</i>
-            <i>{availability ? availabilityLabels[availability.state] : access?.available === false ? 'Недоступна' : 'Готова'}</i>
-            <i>{knownTechniques.length} {russianPlural(knownTechniques.length, 'приём открыт', 'приёма открыто', 'приёмов открыто')}</i>
+          <span className="ability-signal-grid">
+            <span><small>Освоение</small><b>{Math.round(ability.mastery ?? 0)}%</b></span>
+            <span><small>Реальный класс</small><b>{standingKnown ? profile.standing.tierLabel : 'Неизвестен'}</b></span>
+            <span className={`state-${availability?.state ?? (access?.available === false ? 'blocked' : 'ready')}`}><small>Сейчас</small><b>{availabilityLabel}</b></span>
           </span>
-          {currentFact && <small className="ability-current-fact">{currentFact}</small>}
+          <span className="ability-card-footer"><small>{knownTechniques.length} {russianPlural(knownTechniques.length, 'открытый приём', 'открытых приёма', 'открытых приёмов')}</small>{currentFact && <small>{currentFact}</small>}</span>
           {access && <em className={`ability-access ${access.available ? 'is-ready' : 'is-locked'}`}>{access.available ? `Связана с предметом «${access.itemName}»` : access.blockers.join(' · ')}</em>}
         </span>
         <span className="ability-open-mark">Досье <ChevronDown size={13} /></span>
@@ -419,7 +443,7 @@ function ItemRarityCard({ item, label }: { item: InventoryItem; label: string })
   </div>
 }
 
-function AbilityDossier({ ability, system, resources, ownerName, onClose }: {
+export function AbilityDossier({ ability, system, resources, ownerName, onClose }: {
   ability?: Ability
   system?: WorldCapabilitySystem
   resources?: Campaign['player']['resources']
@@ -432,32 +456,81 @@ function AbilityDossier({ ability, system, resources, ownerName, onClose }: {
   const techniques = visibleAbilityTechniques(ability)
   const hiddenTechniques = (ability.techniques?.length ?? 0) > techniques.length
   const section = (key: Parameters<typeof abilitySectionKnown>[1]) => abilitySectionKnown(ability, key)
+  const availability = profile.availability
+  const nextReady = nextReadyLabel(availability?.nextReady)
+  const hasUsageDetails = Boolean(availability || ability.activation || ability.cooldown || ability.costs?.length || ability.requirements?.length)
+  const availabilitySummary = availability
+    ? availabilityLabels[availability.state]
+    : hasUsageDetails
+      ? 'По условиям применения'
+      : 'Без отдельного счётчика'
   const style = {
-    '--ability-accent': profile.presentation.accent,
-    '--ability-secondary': profile.presentation.secondary,
+    '--ability-accent': safeAbilityHex(profile.presentation.accent, '#65d6bd'),
+    '--ability-secondary': safeAbilityHex(profile.presentation.secondary, '#a985ff'),
   } as CSSProperties
+  const sectionOrder = [...new Set<AbilityProfileSection>([
+    ...profile.presentation.sectionOrder,
+    'principle', 'source', 'availability', 'techniques', 'facets', 'counterplay', 'progression', 'history', 'standing',
+  ])]
+  const renderSection = (key: AbilityProfileSection): React.ReactNode => {
+    if (key === 'identity') return null
+    if (key === 'principle' && section('principle')) return <LazyDossierSection key={key} title="Принцип и стиль" defaultOpen>
+      <p>{profile.creativeIdentity.centralPrinciple}</p>
+      <p>{profile.creativeIdentity.interactionModel}</p>
+      <div className="ability-owner-expression"><b>Манера владельца</b><p>{profile.ownerExpression.summary}</p><DetailList title="Предпочитает" values={profile.ownerExpression.priorities} compact /><DetailList title="Характерные приёмы" values={profile.ownerExpression.signatures} compact /></div>
+      <DetailList title="Предел возможностей" values={ability.capabilities} /><DetailList title="Наблюдаемые эффекты" values={ability.effects} /><DetailList title="Сценические примеры" values={ability.examples} />
+    </LazyDossierSection>
+    if (key === 'source' && section('source')) return <LazyDossierSection key={key} title="Источник">
+      <p>{profile.creativeIdentity.originPattern}</p>{ability.source && <small>{ability.source}</small>}
+    </LazyDossierSection>
+    if (key === 'availability' && section('availability') && hasUsageDetails) return <LazyDossierSection key={key} title="Доступность и применение">
+      {availability && <div className={`ability-availability state-${availability.state}`}><strong>{availabilityLabels[availability.state]}</strong>{availability.reasons.map((reason) => <p key={reason}>{reason}</p>)}</div>}
+      <div className="ability-usage-grid">
+        {ability.activation && <article><small>Активация</small><p>{ability.activation}</p></article>}
+        {!!ability.costs?.length && <article><small>Реальная цена</small><p>{ability.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, resources)}`).join(', ')}</p></article>}
+        {ability.cooldown && <article><small>Восстановление</small><p>{ability.cooldown}</p></article>}
+        {availability?.charges && <article><small>{availability.charges.label}</small><p>{availability.charges.current} / {availability.charges.max}</p></article>}
+        {nextReady && <article><small>Снова доступна</small><p>{nextReady}</p></article>}
+      </div>
+      <DetailList title="Условия" values={ability.requirements} />
+    </LazyDossierSection>
+    if (key === 'techniques' && section('techniques')) return <LazyDossierSection key={key} title="Техники">
+      <TechniqueCollection source={{ ...ability, techniques }} resources={resources} />
+      {hiddenTechniques && <div className="ability-unknown-trace"><Search size={14} /><span><b>Есть неизвестное проявление</b><small>Название и точный эффект откроются только после наблюдения или надёжного изучения.</small></span></div>}
+    </LazyDossierSection>
+    if (key === 'facets' && section('facets') && profile.facets.length) return <LazyDossierSection key={key} title="Грани способности">
+      <section className="ability-facets">{profile.facets.map((facet) => <article key={facet.key}><div><span>{facet.label}</span><b>{Math.round(facet.value)}</b></div><i><em style={{ width: `${Math.max(0, Math.min(100, facet.value))}%` }} /></i><p>{facet.description}</p></article>)}</section>
+    </LazyDossierSection>
+    if (key === 'counterplay' && section('counterplay') && Boolean(ability.synergies?.length || ability.counters?.length || ability.limitations?.length)) return <LazyDossierSection key={key} title="Сочетания и противодействие">
+      <div className="dossier-columns"><div><DetailList title="Синергии" values={ability.synergies} /></div><div><DetailList title="Контрмеры" values={ability.counters} /><DetailList title="Реальные ограничения" values={ability.limitations} /></div></div>
+    </LazyDossierSection>
+    if (key === 'progression' && section('progression') && Boolean(ability.progression || ability.evolutionPaths?.length || profile.developmentSeeds.some((seed) => seed.status !== 'discarded'))) return <LazyDossierSection key={key} title="Развитие">
+      {ability.progression && <p>{ability.progression}</p>}
+      {!!ability.evolutionPaths?.length && <div className="evolution-list">{ability.evolutionPaths.map((path) => <div className={path.unlocked ? 'is-unlocked' : ''} key={path.id}><strong>{path.name}</strong><span>{path.description}</span><small>{path.unlocked ? 'Открыто' : path.requirement}</small></div>)}</div>}
+      {profile.developmentSeeds.filter((seed) => seed.status !== 'discarded').map((seed) => <article className="ability-seed" key={seed.id}><strong>{seed.name}</strong><p>{seed.hypothesis}</p><small>{seed.evidence.filter((entry) => ['success', 'training'].includes(entry.outcome)).length} / {seed.requiredConfirmations} подтверждений · {seed.promotionRule}</small></article>)}
+    </LazyDossierSection>
+    if (key === 'history' && section('history') && ability.history?.length) return <LazyDossierSection key={key} title="Подтверждённая история">
+      <div className="progress-history">{[...ability.history].reverse().map((entry) => <div key={entry.id}><strong>{entry.title} · ход {entry.turn}</strong><span>{entry.description}</span></div>)}</div>
+    </LazyDossierSection>
+    if (key === 'standing' && section('standing') && Boolean(profile.standing.evidence.length || profile.standing.uncertainties.length)) return <LazyDossierSection key={key} title="Основания оценки">
+      <DetailList title="Доказательства" values={profile.standing.evidence} /><DetailList title="Что ещё не установлено" values={profile.standing.uncertainties} />
+    </LazyDossierSection>
+    return null
+  }
   return <Modal open onClose={onClose} title={ability.name} eyebrow={`${group?.label ?? profile.nature.label}${ownerName ? ` · ${ownerName}` : ''}`} width="large">
-    <div className={`ability-dossier layout-${profile.presentation.layout}`} style={style}>
+    <div className={`ability-dossier layout-${profile.presentation.layout} density-${profile.presentation.density}`} style={style} data-ability-layout={profile.presentation.layout}>
       <header className="ability-dossier-hero">
         <span>{profile.presentation.symbol || '✦'}</span>
-        <div><b>{profile.standing.tierLabel}</b><p>{section('identity') ? profile.creativeIdentity.coreFantasy : ability.description}</p><small>{profile.presentation.motif}</small></div>
+        <div><b>{group?.label ?? profile.nature.label}</b><p>{section('identity') ? profile.presentation.summary || profile.creativeIdentity.coreFantasy : ability.description}</p><small>{profile.presentation.motif}</small></div>
       </header>
       <div className="ability-dossier-scroll">
-        <section className="ability-dossier-mastery">
-          <div><span>Освоение владельцем</span><b>{Math.round(ability.mastery ?? 0)}%</b><i><em style={{ width: `${Math.max(0, Math.min(100, ability.mastery ?? 0))}%` }} /></i><small>{system?.masteryMeaning ?? 'Практическое владение этой возможностью'}</small></div>
-          {section('standing') && <article><span>Реальный предел</span><strong>{profile.standing.tierLabel}</strong><p>{profile.standing.ceiling}</p><small>{profile.standing.scope}</small></article>}
+        <section className="ability-overview-grid" aria-label="Сводка способности">
+          <article className="is-mastery"><span>Освоение владельцем</span><strong>{Math.round(ability.mastery ?? 0)}%</strong><i><em style={{ width: `${Math.max(0, Math.min(100, ability.mastery ?? 0))}%` }} /></i><small>{system?.masteryMeaning ?? 'Практическое владение этой возможностью'}</small></article>
+          <article className={`is-standing ${section('standing') ? '' : 'is-unknown'}`}><span>Реальный класс</span><strong>{section('standing') ? profile.standing.tierLabel : 'Не установлен'}</strong>{section('standing') && <><p>{profile.standing.ceiling}</p><small>{profile.standing.scope}</small></>}</article>
+          <article className={`is-availability state-${availability?.state ?? 'ready'}`}><span>Доступность сейчас</span><strong>{availabilitySummary}</strong><small>{availability ? (availability.reasons[0] ?? system?.availabilityMeaning) : hasUsageDetails ? 'Определяется указанными условиями, без выдуманных зарядов.' : 'У способности нет отдельной шкалы зарядов, маны или отката.'}</small></article>
         </section>
-        {section('facets') && <section className="ability-facets">{profile.facets.map((facet) => <article key={facet.key}><div><span>{facet.label}</span><b>{Math.round(facet.value)}</b></div><i><em style={{ width: `${Math.max(0, Math.min(100, facet.value))}%` }} /></i><p>{facet.description}</p></article>)}</section>}
-        {section('principle') && <section className="ability-dossier-section"><h3>Принцип и авторский стиль</h3><p>{profile.creativeIdentity.centralPrinciple}</p><p>{profile.creativeIdentity.interactionModel}</p><div className="ability-owner-expression"><b>Манера владельца</b><p>{profile.ownerExpression.summary}</p><DetailList title="Предпочитает" values={profile.ownerExpression.priorities} compact /><DetailList title="Характерные приёмы" values={profile.ownerExpression.signatures} compact /></div></section>}
-        {section('source') && <section className="ability-dossier-section"><h3>Источник</h3><p>{profile.creativeIdentity.originPattern}</p>{ability.source && <small>{ability.source}</small>}</section>}
-        {section('availability') && <section className="ability-dossier-section"><h3>Доступность сейчас</h3><div className={`ability-availability state-${profile.availability?.state ?? 'ready'}`}><strong>{profile.availability ? availabilityLabels[profile.availability.state] : 'Готова'}</strong>{profile.availability?.reasons.map((reason) => <p key={reason}>{reason}</p>)}{profile.availability?.charges && <small>{profile.availability.charges.label}: {profile.availability.charges.current} / {profile.availability.charges.max}</small>}</div>{ability.activation && <p><b>Активация:</b> {ability.activation}</p>}{!!ability.costs?.length && <p><b>Цена:</b> {ability.costs.map((cost) => `${cost.amount} ${resourceUiLabel(cost.resource, resources)}`).join(', ')}</p>}</section>}
-        {section('techniques') && <section className="ability-dossier-section"><h3>Техники</h3><TechniqueCollection source={{ ...ability, techniques }} resources={resources} />{hiddenTechniques && <div className="ability-unknown-trace"><Search size={14} /><span><b>Есть неизвестное проявление</b><small>Название и точный эффект откроются только после наблюдения или надёжного изучения.</small></span></div>}</section>}
         {!section('techniques') && <div className="ability-unknown-trace"><Search size={14} /><span><b>Техники ещё не изучены</b><small>Интерфейс не раскрывает скрытые названия, эффекты и уязвимости.</small></span></div>}
-        {section('principle') && <section className="ability-dossier-section"><h3>Что действительно возможно</h3><DetailList title="Предел возможностей" values={ability.capabilities} /><DetailList title="Наблюдаемые эффекты" values={ability.effects} /><DetailList title="Сценические примеры" values={ability.examples} /></section>}
-        {section('counterplay') && <section className="ability-dossier-section dossier-columns"><div><h3>Синергии</h3><DetailList title="Сочетания" values={ability.synergies} /></div><div><h3>Контрмеры</h3><DetailList title="Противодействие" values={ability.counters} /><DetailList title="Реальные ограничения" values={ability.limitations} /></div></section>}
-        {section('progression') && <section className="ability-dossier-section"><h3>Развитие</h3>{ability.progression && <p>{ability.progression}</p>}{!!ability.evolutionPaths?.length && <div className="evolution-list">{ability.evolutionPaths.map((path) => <div className={path.unlocked ? 'is-unlocked' : ''} key={path.id}><strong>{path.name}</strong><span>{path.description}</span><small>{path.unlocked ? 'Открыто' : path.requirement}</small></div>)}</div>}{profile.developmentSeeds.filter((seed) => seed.status !== 'discarded').map((seed) => <article className="ability-seed" key={seed.id}><strong>{seed.name}</strong><p>{seed.hypothesis}</p><small>{seed.evidence.filter((entry) => ['success', 'training'].includes(entry.outcome)).length} / {seed.requiredConfirmations} подтверждений · {seed.promotionRule}</small></article>)}</section>}
-        {section('history') && !!ability.history?.length && <section className="ability-dossier-section"><h3>Подтверждённая история</h3><div className="progress-history">{[...ability.history].reverse().map((entry) => <div key={entry.id}><strong>{entry.title} · ход {entry.turn}</strong><span>{entry.description}</span></div>)}</div></section>}
-        {section('standing') && <section className="ability-dossier-section"><h3>Основания оценки</h3><DetailList title="Доказательства" values={profile.standing.evidence} /><DetailList title="Что ещё не установлено" values={profile.standing.uncertainties} /></section>}
+        {sectionOrder.map(renderSection)}
       </div>
     </div>
   </Modal>
@@ -1093,7 +1166,7 @@ function InspectorComponent({ campaign, open, activeTab: tab, onTabChange: setTa
           </>}
         </div>
       </aside>
-      <AbilityDossier ability={abilityDossier?.ability} system={campaign.world.capabilitySystem} resources={abilityDossier?.resources} ownerName={abilityDossier?.ownerName} onClose={() => setAbilityDossier(undefined)} />
+      {abilityDossier && <AbilityDossier ability={abilityDossier.ability} system={campaign.world.capabilitySystem} resources={abilityDossier.resources} ownerName={abilityDossier.ownerName} onClose={() => setAbilityDossier(undefined)} />}
       <ItemEditor open={itemEditor} presentation={presentation} onClose={() => setItemEditor(false)} onSave={(item) => mutate((next) => { item.discoveredTurn = next.turn; next.inventory.push(item) })} />
       <LoreEditor open={loreEditor} onClose={() => setLoreEditor(false)} onSave={(entry) => mutate((next) => { next.lore.push(entry) })} />
     </>

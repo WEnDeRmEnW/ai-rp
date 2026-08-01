@@ -85,17 +85,17 @@ function ListBlock({ title, values }: { title: string; values: string[] }) {
   return <div className="legend-detail-list"><b>{title}</b>{values.map((value) => <span key={value}>{value}</span>)}</div>
 }
 
-function RumorCard({ campaign, legend }: { campaign: Campaign; legend: LegendaryFigure }) {
+function RumorCard({ campaign, legend, open, onToggle }: { campaign: Campaign; legend: LegendaryFigure; open: boolean; onToggle: () => void }) {
   const visibleMyths = hasSection(legend, 'myths') ? legend.myths.filter((myth) => myth.visibility !== 'hidden') : []
   const displayName = legendCharacterDisplayName(legend, campaign.player, campaign.npcs)
-  return <details className="legend-card is-rumored">
+  return <details className="legend-card is-rumored" open={open} onToggle={(event) => { if ((event.currentTarget as HTMLDetailsElement).open !== open) onToggle() }}>
     <summary>
       <span className="legend-sigil"><ShieldQuestion size={16} /></span>
       <span className="legend-heading"><small>Сведения требуют проверки</small><strong>{displayName}</strong>{legend.epithet && <em>{legend.epithet}</em>}</span>
       <span className="legend-awareness"><b>{Math.round(legend.discovery.awareness)}%</b><small>изучено</small></span>
       <ChevronDown size={15} />
     </summary>
-    <div className="legend-body">
+    {open && <div className="legend-body">
       <p className="legend-rumor-note">Герой знает лишь отдельные рассказы. Они могут смешивать реальные события, ошибки свидетелей и намеренные искажения.</p>
       {visibleMyths.map((myth) => <article className="legend-myth" key={myth.id}>
         <header><strong>{myth.title}</strong><span>{truthLabels[myth.truth]}</span></header>
@@ -104,12 +104,12 @@ function RumorCard({ campaign, legend }: { campaign: Campaign; legend: Legendary
       </article>)}
       {!visibleMyths.length && <p className="legend-locked-copy">Известно только имя. Подробности откроются через наблюдения, документы, свидетелей или проверку слухов.</p>}
       {!!legend.discovery.evidence.length && <div className="legend-evidence"><b>Откуда это известно</b>{legend.discovery.evidence.slice(-4).map((entry) => <span key={entry.id}><i>{entry.reliability}%</i><strong>{entry.source}</strong><small>{entry.summary}</small></span>)}</div>}
-    </div>
+    </div>}
   </details>
 }
 
-function LegendCard({ campaign, legend }: { campaign: Campaign; legend: LegendaryFigure }) {
-  if (legend.discovery.visibility === 'rumored') return <RumorCard campaign={campaign} legend={legend} />
+function LegendCard({ campaign, legend, open, onToggle }: { campaign: Campaign; legend: LegendaryFigure; open: boolean; onToggle: () => void }) {
+  if (legend.discovery.visibility === 'rumored') return <RumorCard campaign={campaign} legend={legend} open={open} onToggle={onToggle} />
   const displayName = legendCharacterDisplayName(legend, campaign.player, campaign.npcs)
   const location = legend.currentState.locationId
     ? campaign.world.places?.find((place) => place.id === legend.currentState.locationId)?.name
@@ -120,7 +120,7 @@ function LegendCard({ campaign, legend }: { campaign: Campaign; legend: Legendar
   const visibleMyths = hasSection(legend, 'myths') ? legend.myths.filter((myth) => myth.visibility !== 'hidden') : []
   const visibleLegacies = hasSection(legend, 'legacies') ? legend.legacies.filter((legacy) => legacy.visibility !== 'hidden') : []
 
-  return <details className={`legend-card stage-${legend.stage}`}>
+  return <details className={`legend-card stage-${legend.stage}`} open={open} onToggle={(event) => { if ((event.currentTarget as HTMLDetailsElement).open !== open) onToggle() }}>
     <summary>
       <span className="legend-sigil"><Crown size={16} /></span>
       <span className="legend-heading">
@@ -131,7 +131,7 @@ function LegendCard({ campaign, legend }: { campaign: Campaign; legend: Legendar
       <span className="legend-awareness"><b>{Math.round(legend.discovery.awareness)}%</b><small>изучено</small></span>
       <ChevronDown size={15} />
     </summary>
-    <div className="legend-body">
+    {open && <div className="legend-body">
       {hasSection(legend, 'status') && <div className="legend-status-row">
         <span>{lifeLabels[legend.lifeStatus]}</span>
         <span>{stageLabels[legend.stage]}</span>
@@ -205,13 +205,14 @@ function LegendCard({ campaign, legend }: { campaign: Campaign; legend: Legendar
       {hasSection(legend, 'canon') && <details className="legend-canon"><summary>Основа и непрерывность мира</summary><p>{legend.canon.continuity}</p><ListBlock title="Неизменяемые факты" values={legend.canon.anchorFacts} /><ListBlock title="Что противоречило бы миру" values={legend.canon.forbiddenContradictions} /></details>}
       {!!legend.discovery.evidence.length && <div className="legend-evidence"><b>Основания знаний героя</b>{legend.discovery.evidence.slice(-6).map((entry) => <span key={entry.id}><i>{entry.reliability}%</i><strong>{entry.source}</strong><small>{entry.summary}</small></span>)}</div>}
       {!hasSection(legend, 'deeds') && !hasSection(legend, 'myths') && !hasSection(legend, 'legacies') && <p className="legend-locked-copy">Подвиги, споры и наследие этой фигуры пока не изучены достаточно надёжно.</p>}
-    </div>
+    </div>}
   </details>
 }
 
 export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<LegendFilter>('all')
+  const [expandedId, setExpandedId] = useState<string>()
   const legendarium = campaign.world.legendarium
   const discoverableLegends = useMemo(
     () => (campaign.world.legends ?? []).filter((legend) => legend.discovery.visibility !== 'hidden' && legendRepresentsCharacter(legend)),
@@ -289,7 +290,7 @@ export function LegendariumPanel({ campaign }: { campaign: Campaign }) {
       </div>
     </div>
     <div className="legend-list">
-      {visibleLegends.map((legend) => <LegendCard campaign={campaign} legend={legend} key={legend.id} />)}
+      {visibleLegends.map((legend) => <LegendCard campaign={campaign} legend={legend} open={expandedId === legend.id} onToggle={() => setExpandedId((current) => current === legend.id ? undefined : legend.id)} key={legend.id} />)}
       {!visibleLegends.length && <div className="mini-empty">По этому фильтру доступных герою сведений пока нет.</div>}
     </div>
   </div>

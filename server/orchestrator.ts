@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { applyNarrativeEventProposal, applyWorkshopEventDirective, defaultEventDirectorSettings, forcedWorkshopEventDecision, narrativeEventComplianceIssues, narrativeEventKnownIds, normalizeEventDirectorState, normalizeNarrativeEventProposal, prepareEventDirectorState, shouldConsultEventDirector, validateNarrativeEventProposal } from '../shared/event-director.js'
 import { demoTurn, demoWorld } from './demo.js'
 import { completeAuxiliaryJson, completeJson, completeText, completionScopeStats } from './provider.js'
-import { normalizeModelOutput } from './model-normalizer.js'
+import { normalizeModelOutput, normalizeTurnPlan } from './model-normalizer.js'
 import { abilityExecutionRepairPrompt, abilityFocusedRepairPrompt, abilityQualityCriticPrompt, artifactFocusedRepairPrompt, artifactQualityCriticPrompt, backgroundSimulatorPrompt, campaignEditorPrompt, canonVerifierPrompt, conceptAnalystPrompt, consequenceAuditorPrompt, continuityCriticPrompt, directorPrompt, eventComplianceRepairPrompt, eventDirectorPrompt, memoryCuratorPrompt, narrativeRepetitionRevisionPrompt, narratorPrompt, progressionAuditPrompt, revisionPrompt, worldGenerationManifestOriginalityRepairPrompt, worldGenerationManifestPrompt, worldGenerationStagePrompt, worldGenerationStageRepairPrompt, worldQualityCriticPrompt, worldQuestionPrompt, type WorldGenerationStage } from './prompts.js'
 import { abilityFocusedRepairSchema, abilityQualityReviewSchema, artifactQualityReviewSchema, artifactRewardRepairSchema, backgroundSimulationSchema, campaignEditResponseSchema, conceptAnalysisSchema, consequenceAuditSchema, continuityReviewSchema, generatedWorldCharactersSchema, generatedWorldCivilizationSchema, generatedWorldCoreSchema, generatedWorldInterfaceSchema, generatedWorldLegendsSchema, generatedWorldNarrativeSchema, generatedWorldSchema, memoryCuratorSchema, narrativeEventDecisionSchema, progressionAuditSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema, type AbilityQualityReview, type ArtifactQualityReview, type ConceptAnalysis, type ConsequenceAudit, type GeneratedWorld, type GeneratedWorldCharacters, type GeneratedWorldCivilization, type GeneratedWorldCore, type GeneratedWorldInterface, type GeneratedWorldLegends, type GeneratedWorldNarrative, type WorldGenerationManifest, type WorldQualityReview } from './schemas.js'
 import { assessItemRarity, rarityOrder, rarityRequirementDeficits } from '../shared/rarity.js'
@@ -254,17 +254,24 @@ async function parseWithRepair<T>(
   context: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   fallback?: (candidate: unknown) => T | undefined,
   adaptCandidate?: (candidate: unknown) => unknown,
+  policy: { maxAttempts?: number; fallbackBeforeRepair?: boolean } = {},
 ): Promise<T> {
   let candidate = raw
   let lastIssues = ''
+  const maxAttempts = Math.max(1, Math.min(5, Math.round(policy.maxAttempts ?? 3)))
+  const fallbackBeforeRepair = policy.fallbackBeforeRepair !== false
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     candidate = omitNullObjectFields(normalizeModelOutput(candidate))
     if (adaptCandidate) candidate = adaptCandidate(candidate)
     const parsed = schema.safeParse(candidate)
     if (parsed.success) return parsed.data
     lastIssues = compactIssues(parsed.error, candidate)
-    if (attempt === 4) break
+    if (fallbackBeforeRepair) {
+      const recovered = fallback?.(candidate)
+      if (recovered !== undefined) return recovered
+    }
+    if (attempt === maxAttempts - 1) break
 
     const contractHints = repairContractHints(parsed.error.issues)
     candidate = await completeJson(provider, [
@@ -281,25 +288,82 @@ async function parseWithRepair<T>(
 
   const recovered = fallback?.(candidate)
   if (recovered !== undefined) return recovered
-  throw new Error(`DeepSeek не смог завершить обязательную структуру после пяти автоматических исправлений: ${lastIssues}`)
+  throw new Error(`DeepSeek не смог завершить обязательную структуру после ${maxAttempts} точечных попыток: ${lastIssues}`)
 }
 
-function salvageTurnPlan(candidate: unknown): ReturnType<typeof turnPlanSchema.parse> | undefined {
-  const normalized = omitNullObjectFields(normalizeModelOutput(candidate))
+function asModelRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+/**
+ * Keeps every independently valid mutation instead of rejecting a whole turn because one
+ * optional array entry or nested world field is malformed. Nothing is invented here: accepted
+ * values must still pass the canonical TurnPatch schema on their own and in the final aggregate.
+ */
+export function salvageTurnPatch(candidate: unknown): ReturnType<typeof turnPatchSchema.parse> {
+  const complete = turnPatchSchema.safeParse(candidate)
+  if (complete.success) return complete.data
+  const source = asModelRecord(omitNullObjectFields(normalizeModelOutput(candidate)))
+  if (!source) return turnPatchSchema.parse({})
+  let accepted: ReturnType<typeof turnPatchSchema.parse> = turnPatchSchema.parse({})
+
+  const accept = (key: string, value: unknown) => {
+    const next = turnPatchSchema.safeParse({ ...accepted, [key]: value })
+    if (!next.success) return false
+    accepted = next.data
+    return true
+  }
+
+  for (const [key, rawValue] of Object.entries(source)) {
+    if (accept(key, rawValue)) continue
+
+    if (Array.isArray(rawValue)) {
+      const validEntries: unknown[] = []
+      for (const entry of rawValue) {
+        const candidateEntries = [...validEntries, entry]
+        const parsed = turnPatchSchema.safeParse({ ...accepted, [key]: candidateEntries })
+        if (parsed.success) validEntries.push(entry)
+      }
+      if (validEntries.length) accept(key, validEntries)
+      continue
+    }
+
+    const nested = asModelRecord(rawValue)
+    if (!nested) continue
+    let acceptedNested: Record<string, unknown> = {}
+    for (const [nestedKey, nestedValue] of Object.entries(nested)) {
+      const parsed = turnPatchSchema.safeParse({ ...accepted, [key]: { ...acceptedNested, [nestedKey]: nestedValue } })
+      if (parsed.success) acceptedNested = { ...acceptedNested, [nestedKey]: nestedValue }
+    }
+    if (Object.keys(acceptedNested).length) accept(key, acceptedNested)
+  }
+  return accepted
+}
+
+export function salvageTurnPlan(candidate: unknown): ReturnType<typeof turnPlanSchema.parse> | undefined {
+  const normalized = omitNullObjectFields(normalizeTurnPlan(candidate))
   if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return undefined
   const record = normalized as Record<string, unknown>
-  const outcome = typeof record.outcome === 'string' ? record.outcome.trim() : ''
-  const beats = Array.isArray(record.beats) ? record.beats.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim())) : []
+  const authoredBeats = Array.isArray(record.beats) ? record.beats.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim())).slice(0, 8) : []
+  const outcome = typeof record.outcome === 'string' && record.outcome.trim()
+    ? record.outcome.trim()
+    : authoredBeats[0]?.trim() ?? ''
+  const beats = authoredBeats.length ? authoredBeats : outcome ? [outcome] : []
   const suggestions = Array.isArray(record.suggestions) ? record.suggestions.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim())).slice(0, 4) : []
-  if (!outcome || beats.length === 0 || suggestions.length < 2) return undefined
-  const patch = turnPatchSchema.safeParse(record.statePatch)
-  if (!patch.success) return undefined
+  if (!outcome || beats.length === 0) return undefined
+  const patch = salvageTurnPatch(record.statePatch)
+  const rawExecutions = Array.isArray(record.abilityExecutions) ? record.abilityExecutions : []
+  const abilityExecutions: unknown[] = []
+  for (const execution of rawExecutions) {
+    const parsed = turnPlanSchema.safeParse({ outcome, beats, suggestions, abilityExecutions: [...abilityExecutions, execution], statePatch: patch })
+    if (parsed.success) abilityExecutions.push(execution)
+  }
   const salvaged = turnPlanSchema.safeParse({
     outcome,
     beats,
     suggestions,
-    abilityExecutions: record.abilityExecutions ?? [],
-    statePatch: patch.data,
+    abilityExecutions,
+    statePatch: patch,
   })
   return salvaged.success ? salvaged.data : undefined
 }
@@ -324,9 +388,98 @@ const CONSEQUENCE_DOMAINS: ConsequenceDomain[] = [
 const consequenceSignal = /(?:ран(?:а|ен|ил)|кров|урон|удар|убил|погиб|смерт|леч|исцел|отрав|ожог|перелом|потерял|лишил|украл|забрал|получил|наш[её]л|купил|продал|заплат|потрат|экипир|снял|улучш|пробуд|разблок|изучил|научил|отношени|довер|страх|репутац|задани|квест|вступил|покинул|телепорт|перемест|прошл[оа]\s+врем|день|час|войн|катастроф|закон|фракц|артефакт|способност|техник)/iu
 const backgroundSignal = /(?:отправля|путешеств|еду\b|лечу\b|плыву\b|перехожу|прибыва|покида|жду\b|сплю\b|несколько\s+(?:час|дн|нед)|проходит\s+(?:время|час|день)|тем временем|перенес[иите]+\s+сцен)/iu
 
-function backgroundSimulationDue(campaign: Campaign, input: string, actionType: TurnRequest['actionType']) {
+type RuntimeQualityMode = NonNullable<Campaign['settings']['qualityMode']>
+
+function runtimeQualityMode(campaign: Campaign): RuntimeQualityMode {
+  return campaign.settings.qualityMode ?? 'balanced'
+}
+
+const RUNTIME_POLICIES = {
+  fast: {
+    schemaAttempts: 2,
+    providerAttempts: 1,
+    transportAttempts: 1,
+    backgroundCadence: 8,
+    artifactRepairs: 1,
+    abilityRepairs: 1,
+    semanticCritics: 'never' as const,
+    consequenceAudit: 'exceptional' as const,
+    auditRounds: 1,
+    referenceRepairs: 0,
+    memoryCadence: 12,
+  },
+  balanced: {
+    schemaAttempts: 2,
+    providerAttempts: 2,
+    transportAttempts: 2,
+    backgroundCadence: 5,
+    artifactRepairs: 2,
+    abilityRepairs: 1,
+    semanticCritics: 'on-issue' as const,
+    consequenceAudit: 'missing-signal' as const,
+    auditRounds: 1,
+    referenceRepairs: 1,
+    memoryCadence: 8,
+  },
+  deep: {
+    schemaAttempts: 3,
+    providerAttempts: 3,
+    transportAttempts: 3,
+    backgroundCadence: 3,
+    artifactRepairs: 3,
+    abilityRepairs: 2,
+    semanticCritics: 'always' as const,
+    consequenceAudit: 'always-on-risk' as const,
+    auditRounds: 3,
+    referenceRepairs: 2,
+    memoryCadence: 4,
+  },
+} as const
+
+const WORLD_GENERATION_POLICIES = {
+  fast: {
+    schemaAttempts: 2,
+    providerAttempts: 1,
+    transportAttempts: 1,
+    originalityRepairs: 1,
+    manifestRepairs: 1,
+    integrityRepairs: 2,
+    artifactRepairs: 1,
+    qualityRewrites: 1,
+    semanticCritics: false,
+  },
+  balanced: {
+    schemaAttempts: 2,
+    providerAttempts: 2,
+    transportAttempts: 2,
+    originalityRepairs: 1,
+    manifestRepairs: 1,
+    integrityRepairs: 3,
+    artifactRepairs: 2,
+    qualityRewrites: 1,
+    semanticCritics: false,
+  },
+  deep: {
+    schemaAttempts: 3,
+    providerAttempts: 3,
+    transportAttempts: 3,
+    originalityRepairs: 2,
+    manifestRepairs: 2,
+    integrityRepairs: 4,
+    artifactRepairs: 3,
+    qualityRewrites: 2,
+    semanticCritics: true,
+  },
+} as const
+
+function backgroundSimulationDue(campaign: Campaign, input: string, actionType: TurnRequest['actionType'], mode = runtimeQualityMode(campaign)) {
   const nextTurn = campaign.turn + 1
-  const cadence = campaign.settings.worldDynamics === 'volatile' ? 2 : 3
+  const baseCadence = RUNTIME_POLICIES[mode].backgroundCadence
+  const cadence = campaign.settings.worldDynamics === 'volatile'
+    ? Math.max(2, baseCadence - 2)
+    : campaign.settings.worldDynamics === 'quiet'
+      ? baseCadence + 2
+      : baseCadence
   if (nextTurn % cadence === 0 || actionType === 'story' || backgroundSignal.test(input)) return true
   if ((campaign.worldEvents ?? []).some((event) => event.status === 'due' || (event.dueTurn !== undefined && event.dueTurn <= nextTurn))) return true
   if ((campaign.threads ?? []).some((thread) => thread.status === 'active' && thread.dueTurn !== undefined && thread.dueTurn <= nextTurn)) return true
@@ -2127,6 +2280,7 @@ async function repairGeneratedWorldArtifacts(
   concept: ConceptAnalysis,
   report?: ProgressReporter,
 ): Promise<GeneratedWorld> {
+  const generationPolicy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
   const inventory = [...source.inventory]
   const initialRegistry = generatedWorldArtifactQuality(source).registry
   const worldContext = {
@@ -2147,8 +2301,8 @@ async function repairGeneratedWorldArtifacts(
     let bestIssues = issues
     let bestScore = artifactNoveltyScore(artifactCandidate(current), candidateRegistry) - issues.length * 12
 
-    for (let attempt = 0; attempt < 3 && issues.length; attempt += 1) {
-      reportProgress(report, 83 + attempt, 'artifact-design', `Проверяем авторский замысел «${current.name}»: вариант ${attempt + 1} из 3`, 9, 11)
+    for (let attempt = 0; attempt < generationPolicy.artifactRepairs && issues.length; attempt += 1) {
+      reportProgress(report, 83 + attempt, 'artifact-design', `Точечно улучшаем «${current.name}»: попытка ${attempt + 1} из ${generationPolicy.artifactRepairs}`, 9, 11)
       const repairMessages = artifactFocusedRepairPrompt(worldContext, { source: 'world-generation' }, current, current.rarity, issues)
       try {
         const raw = await completeJson(request.provider, repairMessages)
@@ -2160,17 +2314,19 @@ async function repairGeneratedWorldArtifacts(
           ...(identity.origin ? { origin: identity.origin } : {}),
         }
         issues = artifactItemQualityIssues(current, undefined, candidateRegistry)
-        const reviewMessages = artifactQualityCriticPrompt(current, candidateRegistry, { world: source.world, concept, canonMode: request.canonMode })
         let criticPenalty = 0
-        try {
-          const reviewRaw = await completeAuxiliaryJson(request.provider, reviewMessages, { maxOutputTokens: 4_096 }, (value) => artifactQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
-          const review = artifactQualityReviewSchema.safeParse(normalizeModelOutput(reviewRaw))
-          if (review.success) {
-            criticPenalty = review.data.issues.length * 5 + (review.data.verdict === 'rebuild' ? 20 : 0)
-            if (review.data.verdict === 'rebuild') issues = [...new Set([...issues, ...review.data.issues])]
+        if (generationPolicy.semanticCritics) {
+          const reviewMessages = artifactQualityCriticPrompt(current, candidateRegistry, { world: source.world, concept, canonMode: request.canonMode })
+          try {
+            const reviewRaw = await completeAuxiliaryJson(request.provider, reviewMessages, { maxOutputTokens: 4_096 }, (value) => artifactQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
+            const review = artifactQualityReviewSchema.safeParse(normalizeModelOutput(reviewRaw))
+            if (review.success) {
+              criticPenalty = review.data.issues.length * 5 + (review.data.verdict === 'rebuild' ? 20 : 0)
+              if (review.data.verdict === 'rebuild') issues = [...new Set([...issues, ...review.data.issues])]
+            }
+          } catch {
+            // The deterministic six-axis check remains authoritative if the optional critic times out.
           }
-        } catch {
-          // The deterministic six-axis check remains authoritative if the optional critic times out.
         }
         const score = artifactNoveltyScore(artifactCandidate(current), candidateRegistry) - issues.length * 12 - criticPenalty
         if (score > bestScore) {
@@ -2213,6 +2369,8 @@ async function repairGeneratedWorldArtifacts(
 export async function runTurn(request: TurnRequest, report?: ProgressReporter): Promise<TurnResponse> {
   reportProgress(report, 3, 'preparing', 'Проверяем ввод и собираем актуальное состояние', 1, 11)
   const check = resolveActionCheck(request.campaign, request.input, request.actionType)
+  const qualityMode = runtimeQualityMode(request.campaign)
+  const runtimePolicy = RUNTIME_POLICIES[qualityMode]
   const preparedEventState = prepareEventDirectorState(request.campaign)
   if (request.provider.provider === 'demo') {
     reportProgress(report, 80, 'narrating', 'Собираем демонстрационный ответ', 11, 11)
@@ -2224,10 +2382,14 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   reportProgress(report, 8, 'world-simulation', 'Персонажи и мир делают свои независимые шаги', 2, 11)
   const backgroundMessages = backgroundSimulatorPrompt(request.campaign, request.input)
   const emptyBackground: ReturnType<typeof backgroundSimulationSchema.parse> = { signals: [], statePatch: {} }
-  const runBackgroundSimulation = backgroundSimulationDue(request.campaign, request.input, request.actionType)
+  const runBackgroundSimulation = backgroundSimulationDue(request.campaign, request.input, request.actionType, qualityMode)
   const backgroundPromise = runBackgroundSimulation
     ? optionalStage<ReturnType<typeof backgroundSimulationSchema.parse>>('background', async () => {
-      const rawBackground = await completeJson(request.provider, backgroundMessages)
+      const rawBackground = await completeJson(request.provider, backgroundMessages, {
+        maxAttempts: 1,
+        transportAttempts: 1,
+        timeoutMs: 45_000,
+      })
       return parseOptionalModelOutput(rawBackground, backgroundSimulationSchema)
     }, emptyBackground)
     : Promise.resolve(emptyBackground)
@@ -2235,8 +2397,12 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   const forcedWorkshopEvent = forcedWorkshopEventDecision(preparedEventState, request.campaign.turn + 1)
   const eventConsultationNeeded = Boolean(forcedWorkshopEvent) || shouldConsultEventDirector(request.campaign, preparedEventState)
   const requestEventDecision = async (eventMessages: ReturnType<typeof eventDirectorPrompt>) => optionalStage<NarrativeEventDecision>('event-director', async () => {
-    const rawDecision = await completeJson(request.provider, eventMessages)
-    let decision = await parseWithRepair<NarrativeEventDecision>(rawDecision, narrativeEventDecisionSchema, request.provider, eventMessages)
+    const rawDecision = await completeJson(request.provider, eventMessages, {
+      maxAttempts: 1,
+      transportAttempts: 1,
+      timeoutMs: 45_000,
+    })
+    let decision = await parseWithRepair<NarrativeEventDecision>(rawDecision, narrativeEventDecisionSchema, request.provider, eventMessages, undefined, undefined, { maxAttempts: runtimePolicy.schemaAttempts })
     if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
     let issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
     if (decision.mode !== 'none' && issues.length) {
@@ -2248,8 +2414,12 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
           content: `Предложение отклонено программной проверкой:\n${issues.map((issue) => `- ${issue}`).join('\n')}\n\nВерни полностью исправленное предложение либо честный {"mode":"none","reason":"..."}. Не спорь с ограничениями и не отвечай пояснением.`,
         },
       ]
-      const retryRaw = await completeJson(request.provider, retryMessages)
-      decision = await parseWithRepair<NarrativeEventDecision>(retryRaw, narrativeEventDecisionSchema, request.provider, retryMessages)
+      const retryRaw = await completeJson(request.provider, retryMessages, {
+        maxAttempts: 1,
+        transportAttempts: 1,
+        timeoutMs: 45_000,
+      })
+      decision = await parseWithRepair<NarrativeEventDecision>(retryRaw, narrativeEventDecisionSchema, request.provider, retryMessages, undefined, undefined, { maxAttempts: runtimePolicy.schemaAttempts })
       if (decision.mode !== 'none') decision = normalizeNarrativeEventProposal(decision)
       issues = validateNarrativeEventProposal(request.campaign, preparedEventState, decision)
     }
@@ -2260,13 +2430,18 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     return decision
   }, { mode: 'none', reason: 'Этап необычного события не завершился и был безопасно пропущен.' })
   const requestDirectorPlan = async (candidate: ReturnType<typeof directorPrompt>) => {
-    const rawPlan = await completeJson(request.provider, candidate.messages)
-    return parseWithRepair(rawPlan, turnPlanSchema, request.provider, candidate.messages, salvageTurnPlan)
+    const rawPlan = await completeJson(request.provider, candidate.messages, {
+      maxAttempts: runtimePolicy.providerAttempts,
+      transportAttempts: runtimePolicy.transportAttempts,
+      timeoutMs: 120_000,
+    })
+    return parseWithRepair(rawPlan, turnPlanSchema, request.provider, candidate.messages, salvageTurnPlan, undefined, { maxAttempts: runtimePolicy.schemaAttempts })
   }
-  // Empty background + no unusual event is the common path. Begin both optional decisions and
-  // the exact plan for that path immediately. A result is reusable only when later inputs are
-  // byte-for-byte equivalent; otherwise the authoritative request still runs with full context.
-  const speculativeEventMessages = eventConsultationNeeded && !forcedWorkshopEvent
+  // Speculation is useful only on the common quiet path. When background simulation or an event
+  // consultation is already due, starting a plan early usually wastes a full provider call because
+  // those results change the authoritative prompt.
+  const canSpeculatePlan = !runBackgroundSimulation && !eventConsultationNeeded
+  const speculativeEventMessages = eventConsultationNeeded && !forcedWorkshopEvent && !runBackgroundSimulation
     ? eventDirectorPrompt(request.campaign, request.input, emptyBackground, preparedEventState)
     : undefined
   const speculativeEventPromise = speculativeEventMessages
@@ -2275,9 +2450,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       .catch((error: unknown) => ({ ok: false as const, error }))
     : undefined
   const speculativeDirector = directorPrompt(request.campaign, request.input, request.actionType, check, emptyBackground, quietEventDecision)
-  const speculativePlanPromise = requestDirectorPlan(speculativeDirector)
-    .then((plan) => ({ ok: true as const, plan, director: speculativeDirector }))
-    .catch((error: unknown) => ({ ok: false as const, error }))
+  const speculativePlanPromise = canSpeculatePlan
+    ? requestDirectorPlan(speculativeDirector)
+      .then((plan) => ({ ok: true as const, plan, director: speculativeDirector }))
+      .catch((error: unknown) => ({ ok: false as const, error }))
+    : undefined
   const background = await backgroundPromise
   const exactEmptyBackground = background.signals.length === 0 && Object.keys(background.statePatch).length === 0
   let eventDecision: NarrativeEventDecision = forcedWorkshopEvent ?? quietEventDecision
@@ -2286,15 +2463,17 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     eventDirectorConsulted = true
     reportProgress(report, 17, 'event-director', 'Проверяем, созрело ли редкое необычное событие', 3, 11)
     const speculativeEvent = exactEmptyBackground ? await speculativeEventPromise : undefined
-    if (speculativeEvent && !speculativeEvent.ok) throw speculativeEvent.error
+    if (speculativeEvent && !speculativeEvent.ok) console.warn('[orchestrator:speculative-event] ignored', speculativeEvent.error)
     eventDecision = speculativeEvent?.ok
       ? speculativeEvent.decision
       : await requestEventDecision(eventDirectorPrompt(request.campaign, request.input, background, preparedEventState))
   }
   reportProgress(report, 26, 'directing', 'Режиссёр строит причинный план и последствия', 4, 11)
   let director = directorPrompt(request.campaign, request.input, request.actionType, check, background, eventDecision)
-  const speculativeResult = exactEmptyBackground && eventDecision.mode === 'none' ? await speculativePlanPromise : undefined
-  if (speculativeResult && !speculativeResult.ok) throw speculativeResult.error
+  const speculativeResult = exactEmptyBackground && eventDecision.mode === 'none' && speculativePlanPromise
+    ? await speculativePlanPromise
+    : undefined
+  if (speculativeResult && !speculativeResult.ok) console.warn('[orchestrator:speculative-plan] falling back to the authoritative plan', speculativeResult.error)
   const speculative = speculativeResult?.ok ? speculativeResult : undefined
   if (speculative) director = speculative.director
   const createPlan = () => requestDirectorPlan(director)
@@ -2338,6 +2517,9 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     }
 
     const reviewCandidate = async (item: PlannedArtifactItem, deterministicIssues: string[], registry: NonNullable<Campaign['artifactRegistry']>) => {
+      const shouldUseCritic = runtimePolicy.semanticCritics === 'always'
+        || (runtimePolicy.semanticCritics === 'on-issue' && deterministicIssues.length > 0)
+      if (!shouldUseCritic) return fallbackReview(item, deterministicIssues, registry)
       try {
         const messages = artifactQualityCriticPrompt(item, registry, worldContext)
         const raw = await completeAuxiliaryJson(request.provider, messages, { maxOutputTokens: 4_096 }, (value) => artifactQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
@@ -2384,15 +2566,19 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
         ? { item: current, issues: currentIssues, review: currentReview, score: bestScore }
         : undefined
 
-      for (let focusedAttempt = 0; focusedAttempt < 3; focusedAttempt += 1) {
+      for (let focusedAttempt = 0; focusedAttempt < runtimePolicy.artifactRepairs; focusedAttempt += 1) {
         const criticIssues = currentReview.verdict === 'rebuild' ? currentReview.issues : []
         const repairIssues = [...new Set([...currentIssues, ...criticIssues])]
         if (!repairIssues.length && currentReview.verdict !== 'rebuild') break
-        reportProgress(report, 33 + focusedAttempt * 2, 'artifact-quality', `Создаём уникальный артефакт класса ${requiredRarity}: вариант ${focusedAttempt + 1} из 3`, 5, 11)
+        reportProgress(report, 33 + focusedAttempt * 2, 'artifact-quality', `Точечно улучшаем артефакт класса ${requiredRarity}: попытка ${focusedAttempt + 1} из ${runtimePolicy.artifactRepairs}`, 5, 11)
         const repairMessages = artifactFocusedRepairPrompt({ world: worldContext, input: request.input }, plan, current, requiredRarity, repairIssues)
         try {
-          const repairedRaw = await completeJson(request.provider, repairMessages)
-          const repaired = await parseWithRepair(repairedRaw, artifactRewardRepairSchema, request.provider, repairMessages)
+          const repairedRaw = await completeJson(request.provider, repairMessages, {
+            maxAttempts: runtimePolicy.providerAttempts,
+            transportAttempts: runtimePolicy.transportAttempts,
+            timeoutMs: 90_000,
+          })
+          const repaired = await parseWithRepair(repairedRaw, artifactRewardRepairSchema, request.provider, repairMessages, undefined, undefined, { maxAttempts: runtimePolicy.schemaAttempts })
           current = {
             ...repaired.item,
             ...(identity.id ? { id: identity.id } : {}),
@@ -2503,20 +2689,23 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       let current = ref.ability
       let issues = newAbilityQualityIssues(current, systemDraft, request.campaign.world.capabilitySystem, ref.resources, registry, request.campaign.turn)
       let review = fallbackReview(issues)
+      const shouldUseCritic = runtimePolicy.semanticCritics === 'always'
+        || (runtimePolicy.semanticCritics === 'on-issue' && issues.length > 0)
       try {
+        if (!shouldUseCritic) throw new Error('deterministic-review-is-sufficient')
         const criticMessages = abilityQualityCriticPrompt({ world: worldContext, owner: { id: ref.ownerId, name: ref.ownerName, resources: ref.resources }, ability: current, registry })
         const criticRaw = await completeAuxiliaryJson(request.provider, criticMessages, { maxOutputTokens: 4_096 }, (value) => abilityQualityReviewSchema.safeParse(normalizeModelOutput(value)).success)
         const parsedReview = abilityQualityReviewSchema.safeParse(normalizeModelOutput(criticRaw))
         if (parsedReview.success) review = parsedReview.data
         else console.warn(`[ability-quality] Invalid compact review: ${compactIssues(parsedReview.error, criticRaw)}`)
       } catch (error) {
-        console.warn(`[ability-quality] Compact critic skipped: ${error instanceof Error ? error.message : String(error)}`)
+        if (shouldUseCritic) console.warn(`[ability-quality] Compact critic skipped: ${error instanceof Error ? error.message : String(error)}`)
       }
       let best = current
       let bestIssues = issues
       let bestScore = abilityNoveltyScore(abilityStateCandidate(current, request.campaign.turn), registry) - issues.length * 20
-      for (let attempt = 0; attempt < 2 && (issues.length || review.verdict === 'repair'); attempt += 1) {
-        reportProgress(report, 36 + attempt * 2, 'ability-quality', `Уточняем авторскую механику «${current.name}»: вариант ${attempt + 1} из 2`, 5, 11)
+      for (let attempt = 0; attempt < runtimePolicy.abilityRepairs && (issues.length || review.verdict === 'repair'); attempt += 1) {
+        reportProgress(report, 36 + attempt * 2, 'ability-quality', `Уточняем механику «${current.name}»: попытка ${attempt + 1} из ${runtimePolicy.abilityRepairs}`, 5, 11)
         const repairMessages = abilityFocusedRepairPrompt({
           world: worldContext,
           owner: { id: ref.ownerId, name: ref.ownerName, resources: ref.resources },
@@ -2525,8 +2714,12 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
           issues: [...new Set([...issues, ...review.issues])],
         })
         try {
-          const repairRaw = await completeJson(request.provider, repairMessages)
-          const repaired = await parseWithRepair(repairRaw, abilityFocusedRepairSchema, request.provider, repairMessages)
+          const repairRaw = await completeJson(request.provider, repairMessages, {
+            maxAttempts: runtimePolicy.providerAttempts,
+            transportAttempts: runtimePolicy.transportAttempts,
+            timeoutMs: 90_000,
+          })
+          const repaired = await parseWithRepair(repairRaw, abilityFocusedRepairSchema, request.provider, repairMessages, undefined, undefined, { maxAttempts: runtimePolicy.schemaAttempts })
           if (repaired.capabilitySystem) systemDraft = repaired.capabilitySystem
           current = { ...repaired.ability, id: ref.ability.id, name: ref.ability.name, source: ref.ability.source ?? repaired.ability.source }
           issues = newAbilityQualityIssues(current, systemDraft, request.campaign.world.capabilitySystem, ref.resources, registry, request.campaign.turn)
@@ -2538,7 +2731,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       }
       if (bestIssues.length) console.warn(`[ability-quality] Best structurally safe variant retained for ${best.name}: ${bestIssues.join(' ')}`)
       const remainingHardIssues = hardAbilityQualityIssues(best, systemDraft, request.campaign.world.capabilitySystem, ref.resources, request.campaign.turn)
-      if (remainingHardIssues.length) throw new Error(`Новая способность «${best.name}» не прошла обязательную механическую проверку: ${remainingHardIssues.join(' ')}`)
+      if (remainingHardIssues.length) console.warn(`[ability-quality] «${best.name}» сохранена с замечаниями вместо отмены всего хода: ${remainingHardIssues.join(' ')}`)
       reviewedAbilitySignatures.add(JSON.stringify({
         ownerKind: ref.ownerKind,
         ownerId: ref.ownerId,
@@ -2593,8 +2786,12 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       reportProgress(report, 34, 'event-compliance', 'Связываем событие с настоящими данными мира', 5, 11)
       try {
         const repairMessages = eventComplianceRepairPrompt(director.messages, eventDecision, validPlan, complianceIssues)
-        const repairedRaw = await completeJson(request.provider, repairMessages)
-        const repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+        const repairedRaw = await completeJson(request.provider, repairMessages, {
+          maxAttempts: 1,
+          transportAttempts: 2,
+          timeoutMs: 90_000,
+        })
+        const repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan, undefined, { maxAttempts: runtimePolicy.schemaAttempts })
         const remaining = narrativeEventComplianceIssues(eventDecision, repaired.statePatch)
         if (remaining.length) throw new Error(remaining.join(' '))
         validPlan = repaired
@@ -2609,7 +2806,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
 
   const requestNarrativeDrafts = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
     const grounded = completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'grounded', eventDecision))
-    const [draftAResult, draftBResult] = request.campaign.settings.qualityMode === 'balanced'
+    const [draftAResult, draftBResult] = qualityMode !== 'deep'
       ? await grounded.then((draft) => [{ status: 'fulfilled' as const, value: draft }, { status: 'fulfilled' as const, value: draft }])
       : await Promise.allSettled([grounded, completeText(request.provider, narratorPrompt(request.campaign, request.input, request.actionType, plan, check, 'dramatic', eventDecision))])
     if (draftAResult.status === 'rejected' && draftBResult.status === 'rejected') throw draftAResult.reason
@@ -2617,6 +2814,8 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     const draftB = draftBResult.status === 'fulfilled' ? draftBResult.value : draftA
     return { draftA, draftB }
   }
+  const canSpeculateNarrative = validPlan.abilityExecutions.length === 0
+    && !progressionAuditPrompt(request.campaign, request.input, validPlan)
   const speculativeNarrativePlan = structuredClone(validPlan)
   speculativeNarrativePlan.statePatch = mergeAuditPatch(
     speculativeNarrativePlan.statePatch,
@@ -2632,9 +2831,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     'grounded',
     eventDecision,
   ))
-  const speculativeNarrativesPromise = requestNarrativeDrafts(speculativeNarrativeSanitized)
-    .then((drafts) => ({ ok: true as const, drafts }))
-    .catch((error: unknown) => ({ ok: false as const, error }))
+  const speculativeNarrativesPromise = canSpeculateNarrative
+    ? requestNarrativeDrafts(speculativeNarrativeSanitized)
+      .then((drafts) => ({ ok: true as const, drafts }))
+      .catch((error: unknown) => ({ ok: false as const, error }))
+    : undefined
 
   const applyProgressionAudit = async (plan: ReturnType<typeof turnPlanSchema.parse>) => {
     const playerSupplements: AbilityChange[] = []
@@ -2706,7 +2907,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     reportProgress(report, 41, 'progression', 'Сверяем развитие способностей, предметов и персонажей', 5, 11)
     const emptyProgression: ReturnType<typeof progressionAuditSchema.parse> = {}
     const progression = await optionalStage<ReturnType<typeof progressionAuditSchema.parse>>('progression', async () => {
-      const rawProgression = await completeJson(request.provider, progressionMessages)
+      const rawProgression = await completeJson(request.provider, progressionMessages, {
+        maxAttempts: 1,
+        transportAttempts: 1,
+        timeoutMs: 45_000,
+      })
       return parseOptionalModelOutput(rawProgression, progressionAuditSchema)
     }, emptyProgression)
     const supplementalAbilityChanges = filterSupplementalAbilityChanges(plan.statePatch.abilityChanges, progression.abilityChanges)
@@ -2738,7 +2943,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed' && finalEventIssues.length) {
     try {
       const repairMessages = eventComplianceRepairPrompt(director.messages, eventDecision, sanitized.plan, finalEventIssues)
-      const repairedRaw = await completeJson(request.provider, repairMessages)
+      const repairedRaw = await completeJson(request.provider, repairMessages, {
+        maxAttempts: 1,
+        transportAttempts: 2,
+        timeoutMs: 90_000,
+      })
       let repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
       repaired = await applyProgressionAudit(repaired)
       repaired.statePatch = mergeAuditPatch(repaired.statePatch, restrictBackgroundPatch(background.statePatch)) as typeof repaired.statePatch
@@ -2768,28 +2977,40 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   sanitized.plan.abilityExecutions = reconciledExecutionCosts.receipts
   sanitized.plan.statePatch = reconciledExecutionCosts.patch as typeof sanitized.plan.statePatch
   if (reconciledExecutionCosts.corrections.length) sanitized.notes.push(...reconciledExecutionCosts.corrections)
+  const quarantineInvalidExecutions = (candidate: typeof sanitized) => {
+    const accepted = candidate.plan.abilityExecutions.filter((receipt) => (
+      abilityExecutionIssues(request.campaign, [receipt], candidate.plan.statePatch).length === 0
+    ))
+    const removed = candidate.plan.abilityExecutions.length - accepted.length
+    if (removed) {
+      candidate.plan.abilityExecutions = accepted
+      candidate.notes.push(`${removed} некорректных служебных квитанций способности исключено без отмены сцены и остальных изменений.`)
+    }
+    return candidate
+  }
   const executionIssues = abilityExecutionIssues(request.campaign, sanitized.plan.abilityExecutions, sanitized.plan.statePatch)
   if (executionIssues.length) {
     reportProgress(report, 47, 'ability-execution', 'Сверяем применение способностей, условия и фактически оплаченную цену', 5, 11)
-    const repairMessages = abilityExecutionRepairPrompt(director.messages, request.campaign, sanitized.plan, executionIssues)
-    const repairedRaw = await completeJson(request.provider, repairMessages)
-    let repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
-    repaired = await enforceArtifactQuality(repaired)
-    repaired = await enforceAbilityQuality(repaired)
-    const repairedSanitized = sanitizePlan(request.campaign, repaired)
-    const repairedCosts = reconcileAbilityExecutionCosts(
-      request.campaign,
-      repairedSanitized.plan.abilityExecutions,
-      repairedSanitized.plan.statePatch,
-    )
-    repairedSanitized.plan.abilityExecutions = repairedCosts.receipts
-    repairedSanitized.plan.statePatch = repairedCosts.patch as typeof repairedSanitized.plan.statePatch
-    repairedSanitized.notes.push(...repairedCosts.corrections)
-    const remainingExecutionIssues = abilityExecutionIssues(request.campaign, repairedSanitized.plan.abilityExecutions, repairedSanitized.plan.statePatch)
-    if (remainingExecutionIssues.length) {
-      throw new Error(`DeepSeek не смог безопасно согласовать применение способностей с механикой: ${remainingExecutionIssues.join(' ')}`)
+    try {
+      const repairMessages = abilityExecutionRepairPrompt(director.messages, request.campaign, sanitized.plan, executionIssues)
+      const repairedRaw = await completeJson(request.provider, repairMessages, { maxAttempts: 1, transportAttempts: 2 })
+      let repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan, undefined, { maxAttempts: 2 })
+      repaired = await enforceArtifactQuality(repaired)
+      repaired = await enforceAbilityQuality(repaired)
+      const repairedSanitized = sanitizePlan(request.campaign, repaired)
+      const repairedCosts = reconcileAbilityExecutionCosts(
+        request.campaign,
+        repairedSanitized.plan.abilityExecutions,
+        repairedSanitized.plan.statePatch,
+      )
+      repairedSanitized.plan.abilityExecutions = repairedCosts.receipts
+      repairedSanitized.plan.statePatch = repairedCosts.patch as typeof repairedSanitized.plan.statePatch
+      repairedSanitized.notes.push(...repairedCosts.corrections)
+      sanitized = quarantineInvalidExecutions(repairedSanitized)
+    } catch (error) {
+      console.warn(`[ability-execution] Точечное исправление пропущено; сохраняем остальную сцену: ${error instanceof Error ? error.message : String(error)}`)
+      sanitized = quarantineInvalidExecutions(sanitized)
     }
-    sanitized = repairedSanitized
   }
 
   const requestConsequenceAudit = async (
@@ -2804,17 +3025,29 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
       omissions: [],
       statePatch: {},
     }
-    const needsAudit = request.actionType === 'story'
-      || plan.abilityExecutions.length > 0
-      || patchNeedsConsequenceAudit(plan.statePatch)
-      || consequenceSignal.test(`${request.input}\n${candidateNarrative}`)
+    const exceptionalRisk = request.actionType === 'story'
       || check?.outcome === 'failure'
       || check?.outcome === 'mixed'
       || (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed')
+    const signalWithoutState = consequenceSignal.test(`${request.input}\n${candidateNarrative}`)
+      && !patchNeedsConsequenceAudit(plan.statePatch)
+    const fullRisk = exceptionalRisk
+      || plan.abilityExecutions.length > 0
+      || patchNeedsConsequenceAudit(plan.statePatch)
+      || consequenceSignal.test(`${request.input}\n${candidateNarrative}`)
+    const needsAudit = runtimePolicy.consequenceAudit === 'always-on-risk'
+      ? fullRisk
+      : runtimePolicy.consequenceAudit === 'missing-signal'
+        ? exceptionalRisk || signalWithoutState
+        : exceptionalRisk
     if (!needsAudit) return fallback
     const auditMessages = consequenceAuditorPrompt(request.campaign, request.input, request.actionType, plan, candidateNarrative, check)
     return optionalStage('consequence-audit', async () => {
-      const rawAudit = await completeJson(request.provider, auditMessages)
+      const rawAudit = await completeJson(request.provider, auditMessages, {
+        maxAttempts: 1,
+        transportAttempts: 1,
+        timeoutMs: 45_000,
+      })
       return parseOptionalModelOutput<ConsequenceAudit>(rawAudit, consequenceAuditSchema)
     }, fallback)
   }
@@ -2824,13 +3057,17 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     candidateNarrative: string,
   ) => {
     const emptyCurator: ReturnType<typeof memoryCuratorSchema.parse> = { memories: [], archives: [] }
-    const shouldCurate = (request.campaign.turn + 1) % 4 === 0
+    const shouldCurate = (request.campaign.turn + 1) % runtimePolicy.memoryCadence === 0
       || request.actionType === 'story'
       || Boolean(plan.statePatch.cleanup && Object.values(plan.statePatch.cleanup).some((entries) => entries?.length))
     if (!shouldCurate) return emptyCurator
     const curatorMessages = memoryCuratorPrompt(request.campaign, request.input, candidateNarrative, plan)
     return optionalStage('memory', async () => {
-      const rawCurator = await completeJson(request.provider, curatorMessages)
+      const rawCurator = await completeJson(request.provider, curatorMessages, {
+        maxAttempts: 1,
+        transportAttempts: 1,
+        timeoutMs: 45_000,
+      })
       return parseOptionalModelOutput(rawCurator, memoryCuratorSchema)
     }, emptyCurator)
   }
@@ -2865,7 +3102,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     return result.narrative.trim()
   }
 
-  reportProgress(report, 50, 'drafting', request.campaign.settings.qualityMode === 'balanced' ? 'Пишем сцену по утверждённому плану' : 'Пишем два независимых варианта сцены', 6, 11)
+  reportProgress(report, 50, 'drafting', qualityMode === 'deep' ? 'Пишем два независимых варианта сцены' : 'Пишем один полноценный вариант сцены без лишнего дубля', 6, 11)
   const exactSpeculativeNarrative = JSON.stringify(narratorPrompt(
     request.campaign,
     request.input,
@@ -2875,8 +3112,10 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     'grounded',
     eventDecision,
   )) === speculativeNarrativeFingerprint
-  const speculativeNarratives = exactSpeculativeNarrative ? await speculativeNarrativesPromise : undefined
-  if (speculativeNarratives && !speculativeNarratives.ok) throw speculativeNarratives.error
+  const speculativeNarratives = exactSpeculativeNarrative && speculativeNarrativesPromise
+    ? await speculativeNarrativesPromise
+    : undefined
+  if (speculativeNarratives && !speculativeNarratives.ok) console.warn('[orchestrator:speculative-narrative] falling back to the authoritative draft', speculativeNarratives.error)
   const { draftA, draftB } = speculativeNarratives?.ok
     ? speculativeNarratives.drafts
     : await requestNarrativeDrafts(sanitized.plan)
@@ -2897,7 +3136,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     ? { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' }
     : await optionalStage('critic', async () => {
       const criticMessages = continuityCriticPrompt(request.campaign, request.input, request.actionType, sanitized.plan, draftA, draftB, repetitionA, repetitionB)
-      const rawReview = await completeJson(request.provider, criticMessages)
+      const rawReview = await completeJson(request.provider, criticMessages, {
+        maxAttempts: 1,
+        transportAttempts: 1,
+        timeoutMs: 45_000,
+      })
       return parseOptionalModelOutput(rawReview, continuityReviewSchema)
     }, { chosen: 'a' as const, pass: true, issues: [], rewriteInstructions: '' })
   const reviewerChoice = review.chosen
@@ -2943,8 +3186,8 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
 
   // Audit state and prose together. If the model replaced a binding story direction with its
   // own scene, rewrite the prose and audit the corrected result again before committing anything.
-  for (let narrativeAttempt = 0; narrativeAttempt < 3; narrativeAttempt += 1) {
-    reportProgress(report, 76 + narrativeAttempt * 5, 'consequence-audit', narrativeAttempt === 0 ? 'Проверяем все 17 областей состояния' : `Исправляем пропущенные последствия: попытка ${narrativeAttempt + 1}`, 9, 11)
+  for (let narrativeAttempt = 0; narrativeAttempt < runtimePolicy.auditRounds; narrativeAttempt += 1) {
+    reportProgress(report, 76 + narrativeAttempt * 5, 'consequence-audit', narrativeAttempt === 0 ? 'Проверяем только значимые риски состояния' : `Исправляем пропущенные последствия: попытка ${narrativeAttempt + 1}`, 9, 11)
     consequenceAudit = narrativeAttempt === 0 && narrative === initiallyAuditedNarrative
       ? initialConsequenceAudit
       : await requestConsequenceAudit(reconciled.plan, narrative)
@@ -2959,7 +3202,7 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     // the same audited domain are blocking: an unrelated harmless normalization must not cancel
     // the entire turn.
     let blockingNotes = blockingRejectionMessages(reconciled, consequenceAudit.omissions)
-    for (let referenceAttempt = 1; blockingNotes.length > 0 && referenceAttempt < 3; referenceAttempt += 1) {
+    for (let referenceAttempt = 0; blockingNotes.length > 0 && referenceAttempt < runtimePolicy.referenceRepairs; referenceAttempt += 1) {
       const retryMessages = consequenceAuditorPrompt(
         request.campaign,
         request.input,
@@ -2969,7 +3212,11 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
         check,
       )
       const retryAudit = await optionalStage<ConsequenceAudit>('consequence-reference-repair', async () => {
-        const retryRaw = await completeJson(request.provider, retryMessages)
+        const retryRaw = await completeJson(request.provider, retryMessages, {
+          maxAttempts: 1,
+          transportAttempts: 1,
+          timeoutMs: 45_000,
+        })
         return parseOptionalModelOutput<ConsequenceAudit>(retryRaw, consequenceAuditSchema)
       }, consequenceAudit)
       consequenceAudit = retryAudit
@@ -2992,10 +3239,17 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
     const repetitionIssues = findNarrativeRepetitionIssues(narrative, request.campaign.messages)
     narrativeAuditNotes.push(...repetitionIssues.map((issue) => `Повтор ${issue.severity}: ${issue.candidateExcerpt}`))
     if (consequenceAudit.narrativePass && repetitionIssues.length === 0) break
-    if (narrativeAttempt === 2) {
+    if (narrativeAttempt === runtimePolicy.auditRounds - 1) {
       if (repetitionIssues.length) {
         narrative = removeNarrativeRepetitionParagraphs(narrative, repetitionIssues)
         narrativeAuditNotes.push('Финальные повторяющиеся абзацы удалены программно без повторного обращения к модели.')
+      } else if (!consequenceAudit.narrativePass) {
+        const instructions = consequenceAudit.narrativeIssues.map((issue) => issue.instruction).join('\n')
+        narrative = await optionalStage(
+          'final-risk-revision',
+          () => completeText(request.provider, revisionPrompt(request.campaign, request.input, reconciled.plan, narrative, instructions), { maxAttempts: 1, transportAttempts: 2 }),
+          narrative,
+        )
       }
       narrative = protectPlayerAgency(narrative)
       break
@@ -3046,8 +3300,12 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
   if (eventDecision.mode !== 'none' && eventDecision.mode !== 'seed' && postAuditEventIssues.length) {
     try {
       const repairMessages = eventComplianceRepairPrompt(director.messages, eventDecision, reconciled.plan, postAuditEventIssues)
-      const repairedRaw = await completeJson(request.provider, repairMessages)
-      const repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan)
+      const repairedRaw = await completeJson(request.provider, repairMessages, {
+        maxAttempts: 1,
+        transportAttempts: 2,
+        timeoutMs: 90_000,
+      })
+      const repaired = await parseWithRepair(repairedRaw, turnPlanSchema, request.provider, repairMessages, salvageTurnPlan, undefined, { maxAttempts: runtimePolicy.schemaAttempts })
       const repairedAndSanitized = sanitizePlan(request.campaign, repaired)
       const remaining = narrativeEventComplianceIssues(eventDecision, repairedAndSanitized.plan.statePatch)
       if (remaining.length) throw new Error(remaining.join(' '))
@@ -3070,7 +3328,8 @@ export async function runTurn(request: TurnRequest, report?: ProgressReporter): 
 
   const finalArtifactIssues = artifactPlanQualityIssues(request.input, reconciled.plan)
   if (requestedArtifactRarity(request.input) && finalArtifactIssues.length) {
-    throw new Error(`Финальная сверка остановила более слабую подмену запрошенного артефакта: ${finalArtifactIssues.join(' ')}`)
+    reconciled.notes.push(`Артефакт сохранён без отмены всего хода; редактор качества отметил: ${finalArtifactIssues.join(' ')}`)
+    console.warn(`[artifact-quality] ${finalArtifactIssues.join(' ')}`)
   }
 
   reportProgress(report, 98, 'finalizing', 'Формируем атомарный ответ и изменения', 11, 11)
@@ -4016,8 +4275,15 @@ async function generateWorldSection<T>(
     ? worldGenerationStageRepairPrompt(request, concept, stage, establishedFacts, currentSection, issues, manifest)
     : worldGenerationStagePrompt(request, concept, stage, establishedFacts, manifest)
   const maxOutputTokens = stage === 'characters' || stage === 'legends' ? 65_536 : 49_152
-  const raw = await completeJson(request.provider, messages, { stage: 'world', maxOutputTokens })
-  return parseWithRepair<T>(raw, schema, request.provider, messages, undefined, (candidate) => extractGeneratedWorldStageCandidate(candidate, stage))
+  const policy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
+  const raw = await completeJson(request.provider, messages, {
+    stage: 'world',
+    maxOutputTokens,
+    maxAttempts: policy.providerAttempts,
+    transportAttempts: policy.transportAttempts,
+    timeoutMs: 180_000,
+  })
+  return parseWithRepair<T>(raw, schema, request.provider, messages, undefined, (candidate) => extractGeneratedWorldStageCandidate(candidate, stage), { maxAttempts: policy.schemaAttempts })
 }
 
 async function regenerateOwnedWorldSection(
@@ -4046,6 +4312,7 @@ async function ensureGeneratedWorldIntegrity(
   manifest?: WorldGenerationManifest,
 ): Promise<{ world: GeneratedWorld; sections: GeneratedWorldSections }> {
   let sections = source
+  const generationPolicy = WORLD_GENERATION_POLICIES[request.generationMode ?? 'balanced']
   const orderedStages: WorldGenerationStage[] = ['core', 'civilization', 'characters', 'legends', 'narrative', 'interface']
 
   const groupIssues = (issues: WorldIntegrityIssue[], world: GeneratedWorld, includeCrossSectionOwner: boolean) => {
@@ -4079,7 +4346,7 @@ async function ensureGeneratedWorldIntegrity(
     sections = { ...sections, ...Object.fromEntries(repairedSections) }
   }
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < generationPolicy.integrityRepairs; attempt += 1) {
     const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
     sections = splitGeneratedWorldSections(world)
     const strict = generatedWorldSchema.safeParse(world)
@@ -4110,7 +4377,7 @@ async function ensureGeneratedWorldIntegrity(
   const world = normalizeGeneratedWorldReferences(assembleGeneratedWorldSections(sections), request.characterName)
   const finalCheck = generatedWorldSchema.safeParse(world)
   if (finalCheck.success) return { world: finalCheck.data, sections: splitGeneratedWorldSections(finalCheck.data) }
-  throw new Error(`DeepSeek не смог связать разделы мира после четырёх точечных исправлений: ${compactIssues(finalCheck.error, world)}`)
+  throw new Error(`DeepSeek не смог связать разделы мира после ${generationPolicy.integrityRepairs} точечных волн: ${compactIssues(finalCheck.error, world)}`)
 }
 
 function qualityRepairStages(review: WorldQualityReview): WorldGenerationStage[] {
@@ -4209,14 +4476,21 @@ async function generateParallelWorldStage(
 
 export async function generateWorld(request: WorldGenerationRequest, report?: ProgressReporter): Promise<GeneratedWorld> {
   request = { ...request, creativeSeed: randomUUID() }
+  const generationMode = request.generationMode ?? 'balanced'
+  const generationPolicy = WORLD_GENERATION_POLICIES[generationMode]
   reportProgress(report, 3, 'concept', 'Разбираем замысел, героя и ограничения', 1, 11)
   if (request.provider.provider === 'demo') {
     reportProgress(report, 96, 'assembling', 'Собираем адаптивный демонстрационный мир', 10, 11)
     return demoWorld(request)
   }
   const analysisMessages = conceptAnalystPrompt(request)
-  const rawAnalysis = await completeJson(request.provider, analysisMessages)
-  let concept = await parseWithRepair<ConceptAnalysis>(rawAnalysis, conceptAnalysisSchema, request.provider, analysisMessages)
+  const rawAnalysis = await completeJson(request.provider, analysisMessages, {
+    stage: 'world',
+    maxAttempts: generationPolicy.providerAttempts,
+    transportAttempts: generationPolicy.transportAttempts,
+    timeoutMs: 120_000,
+  })
+  let concept = await parseWithRepair<ConceptAnalysis>(rawAnalysis, conceptAnalysisSchema, request.provider, analysisMessages, undefined, undefined, { maxAttempts: generationPolicy.schemaAttempts })
   const requestIntent = analyzeWorldRequestIntent(request)
   if (
     requestIntent.referenceRole === 'inspiration'
@@ -4234,26 +4508,42 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
       ])].slice(0, 32),
     }
   }
-  if (concept.recognizedCanon) {
+  if (concept.recognizedCanon && (request.canonMode === 'faithful' || generationMode === 'deep')) {
     reportProgress(report, 10, 'canon', 'Сверяем канон, эпоху и заявленные силы', 2, 11)
     const verifierMessages = canonVerifierPrompt(request, concept)
     concept = await optionalStage<ConceptAnalysis>('canon-verifier', async () => {
-      const verified = await completeJson(request.provider, verifierMessages)
-      return parseWithRepair<ConceptAnalysis>(verified, conceptAnalysisSchema, request.provider, verifierMessages)
+      const verified = await completeJson(request.provider, verifierMessages, {
+        maxAttempts: generationPolicy.providerAttempts,
+        transportAttempts: generationPolicy.transportAttempts,
+        timeoutMs: 90_000,
+      })
+      return parseWithRepair<ConceptAnalysis>(verified, conceptAnalysisSchema, request.provider, verifierMessages, undefined, undefined, { maxAttempts: generationPolicy.schemaAttempts })
     }, concept)
   }
 
   reportProgress(report, 15, 'world-manifest', 'Фиксируем единый паспорт имён, сил и причинных связей', 3, 11)
   const manifestMessages = worldGenerationManifestPrompt(request, concept)
-  const rawManifest = await completeJson(request.provider, manifestMessages, { stage: 'world', maxOutputTokens: 24_576 })
-  let manifest = await parseWithRepair<WorldGenerationManifest>(rawManifest, worldGenerationManifestSchema, request.provider, manifestMessages)
+  const rawManifest = await completeJson(request.provider, manifestMessages, {
+    stage: 'world',
+    maxOutputTokens: 24_576,
+    maxAttempts: generationPolicy.providerAttempts,
+    transportAttempts: generationPolicy.transportAttempts,
+    timeoutMs: 120_000,
+  })
+  let manifest = await parseWithRepair<WorldGenerationManifest>(rawManifest, worldGenerationManifestSchema, request.provider, manifestMessages, undefined, undefined, { maxAttempts: generationPolicy.schemaAttempts })
   let bestManifest = manifest
   let bestManifestIssues = worldManifestOriginalityIssues(manifest, request)
-  for (let attempt = 0; bestManifestIssues.length && attempt < 2; attempt += 1) {
+  for (let attempt = 0; bestManifestIssues.length && attempt < generationPolicy.originalityRepairs; attempt += 1) {
     reportProgress(report, 19 + attempt * 2, 'world-originality', 'Убираем повторяющиеся основы и отделяем мир от способностей героя', 3, 11)
     const repairMessages = worldGenerationManifestOriginalityRepairPrompt(request, concept, bestManifest, bestManifestIssues)
-    const repairedRaw = await completeJson(request.provider, repairMessages, { stage: 'world', maxOutputTokens: 24_576 })
-    const repaired = await parseWithRepair<WorldGenerationManifest>(repairedRaw, worldGenerationManifestSchema, request.provider, repairMessages)
+    const repairedRaw = await completeJson(request.provider, repairMessages, {
+      stage: 'world',
+      maxOutputTokens: 24_576,
+      maxAttempts: generationPolicy.providerAttempts,
+      transportAttempts: generationPolicy.transportAttempts,
+      timeoutMs: 120_000,
+    })
+    const repaired = await parseWithRepair<WorldGenerationManifest>(repairedRaw, worldGenerationManifestSchema, request.provider, repairMessages, undefined, undefined, { maxAttempts: generationPolicy.schemaAttempts })
     const repairedIssues = worldManifestOriginalityIssues(repaired, request)
     if (repairedIssues.length < bestManifestIssues.length) {
       bestManifest = repaired
@@ -4268,13 +4558,15 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
   manifest = bestManifest
 
   reportProgress(report, 24, 'parallel-world', 'Одновременно создаём шесть полных разделов мира', 4, 11, ['Герой и предметы', 'Цивилизации', 'Персонажи', 'Легендарий', 'Сюжет', 'Интерфейс'])
-  const generatedSections = await mapWithConcurrency(
-    WORLD_GENERATION_STAGES,
-    WORLD_GENERATION_STAGES.length,
-    (stage) => generateParallelWorldStage(stage, request, concept, manifest),
-  )
+  const firstSectionPass = await Promise.allSettled(WORLD_GENERATION_STAGES.map((stage) => generateParallelWorldStage(stage, request, concept, manifest)))
+  const generatedSections = await Promise.all(firstSectionPass.map((result, index) => {
+    if (result.status === 'fulfilled') return result.value
+    const stage = WORLD_GENERATION_STAGES[index]
+    console.warn(`[world-generation:${stage}] Первая попытка раздела не завершилась; повторяем только этот раздел: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+    return generateParallelWorldStage(stage, request, concept, manifest)
+  }))
   let sections = Object.fromEntries(generatedSections) as unknown as GeneratedWorldSections
-  for (let manifestAttempt = 0; manifestAttempt < 2; manifestAttempt += 1) {
+  for (let manifestAttempt = 0; manifestAttempt < generationPolicy.manifestRepairs; manifestAttempt += 1) {
     const manifestRepairs = WORLD_GENERATION_STAGES.flatMap((stage) => {
       const issues = worldManifestStageIssues(stage, sections, manifest)
       return issues.length ? [{ stage, issues }] : []
@@ -4300,10 +4592,9 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     world = integrity.world
     completeSections = integrity.sections
   }
-  const maxRewrites = 2
+  const maxRewrites = generationPolicy.qualityRewrites
 
   for (let attempt = 0; attempt <= maxRewrites; attempt += 1) {
-    const reviewMessages = worldQualityCriticPrompt(request, concept, world)
     const fallbackReview: WorldQualityReview = {
       pass: true,
       coverage: 100,
@@ -4315,12 +4606,15 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     }
     const artifactQuality = generatedWorldArtifactQuality(world)
     const artifactItems = world.inventory.filter((item) => item.category === 'artifact' && item.artifact)
-    reportProgress(report, 88 + attempt * 3, 'quality', attempt === 0 ? 'Параллельно проверяем весь мир и каждый особый предмет' : `Параллельно перепроверяем мир и улучшенные предметы: проход ${attempt + 1}`, 10, 11, artifactItems.length ? ['Целостность мира', `Артефакты: ${artifactItems.length}`] : ['Целостность мира'])
-    const reviewPromise = optionalStage<WorldQualityReview>('world-quality', async () => {
-      const rawReview = await completeJson(request.provider, reviewMessages)
-      return parseWithRepair<WorldQualityReview>(rawReview, worldQualityReviewSchema, request.provider, reviewMessages)
-    }, fallbackReview)
-    const artifactCriticPromise = mapWithConcurrency(artifactItems, 3, async (item) => {
+    reportProgress(report, 88 + attempt * 3, 'quality', attempt === 0 ? 'Локально проверяем механику, связи и оригинальность' : `Перепроверяем только улучшенные разделы: проход ${attempt + 1}`, 10, 11, artifactItems.length ? ['Целостность мира', `Артефакты: ${artifactItems.length}`] : ['Целостность мира'])
+    const reviewPromise = generationPolicy.semanticCritics
+      ? optionalStage<WorldQualityReview>('world-quality', async () => {
+        const reviewMessages = worldQualityCriticPrompt(request, concept, world)
+        const rawReview = await completeJson(request.provider, reviewMessages, { maxAttempts: 1, transportAttempts: 2 })
+        return parseWithRepair<WorldQualityReview>(rawReview, worldQualityReviewSchema, request.provider, reviewMessages, undefined, undefined, { maxAttempts: generationPolicy.schemaAttempts })
+      }, fallbackReview)
+      : Promise.resolve(fallbackReview)
+    const artifactCriticPromise = generationPolicy.semanticCritics ? mapWithConcurrency(artifactItems, 3, async (item) => {
         try {
           const messages = artifactQualityCriticPrompt(
             item,
@@ -4334,7 +4628,7 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
         } catch {
           return []
         }
-      })
+      }) : Promise.resolve([] as string[][])
     const [review, artifactCriticGroups] = await Promise.all([reviewPromise, artifactCriticPromise])
     const artifactCriticIssues = artifactCriticGroups.flat()
     const accessIssues = startingAccessIssues(concept, world)
@@ -4373,7 +4667,7 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
     }
     if (attempt === maxRewrites) {
       if (abilityQuality.hardIssues.length) {
-        throw new Error(`DeepSeek не смог механически завершить новые способности после двух точечных пересборок: ${abilityQuality.hardIssues.join(' ')}`)
+        console.warn(`[model:world-quality] Мир сохранён с механическими замечаниями вместо потери всей генерации: ${abilityQuality.hardIssues.join(' ')}`)
       }
       console.warn(`[model:world-quality] Мир возвращён после ${maxRewrites} точечных содержательных переработок; итоговое покрытие ${effectiveReview.coverage}%.`)
       reportProgress(report, 97, 'finalizing', 'Завершаем лучший проверенный вариант мира', 11, 11)

@@ -260,6 +260,7 @@ export interface StatusEffect {
 }
 
 export interface AbilityCost {
+  /** Existing numeric resource consumed by this use. No entry means that the ability is free. */
   resource: string
   amount: number
 }
@@ -361,6 +362,7 @@ export interface PowerTechnique {
   history?: ProgressHistoryEntry[]
 }
 
+/** Drafts use explicit empty arrays for absent mechanics; schema input may omit them. */
 export type PowerTechniqueDraft = Omit<PowerTechnique, 'id' | 'history'> & {
   id?: ID
   history?: ProgressHistoryDraft[]
@@ -574,6 +576,7 @@ export interface AbilityExecutionReceipt {
   techniqueId?: ID
   intent: string
   outcome: 'blocked' | 'failed' | 'partial' | 'success'
+  /** Only actually paid, mechanically authored numeric costs. Costless use is []. */
   costs: AbilityCost[]
   requirementsUsed: string[]
   effects: string[]
@@ -2080,7 +2083,12 @@ export interface CampaignSettings {
   authorsNote: string
   resolutionMode?: 'off' | 'hidden' | 'visible'
   contextProfile?: 'standard' | 'long' | 'million'
-  qualityMode?: 'balanced' | 'deep'
+  /**
+   * Controls expensive semantic review stages, not the amount of authored world detail.
+   * `fast` keeps deterministic guards and only invokes a semantic auditor for exceptional risk,
+   * `balanced` runs reviews adaptively, and `deep` preserves the full editorial pipeline.
+   */
+  qualityMode?: 'fast' | 'balanced' | 'deep'
   scenePace?: 'slow' | 'balanced' | 'fast' | 'montage'
   proseStyle?: 'literary' | 'cinematic' | 'direct'
   dialogueDensity?: 'low' | 'balanced' | 'high'
@@ -2450,6 +2458,8 @@ export interface WorldGenerationRequest {
   opening: string
   canonMode: CampaignSettings['canonMode']
   contentBoundaries: string
+  /** Controls review/repair depth; all modes generate the same complete world sections. */
+  generationMode?: 'fast' | 'balanced' | 'deep'
   /** Compact fingerprints of the user's existing worlds; never includes story messages or secrets. */
   noveltyReferences?: WorldNoveltyReference[]
   /** Server-generated tie breaker shared by every stage of one generation run. */

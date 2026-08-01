@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, narrativeEventDecisionSchema, turnPatchSchema, turnPlanSchema, worldQualityReviewSchema } from './schemas'
+import { agencyAuditSchema, backgroundSimulationSchema, campaignEditResponseSchema, consequenceAuditSchema, generatedWorldSchema, narrativeEventDecisionSchema, turnPatchSchema, turnPlanSchema, worldGenerationManifestSchema, worldQualityReviewSchema } from './schemas'
 import { demoWorld } from './demo'
 import { normalizeWorld } from './world-normalizer'
 
@@ -8,6 +8,71 @@ const plan = (relationships: unknown) => ({
   beats: ['NPC оценил поступок героя.'],
   suggestions: ['Продолжить разговор', 'Сменить тему'],
   statePatch: { relationships },
+})
+
+const compactWorldManifest = () => ({
+  world: {
+    name: 'Город одного моста',
+    tagline: 'Один путь между берегами',
+    era: 'Нынешняя эпоха',
+    overview: 'Камерная история о городе, мосте и его единственном проводнике.',
+    capabilitySystemId: 'city-craft',
+    capabilityGroups: [{ id: 'craft', label: 'Ремесло' }],
+    capabilityTiers: [{ id: 'known', label: 'Известное' }],
+  },
+  player: { name: 'Ира', statKeys: [], resourceKeys: [], abilityNames: [], inventory: [] },
+  factions: [],
+  places: [{ name: 'Мостовая', kind: 'district' as const }],
+  npcs: [{
+    name: 'Проводник',
+    role: 'Знает переходы и помогает герою освоиться.',
+    locationName: 'Мостовая',
+    factionNames: [],
+    threatTier: 'capable' as const,
+    hidden: false,
+  }],
+  legends: [],
+  narrative: {
+    processTitles: [], eventTitles: [], threadTitles: [],
+    openingLocationName: 'Мостовая', openingNpcNames: ['Проводник'],
+  },
+  interface: { metricIds: [], moduleIds: [] },
+})
+
+describe('world generation manifest population bounds', () => {
+  it('accepts one authored NPC and an empty legend roster', () => {
+    expect(worldGenerationManifestSchema.safeParse(compactWorldManifest()).success).toBe(true)
+  })
+
+  it('still requires one NPC and preserves the upper population bounds', () => {
+    const noNpcs = compactWorldManifest()
+    noNpcs.npcs = []
+    noNpcs.narrative.openingNpcNames = []
+    const missingNpc = worldGenerationManifestSchema.safeParse(noNpcs)
+    expect(missingNpc.success).toBe(false)
+    if (!missingNpc.success) expect(missingNpc.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['npcs'] }),
+    ]))
+
+    const crowded = compactWorldManifest()
+    crowded.npcs = Array.from({ length: 21 }, (_, index) => ({
+      ...crowded.npcs[0],
+      name: `Проводник ${index + 1}`,
+    }))
+    crowded.narrative.openingNpcNames = ['Проводник 1']
+    const boundedNpcs = worldGenerationManifestSchema.parse(crowded)
+    expect(boundedNpcs.npcs).toHaveLength(20)
+
+    const overfullLegends = compactWorldManifest()
+    overfullLegends.legends = Array.from({ length: 19 }, (_, index) => ({
+      name: `Хранитель ${index + 1}`,
+      stage: 'notable' as const,
+      lifeStatus: 'missing' as const,
+      era: `Эпоха ${index + 1}`,
+    }))
+    const boundedLegends = worldGenerationManifestSchema.parse(overfullLegends)
+    expect(boundedLegends.legends).toHaveLength(18)
+  })
 })
 
 describe('campaign editor contract', () => {
@@ -206,7 +271,7 @@ describe('universal narrative event contract', () => {
 })
 
 describe('legend ecosystem patch contract', () => {
-  it('rejects an initial world with too few hidden legends or strong independent NPCs', () => {
+  it('treats population quotas as guidance while keeping each authored record structurally valid', () => {
     const request = {
       inspiration: 'Город живых созвездий', genre: 'Фэнтези', tone: 'Таинственный', characterName: 'Эрен',
       characterConcept: 'Искатель имён', opening: 'Ночной вокзал', canonMode: 'original' as const, contentBoundaries: '',
@@ -216,13 +281,11 @@ describe('legend ecosystem patch contract', () => {
     withoutHiddenLegends.world.legends.forEach((legend) => {
       if (legend.discovery.visibility === 'hidden') legend.discovery.visibility = 'rumored'
     })
-    expect(generatedWorldSchema.safeParse(withoutHiddenLegends).success).toBe(false)
+    expect(generatedWorldSchema.safeParse(withoutHiddenLegends).success).toBe(true)
 
     const withoutStrongNpcs = demoWorld(request)
     withoutStrongNpcs.npcs.forEach((npc) => { delete npc.threatProfile })
-    const parsed = generatedWorldSchema.safeParse(withoutStrongNpcs)
-    expect(parsed.success).toBe(false)
-    if (!parsed.success) expect(parsed.error.issues.some((issue) => issue.message.includes('Strong character ecology'))).toBe(true)
+    expect(generatedWorldSchema.safeParse(withoutStrongNpcs).success).toBe(true)
   })
 
   it('allows the player to become a living legendary figure and preserves the live character link', () => {

@@ -284,6 +284,6 @@ describe('multi-stage world generation', () => {
     }))
 
     await expect(generateWorld(request)).resolves.toEqual(completeWorld)
-    expect(interfaceCalls).toBe(2)
+    expect(interfaceCalls).toBe(1)
   })
 })

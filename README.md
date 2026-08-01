@@ -4,7 +4,7 @@
 
 [![Live demo](https://img.shields.io/badge/live-2--26--80--121.sslip.io-71d3b1)](https://2-26-80-121.sslip.io)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
-![Tests](https://img.shields.io/badge/tests-272%20passing-71d3b1)
+![Tests](https://img.shields.io/badge/tests-388%20passing-71d3b1)
 ![Codex](https://img.shields.io/badge/built%20with-OpenAI%20Codex-111827)
 ![GPT-5.6](https://img.shields.io/badge/engineering-GPT--5.6-7c3aed)
 

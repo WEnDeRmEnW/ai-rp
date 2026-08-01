@@ -139,6 +139,56 @@ describe('campaign IndexedDB storage', () => {
     })
   })
 
+  it('restores optional artifact power arrays missing from a legacy save', async () => {
+    const storage = await import('./storage')
+    const legacy = createDemoCampaign()
+    const power: import('../../shared/types').ArtifactPower = {
+      id: 'legacy-free-power',
+      name: 'Тихий ключ',
+      description: 'Открывает знакомый владельцу замок без отдельной ресурсной цены.',
+      mastery: 60,
+      costs: [],
+      limitations: [],
+      capabilities: ['Открывает один знакомый механический замок'],
+      techniques: [],
+    }
+    delete (power as { costs?: import('../../shared/types').AbilityCost[] }).costs
+    delete (power as { limitations?: string[] }).limitations
+    legacy.inventory.push({
+      id: 'legacy-free-artifact',
+      name: 'Ключ без зубцов',
+      description: 'Старый артефакт из сохранения прежней версии.',
+      category: 'artifact',
+      quantity: 1,
+      rarity: 'rare',
+      equipped: false,
+      effects: [],
+      discoveredTurn: 0,
+      history: [],
+      artifact: {
+        sentient: false,
+        awakened: true,
+        attunement: 30,
+        bond: 0,
+        requirements: [],
+        passiveEffects: [],
+        combinedEffects: [],
+        failureModes: [],
+        components: [],
+        powers: [power],
+        drawbacks: [],
+        evolutionPaths: [],
+        secrets: [],
+      },
+    })
+
+    const migratedPower = storage.migrateCampaign(legacy).inventory
+      .find((item) => item.id === 'legacy-free-artifact')?.artifact?.powers[0]
+
+    expect(migratedPower?.costs).toEqual([])
+    expect(migratedPower?.limitations).toEqual([])
+  })
+
   it('removes a legacy personal duplicate while preserving the real artifact power', async () => {
     const storage = await import('./storage')
     const legacy = createDemoCampaign()

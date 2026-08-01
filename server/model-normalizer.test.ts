@@ -352,7 +352,7 @@ describe('global DeepSeek output normalization', () => {
     const parsed = generatedWorldSchema.parse(raw)
     expect(parsed.player.currency).toEqual({ 'штормовых марок': 37 })
     expect(parsed.player.abilities[0].profile?.availability?.state).toBe('ready')
-    expect(parsed.player.abilities[0].profile?.availability?.nextReady).toEqual({ unit: 'turn', value: 0 })
+    expect(parsed.player.abilities[0].profile?.availability?.nextReady).toBeUndefined()
     expect(parsed.player.abilities[0].profile?.availability?.charges).toBeUndefined()
     expect(parsed.player.abilities[1].profile?.availability?.charges).toBeUndefined()
     expect(parsed.player.abilities[0].profile).toMatchObject({
@@ -408,6 +408,63 @@ describe('global DeepSeek output normalization', () => {
 
     expect(normalized.abilities[0].profile.availability.charges).toBeUndefined()
     expect(normalized.abilities[1].profile.availability.charges).toEqual({ current: 2, max: 3, label: 'Импульсы' })
+  })
+
+  it('treats omitted and zero usage mechanics as genuinely absent', () => {
+    const raw: any = demoWorld(worldRequest)
+    const ability = raw.player.abilities[0]
+    delete ability.costs
+    delete ability.cooldown
+    delete ability.requirements
+    delete ability.limitations
+    delete ability.progression
+    delete ability.evolutionPaths
+    delete ability.history
+    delete ability.tags
+    delete ability.synergies
+    delete ability.counters
+    delete ability.profile.availability
+    ability.techniques = [{
+      name: 'Чистый жест',
+      description: 'Выполняется без ресурсной платы.',
+      kind: 'active', category: 'utility', mastery: 80,
+      activation: 'Точное движение руки.', scale: 'Личный',
+      effects: ['Меняет положение одного предмета.'], unlocked: true,
+    }]
+
+    const parsed = generatedWorldSchema.parse(raw)
+    const normalized = parsed.player.abilities[0]
+    expect(normalized.costs).toEqual([])
+    expect(normalized.requirements).toEqual([])
+    expect(normalized.limitations).toEqual([])
+    expect(normalized.evolutionPaths).toEqual([])
+    expect(normalized.history).toEqual([])
+    expect(normalized).not.toHaveProperty('cooldown')
+    expect(normalized.profile?.availability).toBeUndefined()
+    expect(normalized.techniques[0]).toMatchObject({ costs: [], requirements: [], limitations: [] })
+
+    const plan = turnPlanSchema.parse({
+      outcome: 'Бесплатный приём сработал.',
+      beats: ['Предмет сдвинулся.'], suggestions: [],
+      abilityExecutions: [{
+        ownerKind: 'player', ownerId: 'player-1', abilityId: 'ability-1',
+        intent: 'Сдвинуть предмет.', outcome: 'success',
+        effects: ['Предмет сдвинулся.'], evidence: 'Эффект виден в сцене.',
+      }],
+      statePatch: {},
+    })
+    expect(plan.abilityExecutions[0]).toMatchObject({ costs: [], requirementsUsed: [] })
+
+    const sentinels = normalizeModelOutput({ abilities: [{
+      cooldown: 'нет', costs: [{ resource: 'mana', amount: 0 }],
+      requirements: ['нет требований'], limitations: ['без ограничений'],
+      profile: { availability: { state: 'ready', reasons: [], charges: 3 } },
+    }] }) as any
+    expect(sentinels.abilities[0]).not.toHaveProperty('cooldown')
+    expect(sentinels.abilities[0].costs).toEqual([])
+    expect(sentinels.abilities[0].requirements).toEqual([])
+    expect(sentinels.abilities[0].limitations).toEqual([])
+    expect(sentinels.abilities[0].profile.availability.charges).toBeUndefined()
   })
 
   it('unwraps a DeepSeek player snapshot into safe canonical patch fields', () => {

@@ -47,7 +47,7 @@ describe('demo storyteller contract', () => {
     expect(campaign.settings.responseLength).toBe('adaptive')
   })
 
-  it('rejects a world that omits the required ecology of exceptional figures', () => {
+  it('accepts a deliberately sparse world without fabricating an ecology quota', () => {
     const raw: any = demoWorld({
       inspiration: 'Одинокий смотритель на необитаемом маяке', genre: 'Камерная драма', tone: 'Созерцательный', characterName: 'Мирон',
       characterConcept: 'Обычный человек без сверхъестественных сил', opening: 'Рассвет после шторма', canonMode: 'original', contentBoundaries: '',
@@ -88,8 +88,7 @@ describe('demo storyteller contract', () => {
     raw.opening.scene.presentNpcNames = []
 
     const parsed = generatedWorldSchema.safeParse(raw)
-    expect(parsed.success).toBe(false)
-    if (!parsed.success) expect(parsed.error.issues.some((issue) => issue.path.join('.') === 'world.legends')).toBe(true)
+    expect(parsed.success).toBe(true)
   })
 
   it('requires visibility and complete fields for every newly generated faction', () => {

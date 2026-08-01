@@ -120,6 +120,36 @@ describe('authorial ability mechanics', () => {
     expect(abilityExecutionIssues(campaign, repaired.receipts, repaired.patch)).toEqual([])
   })
 
+  it('does not invent a resource charge for a genuinely costless ability', () => {
+    const campaign = createDemoCampaign()
+    const ability = testAbility()
+    ability.costs = []
+    ability.requirements = []
+    ability.profile = testAbilityProfile({ availability: undefined })
+    ability.techniques![0].costs = []
+    ability.techniques![0].requirements = []
+    campaign.world.capabilitySystem = testCapabilitySystem
+    campaign.player.abilities = [ability]
+
+    const receipt = {
+      ownerKind: 'player' as const,
+      ownerId: campaign.player.id,
+      abilityId: ability.id,
+      techniqueId: 'tech-listen',
+      intent: 'Применить бесплатную технику.',
+      outcome: 'success' as const,
+      costs: [],
+      requirementsUsed: [],
+      effects: ['Техника дала наблюдаемый результат.'],
+      evidence: 'Результат присутствует в сцене.',
+    }
+    const reconciled = reconcileAbilityExecutionCosts(campaign, [receipt], { resourceDeltas: { health: -1 } })
+
+    expect(reconciled.receipts[0].costs).toEqual([])
+    expect(reconciled.patch.resourceDeltas).toEqual({ health: -1 })
+    expect(abilityExecutionIssues(campaign, reconciled.receipts, reconciled.patch)).toEqual([])
+  })
+
   it('accepts an equipped artifact power as belonging to the player', () => {
     const campaign = createDemoCampaign()
     const item: InventoryItem = {

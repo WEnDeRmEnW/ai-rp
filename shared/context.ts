@@ -20,6 +20,8 @@ export interface NarrativeFingerprint {
   recentWordCounts: number[]
 }
 
+export type ContextCaps = Partial<ContextProfile>
+
 export interface SimulationReview {
   currentTurn: number
   offscreenNpcIds: string[]
@@ -292,9 +294,17 @@ function fitRecentMessages(messages: StoryMessage[], count: number, budgetChars:
   return selected.reverse()
 }
 
-export function buildContextSelection(campaign: Campaign, input: string) {
+export function buildContextSelection(campaign: Campaign, input: string, caps?: ContextCaps) {
   const profileName = campaign.settings.contextProfile ?? 'million'
-  const profile = CONTEXT_PROFILES[profileName]
+  const configured = CONTEXT_PROFILES[profileName]
+  const profile: ContextProfile = {
+    budgetChars: Math.min(configured.budgetChars, caps?.budgetChars ?? configured.budgetChars),
+    recentMessages: Math.min(configured.recentMessages, caps?.recentMessages ?? configured.recentMessages),
+    lore: Math.min(configured.lore, caps?.lore ?? configured.lore),
+    memories: Math.min(configured.memories, caps?.memories ?? configured.memories),
+    documents: Math.min(configured.documents, caps?.documents ?? configured.documents),
+    archives: Math.min(configured.archives, caps?.archives ?? configured.archives),
+  }
   const recentMessages = fitRecentMessages(campaign.messages, profile.recentMessages, Math.floor(profile.budgetChars * 0.58))
   // Retrieval needs precise anchors, not the whole tail as one ever-growing bag of words.
   const recentText = recentMessages.slice(-10).map((message) => message.content.slice(0, 4_000)).join('\n')

@@ -38,6 +38,9 @@ function materializeTechniques(drafts: PowerTechniqueDraft[], turn: number): Pow
   return drafts.map((technique) => ({
     ...technique,
     id: technique.id ?? id(),
+    costs: technique.costs ?? [],
+    requirements: technique.requirements ?? [],
+    limitations: technique.limitations ?? [],
     history: technique.history?.map((entry) => ({ ...entry, id: entry.id ?? id(), turn: entry.turn ?? turn })),
   }))
 }
@@ -206,6 +209,8 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
         powers: item.artifact.powers.map((power) => ({
           ...power,
           id: id(),
+          costs: power.costs ?? [],
+          limitations: power.limitations ?? [],
           techniques: materializeTechniques(power.techniques, 0),
         })),
         components: item.artifact.components.map((component) => ({ ...component, id: id() })),
@@ -408,7 +413,7 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       authorsNote: 'Живые NPC, ясная причинность, конкретные детали и полная свобода решений игрока.',
       resolutionMode: 'hidden',
       contextProfile: 'million',
-      qualityMode: 'deep',
+      qualityMode: request.generationMode ?? 'balanced',
       scenePace: 'balanced',
       proseStyle: 'literary',
       dialogueDensity: 'balanced',
