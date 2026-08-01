@@ -447,6 +447,7 @@ const WORLD_GENERATION_POLICIES = {
     artifactRepairs: 1,
     qualityRewrites: 1,
     semanticCritics: false,
+    stageAttempts: 3,
   },
   balanced: {
     schemaAttempts: 2,
@@ -458,6 +459,7 @@ const WORLD_GENERATION_POLICIES = {
     artifactRepairs: 2,
     qualityRewrites: 1,
     semanticCritics: false,
+    stageAttempts: 4,
   },
   deep: {
     schemaAttempts: 3,
@@ -469,6 +471,7 @@ const WORLD_GENERATION_POLICIES = {
     artifactRepairs: 3,
     qualityRewrites: 2,
     semanticCritics: true,
+    stageAttempts: 5,
   },
 } as const
 
@@ -4982,13 +4985,40 @@ export async function generateWorld(request: WorldGenerationRequest, report?: Pr
   manifest = bestManifest
 
   reportProgress(report, 24, 'parallel-world', 'Одновременно создаём шесть полных разделов мира', 4, 11, ['Герой и предметы', 'Цивилизации', 'Персонажи', 'Легендарий', 'Сюжет', 'Интерфейс'])
-  const firstSectionPass = await Promise.allSettled(WORLD_GENERATION_STAGES.map((stage) => generateParallelWorldStage(stage, request, concept, manifest)))
-  const generatedSections = await Promise.all(firstSectionPass.map((result, index) => {
-    if (result.status === 'fulfilled') return result.value
-    const stage = WORLD_GENERATION_STAGES[index]
-    console.warn(`[world-generation:${stage}] Первая попытка раздела не завершилась; повторяем только этот раздел: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
-    return generateParallelWorldStage(stage, request, concept, manifest)
-  }))
+  const completedSections = new Map<WorldGenerationStage, GeneratedWorldSections[WorldGenerationStage]>()
+  let pendingStages = [...WORLD_GENERATION_STAGES]
+  let lastStageErrors = new Map<WorldGenerationStage, unknown>()
+  for (let attempt = 0; pendingStages.length && attempt < generationPolicy.stageAttempts; attempt += 1) {
+    const attemptedStages = [...pendingStages]
+    const settled = await Promise.allSettled(attemptedStages.map((stage) => generateParallelWorldStage(stage, request, concept, manifest)))
+    const failedStages: WorldGenerationStage[] = []
+    const errors = new Map<WorldGenerationStage, unknown>()
+    settled.forEach((result, index) => {
+      const stage = attemptedStages[index]
+      if (result.status === 'fulfilled') completedSections.set(stage, result.value[1])
+      else {
+        failedStages.push(stage)
+        errors.set(stage, result.reason)
+        console.warn(`[world-generation:${stage}] Раздел не завершился на проходе ${attempt + 1}; готовые разделы сохранены: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+      }
+    })
+    pendingStages = failedStages
+    lastStageErrors = errors
+    if (pendingStages.length) reportProgress(
+      report,
+      24 + Math.min(36, completedSections.size * 6),
+      'parallel-world-recovery',
+      `Готово разделов: ${completedSections.size} из ${WORLD_GENERATION_STAGES.length}. Повторяем только: ${pendingStages.join(', ')}`,
+      4 + completedSections.size,
+      11,
+      pendingStages,
+    )
+  }
+  if (pendingStages.length) throw new Error(`Не завершены разделы мира ${pendingStages.join(', ')} после сохранения остальных частей: ${pendingStages.map((stage) => {
+    const reason = lastStageErrors.get(stage)
+    return reason instanceof Error ? reason.message : String(reason)
+  }).join('; ')}`)
+  const generatedSections = WORLD_GENERATION_STAGES.map((stage) => [stage, completedSections.get(stage)!] as const)
   let sections = Object.fromEntries(generatedSections) as unknown as GeneratedWorldSections
   for (let manifestAttempt = 0; manifestAttempt < generationPolicy.manifestRepairs; manifestAttempt += 1) {
     const manifestRepairs = WORLD_GENERATION_STAGES.flatMap((stage) => {

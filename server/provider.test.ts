@@ -4,6 +4,29 @@ import { auxiliaryProviderConfig, completeAuxiliaryJson, completeJson, completeT
 afterEach(() => vi.unstubAllGlobals())
 
 describe('structured provider recovery', () => {
+  it('streams long world JSON without applying the total generation timeout to an active body', async () => {
+    const encoder = new TextEncoder()
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"{\\"world\\":"}}]}\n\n'))
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"{\\"name\\":\\"Долгий мир\\"}}"},"finish_reason":"stop"}]}\n\n'))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        },
+      }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    }))
+
+    await expect(completeJson(
+      { provider: 'ollama', model: 'deepseek-v4-flash:cloud', baseUrl: 'https://ollama.com/v1', apiKey: 'test', temperature: 0.8 },
+      [{ role: 'system', content: 'Многоэтапная генерация мира.' }, { role: 'user', content: 'Создай раздел.' }],
+      { stage: 'world', timeoutMs: 5_000 },
+    )).resolves.toEqual({ world: { name: 'Долгий мир' } })
+    expect(bodies[0].stream).toBe(true)
+  })
+
   it('routes only explicit optional reviews to the smallest configured Ollama Cloud model', async () => {
     const bodies: any[] = []
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {

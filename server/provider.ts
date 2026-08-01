@@ -18,6 +18,8 @@ export interface CompletionOptions {
   transportAttempts?: number
   /** Per-request timeout. Optional reviews use a shorter timeout than core generation. */
   timeoutMs?: number
+  /** Stream long generations so the timeout measures connection startup, not total model writing time. */
+  stream?: boolean
 }
 
 export const DEFAULT_OLLAMA_AUXILIARY_MODEL = 'gpt-oss:20b'
@@ -169,6 +171,7 @@ async function fetchProvider(
   init: Omit<RequestInit, 'signal'>,
   attempts = 3,
   timeoutMs = 300_000,
+  streaming = false,
 ): Promise<Response> {
   let lastNetworkError: unknown
   const safeAttempts = Math.max(1, Math.min(3, Math.round(attempts)))
@@ -176,7 +179,28 @@ async function fetchProvider(
 
   for (let attempt = 0; attempt < safeAttempts; attempt += 1) {
     try {
-      const response = await fetch(endpoint, { ...init, signal: AbortSignal.timeout(safeTimeoutMs) })
+      let response: Response
+      if (streaming) {
+        // AbortSignal.timeout also aborts the response body. That is correct for one compact JSON
+        // response, but it killed healthy long SSE generations at 180 seconds. For a stream this
+        // timer covers only connection/header startup; body progress has its own idle watchdog.
+        const controller = new AbortController()
+        let headerTimedOut = false
+        const timer = setTimeout(() => {
+          headerTimedOut = true
+          controller.abort()
+        }, safeTimeoutMs)
+        try {
+          response = await fetch(endpoint, { ...init, signal: controller.signal })
+        } catch (error) {
+          if (headerTimedOut) throw new DOMException('Provider response headers timed out', 'TimeoutError')
+          throw error
+        } finally {
+          clearTimeout(timer)
+        }
+      } else {
+        response = await fetch(endpoint, { ...init, signal: AbortSignal.timeout(safeTimeoutMs) })
+      }
       const shouldRetry = transientStatuses.has(response.status) && attempt < safeAttempts - 1
       if (!shouldRetry) return response
 
@@ -202,6 +226,70 @@ async function fetchProvider(
   throw new Error(`${detail} ${attemptLabel} Повторите ход, когда связь стабилизируется.`)
 }
 
+const STREAM_IDLE_TIMEOUT_MS = 120_000
+
+async function readStreamingBody(response: Response, idleTimeoutMs = STREAM_IDLE_TIMEOUT_MS): Promise<string> {
+  if (!response.body) return response.text()
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let result = ''
+  try {
+    while (true) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new DOMException('Provider stream became idle', 'TimeoutError')), idleTimeoutMs)
+        }),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer)
+      })
+      if (chunk.done) break
+      result += decoder.decode(chunk.value, { stream: true })
+    }
+    result += decoder.decode()
+    return result
+  } catch (error) {
+    await reader.cancel().catch(() => undefined)
+    throw error
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+async function decodeCompletionResponse(response: Response, streaming: boolean): Promise<any> {
+  const contentType = response.headers.get('content-type')?.toLocaleLowerCase('en-US') ?? ''
+  if (!streaming) return response.json()
+  const raw = await readStreamingBody(response)
+  if (!contentType.includes('text/event-stream') && !contentType.includes('ndjson')) return JSON.parse(raw)
+  let content = ''
+  let finishReason: string | undefined
+  let sawPayload = false
+  for (const line of raw.split(/\r?\n/u)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith(':')) continue
+    const serialized = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
+    if (!serialized || serialized === '[DONE]') continue
+    let payload: any
+    try {
+      payload = JSON.parse(serialized)
+    } catch {
+      continue
+    }
+    sawPayload = true
+    const choice = payload?.choices?.[0]
+    const fragment = choice?.delta?.content
+      ?? choice?.message?.content
+      ?? payload?.message?.content
+      ?? payload?.response
+    if (typeof fragment === 'string') content += fragment
+    const reason = choice?.finish_reason ?? choice?.finishReason ?? payload?.done_reason ?? payload?.finish_reason
+    if (typeof reason === 'string' && reason.trim()) finishReason = reason
+  }
+  if (!sawPayload) throw new Error('Провайдер вернул пустой поток данных.')
+  return { choices: [{ message: { content }, finish_reason: finishReason }] }
+}
+
 async function requestCompletion(
   configInput: ProviderConfig,
   messages: ChatMessage[],
@@ -211,6 +299,7 @@ async function requestCompletion(
   tokenLimitFallback: TokenLimitFallback = 'reduce',
   transportAttempts = 3,
   timeoutMs = 300_000,
+  streaming = false,
 ): Promise<CompletionResult> {
   const config = resolveConfig(configInput)
   const endpoint = endpointFor(config.baseUrl)
@@ -228,6 +317,7 @@ async function requestCompletion(
   }
   if (maxOutputTokens !== undefined) body.max_tokens = maxOutputTokens
   if (jsonMode) body.response_format = { type: 'json_object' }
+  if (streaming) body.stream = true
 
   const response = await fetchProvider(endpoint, {
     method: 'POST',
@@ -237,7 +327,7 @@ async function requestCompletion(
       ...(config.provider === 'openrouter' ? { 'HTTP-Referer': 'http://localhost:5173', 'X-Title': 'Letopis AI RP' } : {}),
     },
     body: JSON.stringify(body),
-  }, transportAttempts, timeoutMs)
+  }, transportAttempts, timeoutMs, streaming)
 
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 800)
@@ -245,20 +335,20 @@ async function requestCompletion(
     if (response.status === 400 && explicitlyTokenRelated && tokenLimitFallback !== 'none') {
       const unsupportedParameter = /not supported|unsupported|unknown (?:field|parameter)|unrecognized|not permitted|extra inputs?/i.test(detail)
       if (unsupportedParameter || maxOutputTokens === undefined || tokenLimitFallback === 'omit') {
-        return requestCompletion(config, messages, jsonMode, undefined, retryWithoutJson, 'none', transportAttempts, timeoutMs)
+        return requestCompletion(config, messages, jsonMode, undefined, retryWithoutJson, 'none', transportAttempts, timeoutMs, streaming)
       }
       const reduced = reducedProviderLimit(detail, maxOutputTokens)
-      return requestCompletion(config, messages, jsonMode, reduced, retryWithoutJson, 'omit', transportAttempts, timeoutMs)
+      return requestCompletion(config, messages, jsonMode, reduced, retryWithoutJson, 'omit', transportAttempts, timeoutMs, streaming)
     }
     if (jsonMode && retryWithoutJson && response.status === 400 && /response_format|json/i.test(detail)) {
-      return requestCompletion({ ...config, temperature: 0 }, messages, false, maxOutputTokens, false, tokenLimitFallback, transportAttempts, timeoutMs)
+      return requestCompletion({ ...config, temperature: 0 }, messages, false, maxOutputTokens, false, tokenLimitFallback, transportAttempts, timeoutMs, streaming)
     }
     if (response.status === 401 || response.status === 403) throw new Error('API отклонил ключ. Проверьте ключ и выбранного провайдера.')
     if (response.status === 429) throw new Error('Провайдер временно ограничил частоту запросов. Попробуйте чуть позже.')
     throw new Error(`Ошибка провайдера ${response.status}: ${detail || response.statusText}`)
   }
 
-  const data = await response.json() as any
+  const data = await decodeCompletionResponse(response, streaming)
   const choice = data?.choices?.[0]
   const content = choice?.message?.content ?? data?.message?.content
   const rawFinishReason = choice?.finish_reason ?? choice?.finishReason ?? data?.done_reason ?? data?.finish_reason
@@ -280,6 +370,7 @@ function completionCacheKey(
   tokenLimitFallback: TokenLimitFallback,
   transportAttempts: number,
   timeoutMs: number,
+  streaming: boolean,
 ) {
   const config = resolveConfig(configInput)
   return createHash('sha256').update(JSON.stringify({
@@ -294,6 +385,7 @@ function completionCacheKey(
     tokenLimitFallback,
     transportAttempts,
     timeoutMs,
+    streaming,
   })).digest('hex')
 }
 
@@ -306,10 +398,11 @@ async function scopedRequestCompletion(
   tokenLimitFallback: TokenLimitFallback = 'reduce',
   transportAttempts = 3,
   timeoutMs = 300_000,
+  streaming = false,
 ): Promise<CompletionResult> {
   const scope = completionScopes.getStore()
-  if (!scope) return requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs)
-  const key = completionCacheKey(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs)
+  if (!scope) return requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs, streaming)
+  const key = completionCacheKey(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs, streaming)
   const cached = scope.cache.get(key)
   if (cached) {
     scope.cacheHits += 1
@@ -320,7 +413,7 @@ async function scopedRequestCompletion(
   scope.activeProviderCalls += 1
   scope.peakProviderConcurrency = Math.max(scope.peakProviderConcurrency, scope.activeProviderCalls)
   scope.firstProviderStartedAt ??= startedAt
-  const pending = requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs)
+  const pending = requestCompletion(config, messages, jsonMode, maxOutputTokens, retryWithoutJson, tokenLimitFallback, transportAttempts, timeoutMs, streaming)
     .finally(() => {
       const finishedAt = performance.now()
       scope.providerTimeMs += Math.round(finishedAt - startedAt)
@@ -354,9 +447,11 @@ export async function completeJson(config: ProviderConfig, messages: ChatMessage
   const maxAttempts = Math.max(1, Math.min(3, Math.round(options?.maxAttempts ?? 3)))
   const transportAttempts = Math.max(1, Math.min(3, Math.round(options?.transportAttempts ?? 3)))
   const timeoutMs = Math.max(5_000, Math.min(300_000, Math.round(options?.timeoutMs ?? 300_000)))
+  const stage = options?.stage ?? inferStage(messages, true)
+  const streaming = options?.stream ?? (stage === 'world' || stage === 'turn')
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const completion = await scopedRequestCompletion(config, repairMessages, true, maxOutputTokens, true, 'reduce', transportAttempts, timeoutMs)
+    const completion = await scopedRequestCompletion(config, repairMessages, true, maxOutputTokens, true, 'reduce', transportAttempts, timeoutMs, streaming)
     const raw = completion.content
     if (completion.truncated) {
       lastError = new Error(`Провайдер обрезал обязательный JSON по лимиту вывода (finish_reason=${completion.finishReason ?? 'length'}, max_tokens=${maxOutputTokens}).`)
@@ -424,6 +519,7 @@ export async function completeAuxiliaryJson(
       maxAttempts: 1,
       transportAttempts: 1,
       timeoutMs: Math.min(options?.timeoutMs ?? 45_000, 45_000),
+      stream: false,
     })
     if (validate && !validate(value)) throw new Error('Быстрая модель не прошла контракт служебной проверки.')
     auxiliaryUnavailableUntil.delete(circuitKey)
@@ -442,9 +538,11 @@ export async function completeText(config: ProviderConfig, messages: ChatMessage
   const maxAttempts = Math.max(1, Math.min(3, Math.round(options?.maxAttempts ?? 3)))
   const transportAttempts = Math.max(1, Math.min(3, Math.round(options?.transportAttempts ?? 3)))
   const timeoutMs = Math.max(5_000, Math.min(300_000, Math.round(options?.timeoutMs ?? 300_000)))
+  const stage = options?.stage ?? inferStage(messages, false)
+  const streaming = options?.stream ?? stage === 'narrative'
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const completion = await scopedRequestCompletion(config, retryMessages, false, maxOutputTokens, true, 'reduce', transportAttempts, timeoutMs)
+    const completion = await scopedRequestCompletion(config, retryMessages, false, maxOutputTokens, true, 'reduce', transportAttempts, timeoutMs, streaming)
     if (!completion.truncated) return completion.content
     finishReason = completion.finishReason ?? finishReason
     maxOutputTokens = expandedOutputLimit(maxOutputTokens)

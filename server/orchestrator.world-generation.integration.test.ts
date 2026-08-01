@@ -111,6 +111,34 @@ const originalConcept = {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('multi-stage world generation', () => {
+  it('keeps completed sections and survives two consecutive provider failures of one section', async () => {
+    const completeWorld = demoWorld({ ...request, provider: { provider: 'demo' as const } })
+    const sections = splitGeneratedWorldSections(completeWorld)
+    const manifest = manifestFromWorld(completeWorld)
+    const calls = new Map<Stage, number>()
+
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CompletionBody
+      const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
+      const stage = requestedGenerationStage(system)
+      if (stage) {
+        calls.set(stage, (calls.get(stage) ?? 0) + 1)
+        if (stage === 'manifest') return providerResponse(manifest)
+        if (stage === 'legends' && (calls.get(stage) ?? 0) <= 2) throw new TypeError('temporary provider disconnect')
+        return providerResponse(sections[stage])
+      }
+      if (system.includes('Составь coverageAudit')) return providerResponse(passedQualityReview)
+      return providerResponse(originalConcept)
+    }))
+
+    await expect(generateWorld({ ...request, generationMode: 'fast' })).resolves.toEqual(completeWorld)
+    expect(calls.get('legends')).toBe(3)
+    expect(calls.get('core')).toBe(1)
+    expect(calls.get('civilization')).toBe(1)
+    expect(calls.get('narrative')).toBe(1)
+    expect(calls.get('interface')).toBe(1)
+  })
+
   it('drops only a pressure whose every target is a dangling name instead of inventing a character', () => {
     const generated = demoWorld({ ...request, provider: { provider: 'demo' as const } })
     generated.worldPressures[0].targetNames = ['Сущность без записи']
