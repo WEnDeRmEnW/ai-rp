@@ -682,4 +682,25 @@ describe('global DeepSeek output normalization', () => {
       expect(parsed.world.interfaceBlueprint.dashboardSections).toHaveLength(1)
     }
   })
+
+  it('normalizes semantic antagonist progress and informational influence without inventing plan steps', () => {
+    const normalized = normalizeModelOutput({
+      antagonistPlans: [{
+        title: 'Поиск цели',
+        currentStep: 'Агенты прочёсывают окрестности и старые убежища.',
+        pressure: 'high',
+        steps: [{
+          title: 'Прочесать окрестности',
+          trigger: 'Получен приказ начать поиск.',
+          consequence: 'Агенты проверяют старые убежища.',
+          status: 'active',
+        }],
+      }],
+      influenceAssets: [{ kind: 'information', title: 'Архив наблюдений' }],
+    }) as any
+
+    expect(normalized.antagonistPlans[0]).toMatchObject({ currentStep: 0, pressure: 75 })
+    expect(normalized.antagonistPlans[0].steps).toHaveLength(1)
+    expect(normalized.influenceAssets[0].kind).toBe('leverage')
+  })
 })

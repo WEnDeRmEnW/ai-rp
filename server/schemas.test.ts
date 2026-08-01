@@ -10,6 +10,32 @@ const plan = (relationships: unknown) => ({
   statePatch: { relationships },
 })
 
+describe('meaningful threat profiles without filler quotas', () => {
+  it('accepts a legendary profile with concise factual dangers and one real constraint', () => {
+    const parsed = turnPatchSchema.parse({ npcs: [{
+      operation: 'update', targetId: 'npc-legend', npc: { threatProfile: {
+        tier: 'legendary',
+        scope: 'Страна Огня',
+        reputation: 'Живая легенда шиноби.',
+        powerBasis: 'Уникальное ниндзюцу пространства.',
+        combatIdentity: 'Разрывает строй точечными пространственными переходами.',
+        signatureAbilities: ['Шаг между печатями', 'Разрыв построения'],
+        threatVectors: ['Меняет дистанцию боя.', 'Изолирует ключевые цели.'],
+        defensiveLayers: ['Уходит через заранее оставленные печати.'],
+        battlefieldControl: ['Перестраивает безопасные и опасные зоны поля боя.'],
+        engagementPhases: [{ name: 'Разведка', trigger: 'Начало столкновения', doctrine: 'Проверяет реакции противника и отмечает пути отхода.', priorities: ['Не раскрывать главный приём'], signatureMoves: ['Ложный переход'], openings: ['Срыв концентрации'], exitConditions: ['Цель покинула район'] }],
+        whyDangerous: ['Предугадывает маршруты и ломает построение.', 'Наказывает повторяемые действия.'],
+        knownFeats: ['В одиночку сорвал окружение отряда.'],
+        constraints: ['Число заранее размещённых печатей ограничено.'],
+        defeatRequirements: ['Лишить доступа к отмеченным точкам.'],
+        escalationTriggers: ['Угроза союзникам.'],
+        visibility: 'known',
+      } },
+    }] })
+    expect(parsed.npcs?.[0].npc.threatProfile?.constraints).toHaveLength(1)
+  })
+})
+
 const compactWorldManifest = () => ({
   world: {
     name: 'Город одного моста',

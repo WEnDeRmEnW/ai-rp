@@ -436,6 +436,8 @@ function enumFor(value: unknown, key: string | undefined, path: string[]): unkno
     игрок: 'player', герой: 'player', противник: 'opposition', враг: 'opposition', спорный: 'contested', оспаривается: 'contested', равный: 'contested',
   })
   if (key === 'kind' && (has('influenceAssets') || has('upsertInfluenceAssets'))) return translate({
+    information: 'leverage', info: 'leverage', intel: 'leverage', intelligence: 'leverage',
+    информация: 'leverage', сведения: 'leverage', разведданные: 'leverage',
     услуга: 'favor', одолжение: 'favor', долг: 'debt', компромат: 'leverage', рычаг: 'leverage',
     контакт: 'contact', доступ: 'access', репутация: 'reputation', клятва: 'oath', обещание: 'oath',
     другое: 'other', прочее: 'other',
@@ -1239,6 +1241,52 @@ function looksLikePatchContainer(value: Record<string, unknown>, path: string[])
     .some((key) => Object.hasOwn(value, key))
 }
 
+function canonicalizeAntagonistPlanRecord(value: Record<string, unknown>, path: string[]): Record<string, unknown> {
+  const collection = path.at(-2)
+  if (path.at(-1) !== '[]' || (collection !== 'antagonistPlans' && collection !== 'upsertAntagonistPlans')) return value
+
+  const result = { ...value }
+  const pressureAliases: Record<string, number> = {
+    low: 25, minor: 25, weak: 25, низкое: 25, низкий: 25, слабое: 25,
+    medium: 50, moderate: 50, normal: 50, среднее: 50, средний: 50, умеренное: 50,
+    high: 75, strong: 75, высокое: 75, высокий: 75, сильное: 75,
+    critical: 95, extreme: 95, критическое: 95, критический: 95, экстремальное: 95,
+  }
+  if (typeof result.pressure === 'string') {
+    const numeric = parseNumberLike(result.pressure)
+    result.pressure = typeof numeric === 'number' ? numeric : (pressureAliases[enumToken(result.pressure)] ?? result.pressure)
+  }
+
+  if (typeof result.currentStep === 'string') {
+    const numeric = parseNumberLike(result.currentStep)
+    if (typeof numeric === 'number') {
+      result.currentStep = numeric
+    } else if (Array.isArray(result.steps) && result.steps.length > 0) {
+      const words = (text: unknown) => new Set(enumToken(String(text ?? '')).split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 4))
+      const requested = words(result.currentStep)
+      let bestIndex = -1
+      let bestScore = 0
+      result.steps.forEach((step, index) => {
+        if (!isRecord(step)) return
+        const candidate = words([step.title, step.trigger, step.consequence].filter(Boolean).join(' '))
+        const score = [...requested].filter((word) => candidate.has(word)).length
+        if (score > bestScore) { bestScore = score; bestIndex = index }
+      })
+      if (bestIndex < 0) {
+        bestIndex = result.steps.findIndex((step) => isRecord(step) && step.status === 'active')
+        if (bestIndex < 0) bestIndex = result.steps.findIndex((step) => isRecord(step) && step.status === 'pending')
+        if (bestIndex < 0) bestIndex = 0
+      }
+      result.currentStep = bestIndex
+    }
+  }
+
+  if (typeof result.currentStep === 'number' && Array.isArray(result.steps) && result.steps.length > 0) {
+    result.currentStep = Math.max(0, Math.min(Math.trunc(result.currentStep), result.steps.length - 1))
+  }
+  return result
+}
+
 export function normalizeModelOutput(value: unknown, path: string[] = []): unknown {
   const key = path.at(-1)
   const parent = path.at(-2) === '[]' ? path.at(-3) : path.at(-2)
@@ -1311,7 +1359,8 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
   }
 
   if (isRecord(value)) {
-    return Object.fromEntries(Object.entries(value).map(([childKey, entry]) => [childKey, normalizeModelOutput(entry, [...path, childKey])]))
+    const normalizedRecord = Object.fromEntries(Object.entries(value).map(([childKey, entry]) => [childKey, normalizeModelOutput(entry, [...path, childKey])]))
+    return canonicalizeAntagonistPlanRecord(normalizedRecord, path)
   }
 
   if (key && BOOLEAN_KEYS.has(key)) return parseBooleanLike(value)

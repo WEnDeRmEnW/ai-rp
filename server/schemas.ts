@@ -1101,22 +1101,9 @@ const threatProfileSchema = z.object({
     requireCount(profile.battlefieldControl, 1, 'battlefieldControl')
     requireCount(profile.engagementPhases, 1, 'engagementPhases')
   }
-  if (rank >= 4) {
-    requireCount(profile.whyDangerous, 3, 'whyDangerous')
-    requireCount(profile.knownFeats, 2, 'knownFeats')
-    requireCount(profile.defensiveLayers, 2, 'defensiveLayers')
-    requireCount(profile.informationAdvantages, 1, 'informationAdvantages')
-    requireCount(profile.preparedAssets, 1, 'preparedAssets')
-    requireCount(profile.engagementPhases, 2, 'engagementPhases')
-    requireCount(profile.constraints, 2, 'constraints')
-    requireCount(profile.defeatRequirements, 2, 'defeatRequirements')
-    requireCount(profile.collateralRisks, 1, 'collateralRisks')
-  }
-  if (rank >= 5) {
-    requireCount(profile.signatureAbilities, 3, 'signatureAbilities')
-    requireCount(profile.threatVectors, 4, 'threatVectors')
-    requireCount(profile.engagementPhases, 3, 'engagementPhases')
-  }
+  // Higher tiers keep the same factual mechanical baseline. Their actual standing is
+  // verified from authored abilities, mastery, feats and combat identity below; forcing
+  // longer lists here only encouraged filler facts without making an NPC stronger.
 })
 const storyPacingUpdateSchema = z.object({
   beat: storyBeatSchema,
@@ -1649,7 +1636,7 @@ const antagonistPlanSchema = z.object({
   pressure: modelNumber(z.number().min(0).max(100)),
   resources: z.array(longText).max(16),
   knowledge: z.array(longText).max(20),
-  steps: z.array(antagonistPlanStepSchema).min(2).max(12),
+  steps: z.array(antagonistPlanStepSchema).min(1).max(12),
   weaknesses: z.array(longText).max(12),
   status: z.enum(['active', 'completed', 'failed', 'abandoned']),
   secret: modelBoolean,
@@ -2667,7 +2654,7 @@ const generatedAntagonistPlanSchema = z.object({
     trigger: longText,
     consequence: longText,
     status: z.enum(['pending', 'active', 'completed', 'failed', 'abandoned']),
-  }).strict()).min(3).max(10),
+  }).strict()).min(1).max(10),
   weaknesses: z.array(longText).min(1).max(8),
   status: z.enum(['active', 'completed', 'failed', 'abandoned']),
   secret: modelBoolean,
