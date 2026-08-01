@@ -95,6 +95,26 @@ describe('generated world integrity pipeline', () => {
     expect(parsedCharacters.data.npcs.flatMap((npc) => npc.abilities)[0].profile).toBeUndefined()
   })
 
+  it('recovers omitted rarity explanations from the authored item instead of discarding core', () => {
+    const sections = splitGeneratedWorldSections(validWorld())
+    sections.core.inventory.forEach((item) => {
+      const profile = item.rarityProfile as unknown as Record<string, unknown>
+      delete profile.basis
+      delete profile.recognition
+      delete profile.marketImpact
+    })
+
+    const parsed = generatedWorldCoreSchema.safeParse(sections.core)
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    parsed.data.inventory.forEach((item) => {
+      expect(item.rarityProfile.basis.length).toBeGreaterThan(0)
+      expect(item.rarityProfile.recognition).toContain(item.name)
+      expect(item.rarityProfile.marketImpact.length).toBeGreaterThan(0)
+    })
+  })
+
   it('accepts a compact cast without forcing filler NPCs or legends', () => {
     const world = validWorld()
     world.npcs = world.npcs.slice(0, 1)

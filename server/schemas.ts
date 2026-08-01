@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { itemOwnedAbilityMatch } from '../shared/ability-ownership.js'
 import { legendNameLooksLikeEvent, legendRepresentsCharacter, linkedLegendNameMatchesCharacter } from '../shared/legend-identity.js'
-import { normalizeGeneratedWorldOutput, normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
+import { normalizeGeneratedWorldCoreOutput, normalizeGeneratedWorldOutput, normalizeHexColor, normalizeModelOutput, normalizeTurnPatch, normalizeTurnPlan, parseBooleanLike, parseNumberLike } from './model-normalizer.js'
 
 const stringifyScalar = (value: unknown) => typeof value === 'number' || typeof value === 'boolean' ? String(value) : value
 const idSchema = z.preprocess(stringifyScalar, z.string().min(1).max(120))
@@ -3489,7 +3489,7 @@ const generatedWorldEcologyRepairContract = z.object({
  */
 export const generatedWorldDraftSchema = z.preprocess(normalizeGeneratedWorldOutput, generatedWorldStructuralContract)
 export const worldGenerationManifestSchema = z.preprocess(normalizeGeneratedWorldOutput, worldGenerationManifestContract)
-export const generatedWorldCoreSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCoreContract)
+export const generatedWorldCoreSchema = z.preprocess(normalizeGeneratedWorldCoreOutput, generatedWorldCoreContract)
 export const generatedWorldCivilizationSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldCivilizationContract)
 export const generatedWorldCharactersSchema = z.preprocess(normalizeGeneratedWorldOutput, generatedWorldCharactersContract)
 export const generatedWorldNpcBatchSchema = z.preprocess((value) => normalizeModelOutput(value), generatedWorldNpcBatchContract)

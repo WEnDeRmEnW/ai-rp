@@ -1496,8 +1496,72 @@ function normalizeGeneratedWorldManifestReferences(root: Record<string, unknown>
  * placed in the sibling field; otherwise retain only an explicitly authored static value or drop
  * the unusable element. Runtime patches intentionally do not pass through this sanitizer.
  */
-export function normalizeGeneratedWorldOutput(value: unknown): unknown {
+const GENERATED_RARITY_PROFILE_ALIASES = {
+  basis: ['rarityBasis', 'reason', 'significance', 'justification', 'assessment'],
+  recognition: ['recognizability', 'identification', 'knownBy', 'whoRecognizes', 'recognitionMethod'],
+  marketImpact: ['market', 'marketEffect', 'marketAndDemand', 'demand', 'price', 'value'],
+} as const
+
+function firstAuthoredText(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const candidate = record[key]
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+  }
+  return undefined
+}
+
+/**
+ * Rarity prose explains authored mechanics; it does not decide them. DeepSeek occasionally
+ * preserves all numeric rarity dimensions but omits one of the three explanatory strings.
+ * Recover those strings from the same item's authored origin, description, scarcity and
+ * effects so a complete core is not discarded for missing presentation metadata. No score,
+ * class, power or limitation is invented here.
+ */
+function normalizeGeneratedInventoryRarityProfiles(root: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(root.inventory)) return root
+
+  const inventory = root.inventory.map((source) => {
+    if (!isRecord(source) || !isRecord(source.rarityProfile)) return source
+    const item = { ...source }
+    const profile = { ...source.rarityProfile }
+    const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : 'предмет'
+    const description = typeof item.description === 'string' && item.description.trim() ? item.description.trim() : undefined
+    const origin = typeof item.origin === 'string' && item.origin.trim() ? item.origin.trim() : undefined
+    const effects = Array.isArray(item.effects)
+      ? item.effects.filter((effect): effect is string => typeof effect === 'string' && Boolean(effect.trim())).map((effect) => effect.trim())
+      : []
+    const scarcity = typeof profile.scarcity === 'string' && profile.scarcity.trim() ? profile.scarcity.trim() : undefined
+
+    const basis = firstAuthoredText(profile, ['basis', ...GENERATED_RARITY_PROFILE_ALIASES.basis])
+      ?? origin
+      ?? description
+    const recognition = firstAuthoredText(profile, ['recognition', ...GENERATED_RARITY_PROFILE_ALIASES.recognition])
+      ?? (description ? `«${name}» распознаётся по установленным признакам: ${description}` : undefined)
+    const marketImpact = firstAuthoredText(profile, ['marketImpact', ...GENERATED_RARITY_PROFILE_ALIASES.marketImpact])
+      ?? (scarcity && effects[0]
+        ? `Рыночная значимость определяется дефицитом (${scarcity}) и подтверждённым свойством: ${effects[0]}`
+        : scarcity ?? effects[0] ?? description)
+
+    for (const aliases of Object.values(GENERATED_RARITY_PROFILE_ALIASES)) {
+      aliases.forEach((alias) => delete profile[alias])
+    }
+    if (basis) profile.basis = basis
+    if (recognition) profile.recognition = recognition
+    if (marketImpact) profile.marketImpact = marketImpact
+    item.rarityProfile = profile
+    return item
+  })
+
+  return { ...root, inventory }
+}
+
+export function normalizeGeneratedWorldCoreOutput(value: unknown): unknown {
   const normalized = normalizeModelOutput(value)
+  return isRecord(normalized) ? normalizeGeneratedInventoryRarityProfiles(normalized) : normalized
+}
+
+export function normalizeGeneratedWorldOutput(value: unknown): unknown {
+  const normalized = normalizeGeneratedWorldCoreOutput(value)
   if (!isRecord(normalized)) return normalized
   let generatedRoot = Array.isArray(normalized.npcs) && normalized.npcs.length > 12
     ? { ...normalized, npcs: normalized.npcs.slice(0, 12) }
