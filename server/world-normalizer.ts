@@ -121,8 +121,8 @@ export function normalizeWorld(generated: GeneratedWorld, request: WorldGenerati
       status: 'active' as const,
       abilities,
       knowledge: npc.knowledge.map((fact) => ({ ...fact, id: id() })),
-      initiative: { ...npc.initiative, lastAdvancedTurn: 0 },
-      strategy: { ...npc.strategy, lastUpdatedTurn: 0 },
+      initiative: npc.initiative ? { ...npc.initiative, lastAdvancedTurn: 0 } : undefined,
+      strategy: npc.strategy ? { ...npc.strategy, lastUpdatedTurn: 0 } : undefined,
       dossier: dossier ? {
         familiarity: dossier.familiarity,
         revealedSections: [...new Set(dossier.revealedSections)],

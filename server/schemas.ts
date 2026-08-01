@@ -38,6 +38,14 @@ const alias = (values: Record<string, string>) => (value: unknown) => {
   return values[normalized] ?? value
 }
 const arrayish = (value: unknown) => value === undefined ? value : Array.isArray(value) ? value : [value]
+const optionalGeneratedObject = <T extends z.AnyZodObject>(schema: T) => z.preprocess((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const projected = Object.fromEntries(Object.keys(schema.shape)
+    .filter((key) => record[key] !== undefined).map((key) => [key, record[key]]))
+  const parsed = schema.safeParse(projected)
+  return parsed.success ? parsed.data : undefined
+}, schema.optional())
 const colorSchema = z.preprocess(normalizeHexColor, z.string().regex(/^#[0-9a-f]{6}$/i, 'Expected a six-digit HEX color'))
 const itemCategorySchema = z.preprocess(alias({ оружие: 'weapon', броня: 'armor', защита: 'armor', расходник: 'consumable', припас: 'consumable', артефакт: 'artifact', реликвия: 'artifact', квест: 'quest', сюжетный: 'quest', материал: 'material', другое: 'other', прочее: 'other' }), z.enum(['weapon', 'armor', 'consumable', 'artifact', 'quest', 'material', 'other']))
 const raritySchema = z.preprocess(alias({
@@ -1051,6 +1059,10 @@ const npcStrategySchema = z.object({
   visibility: worldVisibilitySchema,
   lastUpdatedTurn: modelNumber(z.number().int().min(0)),
 }).strict()
+const generatedNpcInitiativeObjectSchema = npcInitiativeSchema.omit({ lastAdvancedTurn: true })
+const generatedNpcInitiativeSchema = optionalGeneratedObject(generatedNpcInitiativeObjectSchema)
+const generatedNpcStrategyObjectSchema = npcStrategySchema.omit({ lastUpdatedTurn: true })
+const generatedNpcStrategySchema = optionalGeneratedObject(generatedNpcStrategyObjectSchema)
 const threatEngagementPhaseSchema = z.object({
   name: shortText,
   trigger: longText,
@@ -1074,7 +1086,7 @@ const threatProfileSchema = z.object({
   preparedAssets: z.array(longText).max(12).optional(),
   engagementPhases: z.array(threatEngagementPhaseSchema).max(6).optional(),
   collateralRisks: z.array(longText).max(12).optional(),
-  whyDangerous: z.array(longText).min(1).max(12),
+  whyDangerous: z.array(longText).max(12),
   knownFeats: z.array(longText).max(12),
   constraints: z.array(longText).max(12),
   defeatRequirements: z.array(longText).max(12),
@@ -1105,6 +1117,19 @@ const threatProfileSchema = z.object({
   // verified from authored abilities, mastery, feats and combat identity below; forcing
   // longer lists here only encouraged filler facts without making an NPC stronger.
 })
+const generatedThreatProfileDraftSchema = z.preprocess((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const record = value as Record<string, unknown>
+  const arrays = ['whyDangerous', 'knownFeats', 'constraints', 'defeatRequirements', 'escalationTriggers']
+  return Object.fromEntries([
+    ...Object.entries(record),
+    ...arrays.filter((key) => record[key] === undefined).map((key) => [key, []]),
+  ])
+}, threatProfileSchema)
+const generatedThreatProfileSchema = z.preprocess((value) => {
+  const parsed = generatedThreatProfileDraftSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
+}, generatedThreatProfileDraftSchema.optional())
 const storyPacingUpdateSchema = z.object({
   beat: storyBeatSchema,
   intensity: modelNumber(z.number().min(0).max(100)),
@@ -2762,13 +2787,13 @@ const generatedWorldStructuralContract = z.object({
     resources: z.array(resourceStateSchema.extend({ kind: resourceKindSchema, max: modelNumber(z.number().positive()) }).strict()).max(24),
     abilities: z.array(generatedAbilitySchema).max(20),
     knowledge: z.array(knowledgeFactSchema.omit({ id: true })).max(20),
-    relationshipDimensions: relationshipDimensionsSchema,
-    initiative: npcInitiativeSchema.omit({ lastAdvancedTurn: true }),
-    strategy: npcStrategySchema.omit({ lastUpdatedTurn: true }),
-    threatProfile: threatProfileSchema.optional(),
-    recruitment: npcRecruitmentSchema,
-    dossier: generatedNpcDossierSchema.optional(),
-    voice: npcVoiceSchema,
+    relationshipDimensions: optionalGeneratedObject(relationshipDimensionsSchema),
+    initiative: generatedNpcInitiativeSchema,
+    strategy: generatedNpcStrategySchema,
+    threatProfile: generatedThreatProfileSchema.optional(),
+    recruitment: optionalGeneratedObject(npcRecruitmentSchema),
+    dossier: optionalGeneratedObject(generatedNpcDossierSchema),
+    voice: optionalGeneratedObject(npcVoiceSchema),
   })).max(12),
   socialLinks: z.array(z.object({
     fromNpcName: shortText, toNpcName: shortText,
@@ -3104,7 +3129,7 @@ const generatedWorldContract = generatedWorldStructuralContract.superRefine((wor
           if (!resource) invalid(`Unknown NPC resource binding: ${binding.target} / ${binding.key}`)
           else if (visibleModule && !dossier?.revealedSections.includes('resources') && !dossier?.revealedResourceKeys.some((key) => sameBindingReference(key, resource.key))) invalid(`A visible module cannot reveal an undisclosed NPC resource: ${binding.target} / ${binding.key}`)
         } else if (binding.domain === 'npc.initiative-urgency') {
-          if (visibleModule && (!dossier?.revealedSections.includes('initiative') || target.initiative.visibility === 'hidden')) invalid(`A visible module cannot reveal hidden NPC initiative: ${binding.target}`)
+          if (target.initiative && visibleModule && (!dossier?.revealedSections.includes('initiative') || target.initiative.visibility === 'hidden')) invalid(`A visible module cannot reveal hidden NPC initiative: ${binding.target}`)
         } else if (binding.domain === 'npc.relationship' && visibleModule && !dossier?.revealedSections.includes('relationship')) invalid(`A visible module cannot reveal an undisclosed NPC relationship: ${binding.target}`)
         else if (binding.domain === 'npc.relationship-dimension') {
           const dimension = normalizeBindingReference(binding.key)

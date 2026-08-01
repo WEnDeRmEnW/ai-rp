@@ -676,6 +676,7 @@ function normalizeRecordAsArray(key: string, value: Record<string, unknown>): un
     return normalizeRelationships(value)
   }
   if (key === 'costs') {
+    if (Object.hasOwn(value, 'resource') && Object.hasOwn(value, 'amount')) return [canonicalizeAbilityCost(value)]
     return Object.entries(value).map(([resource, amount]) => ({ resource, amount }))
   }
   if (key === 'facets') {
@@ -788,6 +789,7 @@ function normalizeParty(value: unknown): unknown {
 }
 
 const SERVER_OWNED_ENTRY_KEYS = new Set(['id', 'turn', 'createdAt'])
+const ABILITY_COST_KEYS = new Set(['resource', 'amount'])
 
 function withoutServerOwnedEntryKeys(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([key]) => !SERVER_OWNED_ENTRY_KEYS.has(key)))
@@ -1087,6 +1089,10 @@ function canonicalizePatchContainer(value: Record<string, unknown>): Record<stri
   return result
 }
 
+function canonicalizeAbilityCost(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([key]) => ABILITY_COST_KEYS.has(key)))
+}
+
 const ABILITY_RECORD_COLLECTIONS = new Set(['abilities', 'addAbilities', 'upsertAbilities', 'abilityChanges'])
 const ABILITY_AVAILABILITY_KEYS = new Set(['state', 'reasons', 'nextReady', 'charges', 'lastUsedTurn'])
 const ABSENT_ABILITY_MECHANIC = new Set([
@@ -1304,6 +1310,7 @@ export function normalizeModelOutput(value: unknown, path: string[] = []): unkno
       record = { ...record, tierId: record.tierLabel }
     }
     if (isArrayEntryOf(path, 'memories') || (isArrayEntryOf(path, 'events') && path.includes('statePatch'))) record = withoutServerOwnedEntryKeys(record)
+    if (isArrayEntryOf(path, 'costs')) record = canonicalizeAbilityCost(record)
     if (looksLikePatchContainer(record, path)) record = canonicalizePatchContainer(record)
     value = record
   }

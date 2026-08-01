@@ -703,4 +703,43 @@ describe('global DeepSeek output normalization', () => {
     expect(normalized.antagonistPlans[0].steps).toHaveLength(1)
     expect(normalized.influenceAssets[0].kind).toBe('leverage')
   })
+
+  it('keeps a generated NPC when optional initiative is incomplete and strips cost display metadata', () => {
+    const raw: any = demoWorld(worldRequest)
+    const npc = raw.npcs.find((entry: any) => entry.abilities.length > 0 && entry.resources.length > 0)
+    const threatNpc = raw.npcs.find((entry: any) => entry.threatProfile)
+    const partialStrategist = raw.npcs.find((entry: any) => entry !== npc)
+    expect(npc).toBeDefined()
+    expect(threatNpc).toBeDefined()
+    expect(partialStrategist).toBeDefined()
+    npc.abilities[0].costs = [{ resource: npc.resources[0].key, amount: 1, label: npc.resources[0].label }]
+    delete npc.initiative.nextMove
+    delete npc.initiative.trigger
+    delete threatNpc.threatProfile.whyDangerous
+    delete threatNpc.threatProfile.knownFeats
+    delete threatNpc.threatProfile.escalationTriggers
+    partialStrategist.strategy = { intelligence: 90 }
+
+    const parsed = generatedWorldSchema.parse(raw)
+    const parsedNpc = parsed.npcs.find((entry) => entry.name === npc.name)!
+    const parsedThreatNpc = parsed.npcs.find((entry) => entry.name === threatNpc.name)!
+    const parsedPartialStrategist = parsed.npcs.find((entry) => entry.name === partialStrategist.name)!
+    expect(parsedNpc.abilities[0].costs).toEqual([{ resource: npc.resources[0].key, amount: 1 }])
+    expect(parsedNpc.initiative).toBeUndefined()
+    expect(parsedThreatNpc.threatProfile).toMatchObject({ whyDangerous: [], knownFeats: [], escalationTriggers: [] })
+    expect(parsedPartialStrategist.strategy).toBeUndefined()
+  })
+
+  it('distinguishes one cost object from a resource-to-amount cost map', () => {
+    const normalized = normalizeModelOutput({ abilities: [{
+      costs: { resource: 'chakra', amount: '5', label: 'Чакра' },
+      techniques: [{ costs: { focus: '2', stamina: 3 } }],
+    }] }) as any
+
+    expect(normalized.abilities[0].costs).toEqual([{ resource: 'chakra', amount: 5 }])
+    expect(normalized.abilities[0].techniques[0].costs).toEqual([
+      { resource: 'focus', amount: 2 },
+      { resource: 'stamina', amount: 3 },
+    ])
+  })
 })
